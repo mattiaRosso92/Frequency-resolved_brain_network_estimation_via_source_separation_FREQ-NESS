@@ -1,5 +1,5 @@
 function O = GED_SingleSubjects_v3(S)
-%porcodio
+
 O = []; 
 
 % Settings (assign from input structure)
