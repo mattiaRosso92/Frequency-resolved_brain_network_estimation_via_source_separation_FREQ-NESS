@@ -10,5 +10,5 @@ Abstract: The brain is a dynamic system whose network organization is often stud
 The conceptualization and code implementation of this work were carried out in collaboration with Prof. Leonardo Bonetti (https://github.com/leonardob92).
 
 Corresponding authors:
-Mattia Rosso     - mattia.rosso@ugent.be
-Leonardo Bonetti - leonardo.bonetti@clin.au.dk
+Mattia Rosso     - mattia.rosso@clin.au.dk
+Leonardo Bonetti - leonardo.bonetti@clin.au.dk; leonardo.bonetti@psych.ox.ac.uk
