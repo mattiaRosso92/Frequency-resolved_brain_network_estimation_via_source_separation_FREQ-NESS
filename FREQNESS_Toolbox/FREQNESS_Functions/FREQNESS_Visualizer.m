@@ -1,0 +1,259 @@
+function FREQNESS_Visualizer(GED,Landscape,Patterns)
+% ========================================================================
+%  FREQNESS VISUALIZER: NETWORK LANDSCAPE & BRAIN ACTIVATION PATTERNS
+%
+%  Please cite the first FREQNESS paper:
+%  M. Rosso, G. Fernández-Rubio, P. E. Keller, E. Brattico, P. Vuust, M. L. Kringelbach, L. Bonetti.
+%  FREQ-NESS Reveals the Dynamic Reconfiguration of Frequency-Resolved Brain Networks During Auditory Stimulation.
+%  Adv. Sci. 2025, 2413195.
+%  https://doi.org/10.1002/advs.202413195
+%
+% ========================================================================
+%
+%  This script visualizes:
+%
+%  - Network prominence across frequencies  
+%    Quantified as % variance explained based on the associated  
+%    eigenvalues, producing a frequency-resolved network landscape  
+%    (see Rosso et al., 2025, Advanced Science, Figure 2).
+%
+%  - Spatial activation patterns of the networks  
+%    - All requested networks are plotted together in a 3D visualization of the brain.  
+%    - NIFTI files are generated for each network, allowing further  
+%      inspection in FSLeyes or similar software for visualization.
+%
+% ------------------------------------------------------------------------
+%  INPUT ARGUMENTS:
+% ------------------------------------------------------------------------
+%  - GED              : Structure outputted by FREQNESS_NetworkEstimation function.
+%                       We recommend not to modify this structure before giving it
+%                       as input to the current function (FREQNESS_Visualizer).
+%      - GED.evals    : Normalized eigenvalues (variance explained in % points).
+%      - GED.pats     : Spatial activation patterns used to generate NIFTI files  
+%                       for visualizing network topographies.
+%      - GED.frex     : Vector of frequencies analyzed; used to select subsets  
+%                       for visualization.  
+%
+%
+%  - Landscape                : Structure containing settings for network landscape visualization
+%      - Landscape.frex       : Vector of frequencies to visualize in the network landscape.  
+%      - Landscape.ncomps     : Number of components (networks) to visualize in the landscape.  
+%
+%
+%  - Patterns                 : Structure containing settings for activation patterns visualization
+%      - Patterns.MNI_coords  : MNI coordinates provided in the same order as your data
+%                               (N x 3, where N is the brain voxel number) 
+%      - Patterns.frex        : Vector of frequencies to visualize the associated  
+%                               networks' spatial activation patterns.  
+%      - Patterns.ncomps      : Number of components (networks) to visualize as  
+%                               spatial activation patterns.  
+%      - Patterns.path_output : Output path to save NIFTI images.  
+%
+%
+%
+%  NOTE 1: While the 3D plot produced by this function (Output #2)  
+%  is a convenient way to quickly inspect the topographies of  
+%  multiple networks at once, it is recommended to use the  
+%  NIFTI files (Output #3) for an accurate depiction of the  
+%  individual networks' topographies.  
+%  NIFTI files can be visualized using FSLeyes or an equivalent 
+%  software.  
+%
+%  NOTE 2: Output #2 (3D plot) is supported for any brain MNI space (e.g. 1,2,8mm, etc).
+%          Output #3 (nifti image) is currently supported only for 8mm.
+%
+
+% ------------------------------------------------------------------------
+%  AUTHORS:
+%  Mattia Rosso & Leonardo Bonetti
+%  mattia.rosso@clin.au.dk
+%  leonardo.bonetti@clin.au.dk; leonardo.bonetti@psych.ox.ac.uk
+%  Center for Music in the Brain, Aarhus University
+%  Centre for Eudaimonia and Human Flourishing, Linacre College, University of Oxford
+%  Aarhus (DK), Oxford (UK), 24/02/2025  
+% ========================================================================
+
+
+% NOTE: we acknowledge the NIFTI Toolbox, which is used by FREQNESS to generate nifti images.
+% Jimmy Shen (2025). Tools for NIfTI and ANALYZE image
+% (https://www.mathworks.com/matlabcentral/fileexchange/8797-tools-for-nifti-and-analyze-image)
+% MATLAB Central File Exchange. Retrieved February 26, 2025.
+
+
+%% Output #1: NETWORK LANDSCAPE
+
+figure
+hold on
+
+% Define frequencies to plot
+nfrex = length(Landscape.frex);
+
+% Re-sort frequencies in ascending order
+Landscape.frex = sort(Landscape.frex,'ascend');
+
+% Find indices of GED.frex that match elements in Landscape.frex
+[~, idx_frex2plot] = ismembertol(Landscape.frex, GED.frex, 1e-4);
+
+% Define a red-to-blue colormap
+numLines = Landscape.ncomps;
+% If you don't have cbrewer, use this alternative:
+colors = flipud([linspace(0,1,numLines)', zeros(numLines,1), linspace(1,0,numLines)']); % Custom red-blue gradient
+
+% Plot each line with increasing thickness and a gradient color
+for i = 1:numLines
+    if i == 1
+        plot(GED.frex(idx_frex2plot),GED.evals(i,idx_frex2plot), 'Color', colors(i,:), 'LineWidth', 3); % First line is bolder
+    else
+        plot(GED.frex(idx_frex2plot),GED.evals(i,idx_frex2plot)', 'Color', colors(i,:), 'LineWidth', 2);
+    end
+end
+xlim([Landscape.frex(1) Landscape.frex(end)])
+xticks(Landscape.frex)
+xlabel('Frequency (Hz)', 'FontSize', 14, 'FontWeight', 'bold')
+ylabel('Explained variance (%)', 'FontSize', 14, 'FontWeight', 'bold')
+title('Brain networks prominence across frequencies', 'FontSize', 16, 'FontWeight', 'bold')
+
+% Create custom legend with 'GED component #' labels
+legendLabels = arrayfun(@(x) sprintf('GED component #%d', x), 1:numLines, 'UniformOutput', false);
+legend(legendLabels, 'Location', 'Northeast', 'FontSize', 12)
+grid minor
+set(gca, 'FontSize', 12, 'LineWidth', 1.5) % Make axis and labels more visible
+box on
+set(gcf, 'Color', 'w'); % Set figure background to white
+
+
+%% Output #2: NETWORKS' SPATIAL ACTIVATION PATTERNS (3D visualization)
+
+% Re-sort frequencies in ascending order
+Patterns.frex = sort(Patterns.frex,'ascend');
+
+% Find indices of GED.frex that match elements in Patterns.frex
+[~, idx_frex2plot] = ismembertol(Patterns.frex, GED.frex, 1e-4);
+
+% Plot activation patterns
+nfrex = length(Patterns.frex);
+col_frex = .8*cool(nfrex); % color mapping for frequencies
+skipper  = 1;          % parameter for donwsampling the visualization
+scale_size = 100;      % scaling factor for activation patterns in the brain
+thresh_nsdt = 1; % how many std away from the mean, for thresholding the visualization
+
+for compi = 1:Patterns.ncomps
+    openfig('BrainTemplate_GT.fig')
+    hold on
+    for frexi = 1:nfrex
+        
+        % Assign temporary activation pattern to plot
+        pat2plot = squeeze( GED.pats(:,compi,idx_frex2plot(frexi)) );
+        pat2plot( pat2plot < (mean(pat2plot)+thresh_nsdt*std(pat2plot)) ) = nan;  % apply threshold
+        pat2plot(isnan(Patterns.MNI_coords(:,1))) = nan;
+        
+        % Assign temporary activation pattern to plot
+        mni2plot = Patterns.MNI_coords;
+        mni2plot(isnan(pat2plot(:,1)),:) = []; % clear from nans
+        pat2plot(isnan(pat2plot)) = [];   % repeat for activation patterns
+        % Re-scale pattern to plot
+        %         pat2plot = pat2plot/max(pat2plot);  % option #1
+        pat2plot = (pat2plot-min(pat2plot))./(max(pat2plot)-min(pat2plot)).*(1-.01) + .01;  % option #2
+        
+        % Plot in 3D
+        for voxi = [1:skipper:length(pat2plot)]
+            plot3( mni2plot(voxi,1), mni2plot(voxi,2), mni2plot(voxi,3), '.', 'Color', col_frex(frexi,:), 'MarkerSize', scale_size * pat2plot(voxi) );
+            hold on
+        end
+    end
+    title(["Frequency-resolved networks' topography - Component #" num2str(compi)],'FontSize',20)
+    %     legend_labels = arrayfun(@(x) sprintf('%.1f Hz', x), Patterns.frex, 'UniformOutput', false);
+    %     legend(legend_labels);
+    % Create legend with fixed-size markers matching the colors in col_frex
+    hold on;
+    legend_handles = gobjects(1, length(Patterns.frex)); % Preallocate legend handles
+    for frexi = 1:length(Patterns.frex)
+        legend_handles(frexi) = plot3(nan, nan, nan, '.', 'Color', col_frex(frexi,:), 'MarkerSize', 12);
+        % Uses NaN to avoid plotting actual points, just storing color info
+    end
+    % Adjust legend properties
+    legend(legend_handles, arrayfun(@(x) sprintf('%.1f Hz', x), Patterns.frex, 'UniformOutput', false), ...
+        'FontSize', 14, ...  % Increase font size
+        'Location', 'northeastoutside'); % Move legend outside the plot area
+    set(legend_handles, 'MarkerSize', 20); % Increase marker size in legend    
+    rotate3d on; axis off; axis vis3d; axis equal
+    set(gcf, 'Color', 'w'); % Set figure background to white
+end
+
+
+%% Output #3: NIFTI Files (supported only for source reconstruction in 
+
+% Create directory for storing FREQNESS NIFTI output files
+nifti_path = [Patterns.path_output '/FREQNESS_Output/FREQNESS_nifti'];
+mkdir(nifti_path)
+
+% load template
+% template_nii = load_nii(['MNI152_T1_' num2str(Patterns.mm) 'mm_Template.nii.gz']);
+template_nii = load_nii('MNI152_8mm_brain_diy.nii.gz');
+
+% Get template image data and initialize an empty volume
+nii_data = template_nii.img;
+nii_data(:) = 0;  % Set all voxels to zero
+nii_data = double(nii_data);
+
+% Extract affine transformation matrix from srow_x, srow_y, srow_z
+affine = [template_nii.hdr.hist.srow_x; 
+          template_nii.hdr.hist.srow_y; 
+          template_nii.hdr.hist.srow_z;
+          0 0 0 1]; % Append [0 0 0 1] to make it 4x4
+      
+% extract MNI coordinates
+MNI_coords = Patterns.MNI_coords;
+
+for frexi = 1:nfrex
+    for compi = 1:Patterns.ncomps  % Iterate over components given as input
+        
+        % Extract spatial activation pattern
+        SO = GED.pats(:, compi, idx_frex2plot(frexi));
+         
+        num_points = size(MNI_coords, 1);
+        voxel_coords = zeros(num_points, 3);
+        
+        % Convert MNI Coordinates to Voxel Indices
+        for ii = 1:num_points
+            coord = [MNI_coords(ii, :) 1];  % Add homogeneous coordinate
+            voxel = affine\coord';% inv(affine) * coord';  % Convert to voxel space
+            voxel_coords(ii, :) = (voxel(1:3)); % Extract rounded voxel indices
+            
+            % Adjust for voxel center vs edge (half voxel shift)
+            voxel_coords(ii, :) = voxel_coords(ii, :) + 1;  % Subtract 1 voxel (adjust for 8mm shift)
+
+        end
+        
+        % Assign activation patterns to the corresponding voxels
+        for ii = 1:num_points
+            x = voxel_coords(ii, 1);
+            y = voxel_coords(ii, 2);
+            z = voxel_coords(ii, 3);
+            
+            % Ensure indices are within image boundaries
+            if all([x, y, z] > 0) && all([x, y, z] <= size(nii_data))
+                nii_data(x, y, z) = SO(ii);
+            end
+        end
+        
+        template_nii.img = nii_data;
+        
+        % Create a NIFTI image from the 3D data matrix (8 mm resolution)
+        nii = make_nii(nii_data, [8 8 8]);
+        nii.img = nii_data;  % Store matrix within image structure
+        nii.hdr.hist = template_nii.hdr.hist;  % Copy header information from mask
+        
+        % Display saving progress
+        disp(['Saving NIFTI images - ' num2str(Patterns.frex(frexi)) ' Hz networks - Comp #' num2str(compi)])
+        
+        % Save the NIFTI file
+        save_nii(nii, [nifti_path '/ActivationPattern_frex_' num2str(Patterns.frex(frexi)) 'Hz_Comp#' num2str(compi) '.nii']);
+        
+    end
+end
+
+
+%%
+
+end
