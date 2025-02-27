@@ -1,6 +1,14 @@
+This repository contains two folders:
+-: Code and functions used for the FREQNESS paper published in Advanced Science (Rosso et al., 2025)
+-: Matlab FREQNESS toolbox (additional information is provided at the bottom of this page)
+
 FREQ-NESS Reveals the Dynamic Reconfiguration of Frequency-Resolved Brain Networks During Auditory Stimulation
 
-Matlab leading script and functions for the paper entitled: "FREQ-NESS Reveals the Dynamic Reconfiguration of Frequency-Resolved Brain Networks During Auditory Stimulation", Advanced Science (2025). M. Rosso, G. Fernández Rubio, P.E. Keller, E. Brattico, P. Vuust, M.L. Kringelbach. L. Bonetti
+Matlab leading script and functions for the paper entitled: 
+FREQ-NESS Reveals the Dynamic Reconfiguration of Frequency-Resolved Brain Networks During Auditory Stimulation.
+M. Rosso, G. Fernandez-Rubio, P. E. Keller, E. Brattico, P. Vuust, M. L. Kringelbach, L. Bonetti.
+Adv. Sci. 2025, 2413195.
+https://doi.org/10.1002/advs.202413195
 
 Additional relevant codes and functions are available here: https://github.com/leonardob92/LBPD-1.0.git
 
@@ -12,3 +20,60 @@ The conceptualization and code implementation of this work were carried out in c
 Corresponding authors:
 Mattia Rosso     - mattia.rosso@clin.au.dk
 Leonardo Bonetti - leonardo.bonetti@clin.au.dk; leonardo.bonetti@psych.ox.ac.uk
+
+
+
+FREQNESS TOOLBOX
+
+% ========================================================================
+%  FREQNESS: EXAMPLE SCRIPT FOR BRAIN NETWORK ESTIMATION
+%
+%  Please cite the first FREQNESS paper:
+%  M. Rosso, G. Fernandez-Rubio, P. E. Keller, E. Brattico, P. Vuust, M. L. Kringelbach, L. Bonetti.
+%  FREQ-NESS Reveals the Dynamic Reconfiguration of Frequency-Resolved Brain Networks During Auditory Stimulation.
+%  Adv. Sci. 2025, 2413195.
+%  https://doi.org/10.1002/advs.202413195
+%
+%
+% ========================================================================
+%
+%  This script demonstrates the application of FREQNESS 
+%  (Frequency-Resolved Brain Network Estimation via Source Separation).
+%
+%  The example dataset consists of a 3-minute recording with 
+%  two conditions:
+%  - Resting state ('rest')
+%  - Passive listening to an isochronous metronome at 2.4 Hz ('beat')
+%  This data is available at the following link (Zenodo repository):
+%  https://zenodo.org/records/14922536
+%  We recommend to place the data in the folder 'Data_Example' which can be
+%  found in the FREQNESS_Toolbox main folder.  
+%
+%  The script loads the example datasets into the MATLAB workspace and 
+%  calls three core functions:
+%
+% ------------------------------------------------------------------------
+%  FUNCTIONS OVERVIEW:
+% ------------------------------------------------------------------------
+%  - FREQNESS_Startup(path_home) 
+%    Initializes the environment. Given `path_home` as input, it sets up 
+%    the necessary directories.
+%
+%  - FREQNESS_NetworkEstimation(...) 
+%    Performs Generalized Eigendecomposition (GED) over a user-defined 
+%    sample of frequencies, separating frequency-resolved networks.
+%
+%  - FREQNESS_Visualizer(...) 
+%    Takes as input selected outputs from `FREQNESS_NetworkEstimation` 
+%    to visualize both the network landscape and brain topographies.
+%
+% ------------------------------------------------------------------------
+%  AUTHORS:
+%  Mattia Rosso & Leonardo Bonetti
+%  mattia.rosso@clin.au.dk
+%  leonardo.bonetti@clin.au.dk; leonardo.bonetti@psych.ox.ac.uk
+%  Center for Music in the Brain, Aarhus University
+%  Centre for Eudaimonia and Human Flourishing, Linacre College, University of Oxford
+%  Aarhus (DK), Oxford (UK), 24/02/2025
+% ========================================================================
+
