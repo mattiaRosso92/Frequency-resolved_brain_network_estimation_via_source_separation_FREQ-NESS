@@ -2,8 +2,7 @@ This repository contains two folders.
 
 FREQNESS_AdvancedScience_2025: Code and functions used for the FREQNESS paper published in Advanced Science (Rosso et al., 2025)
 
-FREQNESS_Toolbox: Matlab FREQNESS toolbox.
-Please, refer to "FREQNESS_Toolbox/FREQNESS_Example.m" for detailed information on how to use the toolbox
+FREQNESS_Toolbox: Please, refer to "FREQNESS_Toolbox/FREQNESS_Example.m" for detailed information on how to use this Matlab toolbox
 
 
 % ========================================================================
