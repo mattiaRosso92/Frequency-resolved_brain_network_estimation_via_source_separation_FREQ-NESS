@@ -1,6 +1,6 @@
-This repository contains two folders:
--: Code and functions used for the FREQNESS paper published in Advanced Science (Rosso et al., 2025)
--: Matlab FREQNESS toolbox (additional information is provided at the bottom of this page)
+This repository contains two folders.
+-FREQNESS_AdvancedScience_2025: Code and functions used for the FREQNESS paper published in Advanced Science (Rosso et al., 2025)
+-FREQNESS_Toolbox: Matlab FREQNESS toolbox (additional information is provided at the bottom of this page)
 
 FREQ-NESS Reveals the Dynamic Reconfiguration of Frequency-Resolved Brain Networks During Auditory Stimulation
 
