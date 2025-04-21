@@ -5,9 +5,9 @@ FREQNESS_AdvancedScience_2025: Code and functions used for the FREQNESS paper pu
 FREQNESS_Toolbox: Please, refer to "FREQNESS_Toolbox/FREQNESS_Example.m" for detailed information on how to use this Matlab toolbox
 
 
-FREQ-NESS Reveals the Dynamic Reconfiguration of Frequency-Resolved Brain Networks During Auditory Stimulation.
-M. Rosso, G. Fernandez-Rubio, P. E. Keller, E. Brattico, P. Vuust, M. L. Kringelbach, L. Bonetti.
-Adv. Sci. 2025, 2413195.
+Rosso, M., Fernández‐Rubio, G., Keller, P. E., Brattico, E., Vuust, P., Kringelbach, M. L., & Bonetti, L. (2025). 
+FREQ‐NESS Reveals the Dynamic Reconfiguration of Frequency‐Resolved Brain Networks During Auditory Stimulation. 
+Advanced Science, 2413195.
 https://doi.org/10.1002/advs.202413195
 % ========================================================================
 
