@@ -3,14 +3,14 @@ function [GED] = FREQNESS_NetworkEstimation(data, frex, srate, varargin)
 %  FREQUENCY-RESOLVED NETWORK ESTIMATION TOOLBOX
 %
 %  Please cite the first FREQNESS paper:
-%  M. Rosso, G. Fern�ndez-Rubio, P. E. Keller, E. Brattico, P. Vuust, M. L. Kringelbach, L. Bonetti.
-%  FREQ-NESS Reveals the Dynamic Reconfiguration of Frequency-Resolved Brain Networks During Auditory Stimulation.
-%  Adv. Sci. 2025, 2413195.
+%  Rosso, M., Fernández‐Rubio, G., Keller, P. E., Brattico, E., Vuust, P., Kringelbach, M. L., & Bonetti, L. (2025). 
+%  FREQ‐NESS Reveals the Dynamic Reconfiguration of Frequency‐Resolved Brain Networks During Auditory Stimulation. 
+%  Advanced Science, 2413195.
 %  https://doi.org/10.1002/advs.202413195
 %
 % ========================================================================
 %
-%  This script takes a multivariate dataset (channels � time matrix) 
+%  This script takes a multivariate dataset (channels × time matrix) 
 %  and produces a frequency-resolved brain network landscape.
 %
 % ------------------------------------------------------------------------
