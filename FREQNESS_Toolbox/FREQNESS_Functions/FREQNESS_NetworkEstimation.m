@@ -121,6 +121,37 @@ else
     fwidth_all = logspace(log10(fwidth), log10(fwidth * nfrex), nfrex);
 end
 
+%% Input data check
+
+%% Input data check
+
+% Occasionally, anatomical source reconstruction can return extremely low
+% values. This can cause unreliable source separation due to the
+% scale of the regularization factor of the covariance matrices.
+
+% Robust estimate of the scale of the data
+scale_ref = median(abs(data(:)));
+
+% Detect current order of magnitude
+order_mag = floor(log10(scale_ref));
+
+if order_mag < -2
+    warning(['The scale of your data is very low (order of magnitude: 10e' num2str(order_mag) ').' ...
+             ' This can cause unreliable network estimation.']);
+    
+    flag_scale = input('Do you want to re-scale the data to bring values into the hundreds range? (1 = yes; 0 = no):');
+    
+    if flag_scale == 1
+        % Define desired target order
+        scale = 10^abs(order_mag - 1);  % re-scale to bring values into the hundreds range
+        
+        % Re-scale the data
+        data = scale * data;
+    end
+end
+
+
+
 %% GED Computation
 
 % Initialize output structure
@@ -166,8 +197,6 @@ for frexi = 1:nfrex % loop over input frequencies
         GEDpats(:,compi,frexi) = GEDevecs(:,compi,frexi)' * covS; % get component
         [~,idxmax] = max(abs(GEDpats(:,compi,frexi)));     % find max magnitude
         GEDpats(:,compi,frexi)  = GEDpats(:,compi,frexi) * sign(GEDpats(idxmax,compi,frexi)); % possible sign flip
-        % Take the absolute value and normalize 0-to-1 (this is necessary due to sign ambiguity from source reconstruction)
-        GEDpats(:,compi,frexi) = abs( GEDpats(:,compi,frexi) / max(GEDpats(:,compi,frexi)) );
         
         % Compute the network's activation time series 
         GEDts(compi,:,frexi) = GEDevecs(:,compi,frexi)' * broadData;

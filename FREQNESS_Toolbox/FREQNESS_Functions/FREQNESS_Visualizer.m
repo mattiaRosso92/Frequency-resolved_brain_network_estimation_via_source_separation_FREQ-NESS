@@ -142,6 +142,9 @@ for compi = 1:Patterns.ncomps
     hold on
     for frexi = 1:nfrex
         
+        % Take the absolute value and normalize 0-to-1 (deal with sign ambiguity from source reconstruction)
+        GED.pats(:,compi,idx_frex2plot(frexi)) = abs( GED.pats(:,compi,idx_frex2plot(frexi)) / max(GED.pats(:,compi,idx_frex2plot(frexi))) );
+
         % Assign temporary activation pattern to plot
         pat2plot = squeeze( GED.pats(:,compi,idx_frex2plot(frexi)) );
         pat2plot( pat2plot < (mean(pat2plot)+thresh_nsdt*std(pat2plot)) ) = nan;  % apply threshold
@@ -156,7 +159,7 @@ for compi = 1:Patterns.ncomps
         pat2plot = (pat2plot-min(pat2plot))./(max(pat2plot)-min(pat2plot)).*(1-.01) + .01;  % option #2
         
         % Plot in 3D
-        for voxi = [1:skipper:length(pat2plot)]
+        for voxi = 1:skipper:length(pat2plot)
             plot3( mni2plot(voxi,1), mni2plot(voxi,2), mni2plot(voxi,3), '.', 'Color', col_frex(frexi,:), 'MarkerSize', scale_size * pat2plot(voxi) );
             hold on
         end
