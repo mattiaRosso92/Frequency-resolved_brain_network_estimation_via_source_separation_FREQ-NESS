@@ -121,7 +121,7 @@ else
     fwidth_all = logspace(log10(fwidth), log10(fwidth * nfrex), nfrex);
 end
 
-%% Input data check
+
 
 %% Input data check
 
