@@ -58,7 +58,7 @@ close all
 clc
 
 % Setup directories
-path_home = '/Users/mattiaipem/Desktop/FREQNESS_push/FREQNESS_Toolbox';
+path_home = '[insert-your-path-to-the-toolbox]/FREQNESS_Toolbox';
 addpath(path_home)
 FREQNESS_Startup(path_home);
 
@@ -141,14 +141,14 @@ GED = FREQNESS_NetworkEstimation(testData, testFrex, testSrate);
 
 % Settings (visualization of network landscape)
 Landscape = [];
-Landscape.frex   = testFrex; 
+Landscape.frex   = testFrex-.4; 
 Landscape.ncomps = 10;
 
 % Settings (visualization of network activation patterns)
 Patterns = [];
-Patterns.frex    = [12 2.4];
+Patterns.frex    = [12.4 2.4];
 Patterns.ncomps  = 1; % set how many top components to visualize
-Patterns.path_output =  '/Users/mattiaipem/Desktop'; % set output path to save nifti images
+Patterns.path_output =  path_home; % set output path to save nifti images
 
 % Load MNI coordinates related to the brain voxels of the current dataset
 % NOTE: provide the MNI coordinates in the order matching YOUR OWN DATA!
