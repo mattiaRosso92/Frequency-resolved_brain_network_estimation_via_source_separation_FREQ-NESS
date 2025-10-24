@@ -53,6 +53,8 @@ function [GED] = FREQNESS_NetworkEstimation(data, frex, srate, varargin)
 % ------------------------------------------------------------------------
 %  - GED       : Structure containing eigenvalues, eigenvectors, spatial
 %                activation patterns, and network time series.
+%                Info on the specific fields is found in the comments where
+%                the respective variables are assigned to GED.
 %
 % ------------------------------------------------------------------------
 %  AUTHORS:
@@ -117,17 +119,24 @@ if isempty(fwidth)
     % Match user-requested frequencies with the reference frequencies from Rosso et al. (2025)
     [~, idx] = min(abs(frex_all - frex(1))); % matching the lowest user-defined frequency
     fwidth = fwidth_all(idx);
+
+    % Compute filter widths
+    if strcmpi(filter, 'logarithmic')
+        fwidth_all = logspace(log10(fwidth), log10(fwidth * nfrex), nfrex);
+    elseif strcmpi(filter, 'linear')
+        fwidth_all = linspace(fwidth, fwidth * nfrex, nfrex);
+    else
+        disp("Invalid filter type. Defaulting to 'logarithmic'.");
+        fwidth_all = logspace(log10(fwidth), log10(fwidth * nfrex), nfrex);
+    end
+
+else
+
+    % Assign input filter width vector, if given by the user
+    fwidth_all = fwidth;
+
 end
 
-% Compute filter widths
-if strcmpi(filter, 'logarithmic')
-    fwidth_all = logspace(log10(fwidth), log10(fwidth * nfrex), nfrex);
-elseif strcmpi(filter, 'linear')
-    fwidth_all = linspace(fwidth, fwidth * nfrex, nfrex);
-else
-    disp("Invalid filter type. Defaulting to 'logarithmic'.");
-    fwidth_all = logspace(log10(fwidth), log10(fwidth * nfrex), nfrex);
-end
 
 % Ensure bad_segments values fall within data bounds
 if any(idx2remove < 1) || any(idx2remove > size(data, 2))
@@ -233,6 +242,7 @@ GED.evecs = GEDevecs; % eigenvectors
 GED.pats  = GEDpats;  % spatial activation patterns
 GED.ts    = GEDts;    % time series
 GED.frex  = frex;     % to make use of the analyzed frequencies later on
+GED.srate = srate;    % re-assign to output, so it can be used by secondary functions
 
 end
 
@@ -253,4 +263,5 @@ end
 end
 
 %%
+
 
