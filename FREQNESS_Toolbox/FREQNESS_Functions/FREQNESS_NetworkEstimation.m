@@ -1,4 +1,4 @@
-function [GED] = FREQNESS_NetworkEstimation(data, frex, srate, varargin)
+function [FREQ] = FREQNESS_NetworkEstimation(data, frex, srate, varargin)
 
 % ========================================================================
 
@@ -13,12 +13,14 @@ function [GED] = FREQNESS_NetworkEstimation(data, frex, srate, varargin)
 % ========================================================================
 %
 %  This script takes a multivariate dataset (channels × time matrix)
-%  and produces a frequency-resolved brain network landscape.
+%  and produces a frequency-resolved brain network landscape via
+%  Generalized Eigendecomposition (GED).
 %
 % ------------------------------------------------------------------------
 %  INPUT ARGUMENTS:
 % ------------------------------------------------------------------------
-%  - data   : 2D matrix in channels-by-time format.
+%  - data   : 2D matrix in channels-by-time format, or
+%             3D matrix in channels-by-time-by-subjects format
 %             NOTE: While this approach can be applied to scalp sensor data,
 %             source-reconstructed brain voxel data is necessary to
 %             interpret the output as brain networks.
@@ -51,10 +53,10 @@ function [GED] = FREQNESS_NetworkEstimation(data, frex, srate, varargin)
 % ------------------------------------------------------------------------
 %  OUTPUT ARGUMENTS:
 % ------------------------------------------------------------------------
-%  - GED       : Structure containing eigenvalues, eigenvectors, spatial
-%                activation patterns, and network time series.
-%                Info on the specific fields is found in the comments where
-%                the respective variables are assigned to GED.
+%  - FREQ       : Structure containing eigenvalues, eigenvectors, spatial
+%                 activation patterns, and network time series.
+%                 Info on the specific fields is found in the comments where
+%                 the respective variables are assigned to GED.
 %
 % ------------------------------------------------------------------------
 %  AUTHORS:
@@ -93,7 +95,7 @@ fwidth         = opts.fwidth;
 filter         = opts.filter;
 regularisation = opts.regularisation;
 ncomps         = opts.ncomps;
-idx2remove     = opts.bad_segments;
+idx2remove     = opts.bad_segments; % in the current version, these apply to all subjects in the input
 
 % Compute necessary parameters
 pnts2keep = duration * srate;
@@ -146,103 +148,124 @@ end
 
 %% Input data check
 
+% Check input size to verify if more than one participant is being analyzed
+if length(size(data)) < 3 % no extra dimension in the input
+    nsubs = 1;
+else
+    nsubs = size(data,3);
+end
+disp(['Input data contain ' num2str(nsubs) ' participants.']);
+
+
 % Occasionally, anatomical source reconstruction can return extremely low
 % values. This can cause unreliable source separation due to the
 % scale of the regularization factor of the covariance matrices.
 
-% Robust estimate of the scale of the data
-scale_ref = median(abs(data(:)));
+for subi = 1:nsubs
 
-% Detect current order of magnitude
-order_mag = floor(log10(scale_ref));
+    % Extract data for this participants
+    this_data = data(:,:,subi);
 
-if order_mag < -2
-    warning(['The scale of your data is very low (order of magnitude: 10e' num2str(order_mag) ').' ...
-        ' This can cause unreliable network estimation.']);
+    % Robust estimate of the scale of the data
+    scale_ref = median(abs(this_data(:)));
 
-    flag_scale = input('Do you want to re-scale the data to bring values into the hundreds range? (1 = yes; 0 = no):');
+    % Detect current order of magnitude
+    order_mag = floor(log10(scale_ref));
 
-    if flag_scale == 1
-        % Define desired target order
-        scale = 10^abs(order_mag - 1);  % re-scale to bring values into the hundreds range
+    if order_mag < -2
+        warning(['The scale of your data is very low (order of magnitude: 10e' num2str(order_mag) ').' ...
+            ' This can cause unreliable network estimation.']);
 
-        % Re-scale the data
-        data = scale * data;
+        flag_scale = input('Do you want to re-scale the data to bring values into the hundreds range? (1 = yes; 0 = no):');
+
+        if flag_scale == 1
+            % Define desired target order
+            scale = 10^abs(order_mag - 1);  % re-scale to bring values into the hundreds range
+
+            % Assign re-scaled data
+            data(:,:,subi) = scale * this_data;
+        end
     end
+
 end
 
-
-
-%% GED Computation
+%% Generalized eigendecomposition (GED) 
 
 % Initialize output structure
-GED = [];
-
-% Assign broadband source data
-broadData = data(:, 1:pnts2keep);
-
-% Define good indexes to keep for computing the covariance matrices
-idx2cov = setdiff(1:pnts2keep,idx2remove);
-
-% Remove bad segments, if any bad segments is provided as input
-if ~isempty(idx2remove)
-    pct_removed = 100 * length(idx2remove) / pnts2keep;
-    disp(['Removing ' num2str(length(idx2remove)) ' bad timepoints ' ...
-        '(' num2str(pct_removed) '% of the input data).']);
-end
+FREQ = [];
 
 % Initialize GED outputs
-GEDevals = zeros(ncomps, nfrex);
-[GEDevecs, GEDpats] = deal(zeros(size(broadData,1), ncomps, nfrex));
-GEDts = zeros(ncomps, size(broadData,2), nfrex);
+GEDevals = zeros(ncomps, nfrex, nsubs);
+[GEDevecs, GEDpats] = deal(zeros(size(data,1), ncomps, nfrex, nsubs));
+GEDts = zeros(ncomps, size(data,2), nfrex, nsubs);
 
-% Perform frequency-resolved brain network separation via GED
-for frexi = 1:nfrex % loop over input frequencies
-    display(['Processing frequency #' num2str(frexi)])
+% Loop over participants (also works with one single participant)
+for subi = 1:nsubs
+    disp(['Processing participant #' num2str(subi)]);
 
-    % Filter data
-    narrowData = filterFGx(broadData,srate,frex(frexi),fwidth_all(frexi),0); % turn the last argument to 1 to visualize the filter
+    % Assign broadband source data
+    broadData = data(:, 1:pnts2keep, subi);
 
-    % Compute covariance matrices
-    covS = cov(narrowData(:,idx2cov)');
-    covR = cov(broadData(:,idx2cov)');
+    % Define good indexes to keep for computing the covariance matrices
+    idx2cov = setdiff(1:pnts2keep,idx2remove);
 
-    % Regularisation (to bring covariance matrices to full rank)
-    covS = covS  + 1e-6*eye(size(covS)); % regularise the S covariance matrix by adding a small perturbation/noise
-    evalsR = eig(covR ); % re-compute eigenvalues of R covariance matrix for its regularisation
-    covR  = (1-regularisation)*covR  + regularisation * mean(evalsR) * eye(size(covR)); % regularise the R covariance matrix
+    % Remove bad segments, if any bad segments is provided as input
+    if ~isempty(idx2remove)
+        pct_removed = 100 * length(idx2remove) / pnts2keep;
+        disp(['Removing ' num2str(length(idx2remove)) ' bad timepoints ' ...
+            '(' num2str(pct_removed) '% of the input data).']);
+    end
 
-    % Eigendecomposition
-    [evecs,evals] = eig(covS ,covR);
-    [evals,sidx]  = sort( diag(evals),'descend' ); % the first output returns sorted evals extracted from diagonal
-    evecs = evecs(:,sidx);          % sort eigenvectors
-    evals = evals.*100./sum(evals); % normalize eigenvalues to percent variance explained
-    % Assign temporary variables to output
-    GEDevecs(:,:,frexi) = evecs(:,1:ncomps);
-    GEDevals(:,frexi) = evals(1:ncomps);
 
-    % Brain networks' spatial activation patterns and time series
-    for compi = 1:ncomps
+    % Perform frequency-resolved brain network separation via GED
+    for frexi = 1:nfrex % loop over input frequencies
+        display(['Processing frequency #' num2str(frexi)])
 
-        % Compute spatial activation patterns and flip sign
-        GEDpats(:,compi,frexi) = GEDevecs(:,compi,frexi)' * covS; % get component
-        [~,idxmax] = max(abs(GEDpats(:,compi,frexi)));     % find max magnitude
-        GEDpats(:,compi,frexi)  = GEDpats(:,compi,frexi) * sign(GEDpats(idxmax,compi,frexi)); % possible sign flip
+        % Filter data
+        narrowData = filterFGx(broadData,srate,frex(frexi),fwidth_all(frexi),0); % turn the last argument to 1 to visualize the filter
 
-        % Compute the network's activation time series
-        GEDts(compi,:,frexi) = GEDevecs(:,compi,frexi)' * broadData;
+        % Compute covariance matrices
+        covS = cov(narrowData(:,idx2cov)');
+        covR = cov(broadData(:,idx2cov)');
+
+        % Regularisation (to bring covariance matrices to full rank)
+        covS = covS  + 1e-6*eye(size(covS)); % regularise the S covariance matrix by adding a small perturbation/noise
+        evalsR = eig(covR ); % re-compute eigenvalues of R covariance matrix for its regularisation
+        covR  = (1-regularisation)*covR  + regularisation * mean(evalsR) * eye(size(covR)); % regularise the R covariance matrix
+
+        % Eigendecomposition
+        [evecs,evals] = eig(covS ,covR);
+        [evals,sidx]  = sort( diag(evals),'descend' ); % the first output returns sorted evals extracted from diagonal
+        evecs = evecs(:,sidx);          % sort eigenvectors
+        evals = evals.*100./sum(evals); % normalize eigenvalues to percent variance explained
+        % Assign temporary variables to output
+        GEDevecs(:,:,frexi,subi) = evecs(:,1:ncomps);
+        GEDevals(:,frexi,subi) = evals(1:ncomps);
+
+        % Brain networks' spatial activation patterns and time series
+        for compi = 1:ncomps
+
+            % Compute spatial activation patterns and flip sign
+            GEDpats(:,compi,frexi,subi) = GEDevecs(:,compi,frexi,subi)' * covS; % get component
+            [~,idxmax] = max(abs(GEDpats(:,compi,frexi,subi)));     % find max magnitude
+            GEDpats(:,compi,frexi,subi)  = GEDpats(:,compi,frexi,subi) * sign(GEDpats(idxmax,compi,frexi,subi)); % possible sign flip
+
+            % Compute the network's activation time series
+            GEDts(compi,:,frexi,subi) = GEDevecs(:,compi,frexi,subi)' * broadData;
+
+        end
 
     end
 
 end
 
 % Assign outputs to structure
-GED.evals = GEDevals; % eigenvalues
-GED.evecs = GEDevecs; % eigenvectors
-GED.pats  = GEDpats;  % spatial activation patterns
-GED.ts    = GEDts;    % time series
-GED.frex  = frex;     % to make use of the analyzed frequencies later on
-GED.srate = srate;    % re-assign to output, so it can be used by secondary functions
+FREQ.evals = GEDevals; % eigenvalues
+FREQ.evecs = GEDevecs; % eigenvectors
+FREQ.pats  = GEDpats;  % spatial activation patterns
+FREQ.ts    = GEDts;    % time series
+FREQ.frex  = frex;     % to make use of the analyzed frequencies later on
+FREQ.srate = srate;    % re-assign to output, so it can be used by secondary functions
 
 end
 
@@ -260,6 +283,7 @@ for i = 1:2:length(varargin)
         error(['Unrecognized argument: ', name]);
     end
 end
+
 end
 
 %%
