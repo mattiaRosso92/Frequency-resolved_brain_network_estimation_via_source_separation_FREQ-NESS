@@ -219,7 +219,7 @@ for subi = 1:nsubs
 
     % Perform frequency-resolved brain network separation via GED
     for frexi = 1:nfrex % loop over input frequencies
-        display(['Processing frequency #' num2str(frexi)])
+        disp(['Estimating network at ' num2str(frex(frexi)) ' Hz'])
 
         % Filter data
         narrowData = filterFGx(broadData,srate,frex(frexi),fwidth_all(frexi),0); % turn the last argument to 1 to visualize the filter
