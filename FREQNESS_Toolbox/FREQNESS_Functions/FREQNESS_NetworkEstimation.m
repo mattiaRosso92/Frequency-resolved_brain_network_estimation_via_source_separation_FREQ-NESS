@@ -99,9 +99,20 @@ idx2remove     = opts.bad_segments; % in the current version, these apply to all
 
 % Compute necessary parameters
 pnts2keep = duration * srate;
-nfrex = length(frex);
+
+% Check duration
+if pnts2keep > size(data,2)
+    error('Requested duration exceeds the length of the data.');
+end
+
+% Check that the range of the bad segments falls within the requested duration
+if any(idx2remove < 1) || any(idx2remove > pnts2keep)
+    error('One or more indices in bad_segments fall outside the analyzed time range.');
+end
+
 % Re-sort frequency vector in ascending order
 frex = sort(frex,'ascend');
+nfrex = length(frex);
 
 % Handle missing filter width (based on Rosso et al., 2025 - Advanced Science)
 if isempty(fwidth)
@@ -139,11 +150,6 @@ else
 
 end
 
-
-% Ensure bad_segments values fall within data bounds
-if any(idx2remove < 1) || any(idx2remove > size(data, 2))
-    error('One or more indices in bad_segments fall outside the valid time range.');
-end
 
 
 %% Input data check
@@ -197,7 +203,7 @@ FREQ = [];
 % Initialize GED outputs
 GEDevals = zeros(ncomps, nfrex, nsubs);
 [GEDevecs, GEDpats] = deal(zeros(size(data,1), ncomps, nfrex, nsubs));
-GEDts = zeros(ncomps, size(data,2), nfrex, nsubs);
+GEDts = zeros(ncomps, pnts2keep, nfrex, nsubs);
 
 % Loop over participants (also works with one single participant)
 for subi = 1:nsubs
@@ -283,7 +289,6 @@ for i = 1:2:length(varargin)
         error(['Unrecognized argument: ', name]);
     end
 end
-
 end
 
 %%
