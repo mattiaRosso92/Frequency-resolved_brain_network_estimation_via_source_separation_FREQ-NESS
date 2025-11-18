@@ -126,7 +126,7 @@ GED = FREQNESS_NetworkEstimation(testData, testFrex, testSrate);
 % end
 % 
 % 
-% GED = FREQNESS_NetworkEstimation(testData, testFrex, testSrate, ...
+% FREQ = FREQNESS_NetworkEstimation(testData, testFrex, testSrate, ...
 %                                 'duration', testTime, 'filter', testFilter, 'regularisation', testRegularization, 'ncomps', testNcomps); %% Call with optional parameters
 
 
@@ -167,7 +167,7 @@ Patterns.MNI_coords = MNI8; %assigning the MNI coordinates of your data for visu
 %%% ------------------ COMPUTATION --------------------- %%%
 
 % Plot network landscape and save nifti images
-FREQNESS_Visualizer(GED,Landscape,Patterns)
+FREQNESS_Visualizer(FREQ,Landscape,Patterns,'plot_all',false) % set 'plot_all' to true if you have multiple subjects and you want to plot them all
 
 
 %%
