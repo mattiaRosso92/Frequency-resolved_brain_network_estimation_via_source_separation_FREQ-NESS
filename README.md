@@ -11,7 +11,7 @@ This repository contains two folders:
 
 1) FREQNESS_AdvancedScience_2025: Code and functions used for the FREQNESS paper published in Advanced Science (Rosso et al., 2025)
 
-2) FREQNESS_Toolbox: Please, refer to "FREQNESS_Toolbox/FREQNESS_Example.m" for detailed information on how to use this Matlab toolbox
+2) FREQNESS_Toolbox: Please, refer to "FREQNESS_Toolbox/FREQNESS_MainPipeline.m", whose header contains  detailed information on how to use this Matlab toolbox
 
 % ========================================================================
 
@@ -26,5 +26,6 @@ Mattia Rosso     - mattia.rosso@clin.au.dk
 Leonardo Bonetti - leonardo.bonetti@clin.au.dk; leonardo.bonetti@psych.ox.ac.uk
 
 % ========================================================================
+
 
 
