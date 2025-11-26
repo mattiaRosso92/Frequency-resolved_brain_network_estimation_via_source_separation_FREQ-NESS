@@ -1,0 +1,73 @@
+{\rtf1\ansi\ansicpg1252\cocoartf2867
+\cocoatextscaling0\cocoaplatform0{\fonttbl\f0\froman\fcharset0 Times-Bold;\f1\froman\fcharset0 Times-Roman;}
+{\colortbl;\red255\green255\blue255;\red0\green0\blue0;\red109\green109\blue109;\red0\green0\blue233;
+}
+{\*\expandedcolortbl;;\cssrgb\c0\c0\c0;\cssrgb\c50196\c50196\c50196;\cssrgb\c0\c0\c93333;
+}
+{\*\listtable{\list\listtemplateid1\listhybrid{\listlevel\levelnfc0\levelnfcn0\leveljc0\leveljcn0\levelfollow0\levelstartat1\levelspace360\levelindent0{\*\levelmarker \{decimal\}}{\leveltext\leveltemplateid1\'01\'00;}{\levelnumbers\'01;}\fi-360\li720\lin720 }{\listname ;}\listid1}
+{\list\listtemplateid2\listhybrid{\listlevel\levelnfc0\levelnfcn0\leveljc0\leveljcn0\levelfollow0\levelstartat1\levelspace360\levelindent0{\*\levelmarker \{decimal\}}{\leveltext\leveltemplateid101\'01\'00;}{\levelnumbers\'01;}\fi-360\li720\lin720 }{\listname ;}\listid2}}
+{\*\listoverridetable{\listoverride\listid1\listoverridecount0\ls1}{\listoverride\listid2\listoverridecount0\ls2}}
+\paperw11900\paperh16840\margl1440\margr1440\vieww11520\viewh8400\viewkind0
+\deftab720
+\pard\pardeftab720\sa240\partightenfactor0
+
+\f0\b\fs36 \cf0 \expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 FREQ-NESS TOOLBOX \'96 README
+\f1\b0\fs24 \
+The FREQ-NESS toolbox allows you to extract frequency-resolved brain networks from EEG/MEG/iEEG data using Generalized Eigendecomposition (GED).\uc0\u8232 You can either:\
+\pard\tx220\tx720\pardeftab720\li720\fi-720\sa240\partightenfactor0
+\ls1\ilvl0\cf0 \kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	1	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 Use each FREQ-NESS function individually, found in the \'91FREQNESS_Functions\'92 folder, \uc0\u8232 or\
+\ls1\ilvl0\kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	2	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 Run everything automatically through the \'91FREQNESS_MainPipeline.m\'92.\
+\pard\pardeftab720\sa240\partightenfactor0
+\cf0 Most users will want option (2).\
+\pard\pardeftab720\partightenfactor0
+\cf3 \strokec3 \
+\pard\pardeftab720\sa298\partightenfactor0
+
+\f0\b\fs36 \cf0 \strokec2 USING THE MAIN PIPELINE\
+\pard\pardeftab720\sa240\partightenfactor0
+
+\f1\b0\fs24 \cf0 To run a full analysis on single or multiple participants, simply:\
+\pard\tx220\tx720\pardeftab720\li720\fi-720\sa240\partightenfactor0
+\ls2\ilvl0\cf0 \kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	1	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 Place your data files in the appropriate folders inside \'93FREQNESS_Data\'94.\uc0\u8232 \'95 Each Group or Condition is a \'91Dataset\'92 folder.\u8232 \'95 Each participant is one .mat file containing a voxels\'d7time matrix.\
+\ls2\ilvl0\kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	2	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 (Optional but recommended) Place a .mat file containing the voxel MNI coordinates (Nvoxels\'d73)\uc0\u8232 inside the \'91FREQNESS_MNI_Coordinates\'92 folder. These are required for spatial visualizations and gradient modelling.\
+\ls2\ilvl0\kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	4	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 Open the file:\uc0\u8232 FREQNESS_MainPipeline.m\
+\ls2\ilvl0\kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	5	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 Scroll to the section \'93DEFINE ANALYSIS SETTINGS\'94 and edit:\uc0\u8232 \'95 frex (frequencies for GED)\u8232 \'95 srate (sampling rate)\u8232 \'95 visualization settings (landscape, patterns, output paths)\u8232 \'95 entropy, exponential decay, gradient modelling and CFC options\
+\ls2\ilvl0\kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	6	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 Press RUN.\uc0\u8232 The pipeline will automatically:\u8232 \'96 Load all datasets\u8232 \'96 Run frequency-resolved GED via FREQNESS_NetworkEstimation\u8232 \'96 Produce network landscapes and activation maps via FREQNESS_Visualizer\u8232 \'96 Compute entropy and effective dimensionality\u8232 \'96 Fit exponential decay of eigenvalues\u8232 \'96 Model spatial gradients across frequencies and components\u8232 \'96 Compute phase\'96amplitude cross-frequency coupling\u8232 \'96 Generate figures and save NIfTI images when requested\
+\pard\pardeftab720\sa240\partightenfactor0
+\cf0 No manual intervention is needed after the initial settings.\
+\pard\pardeftab720\partightenfactor0
+\cf3 \strokec3 \
+\pard\pardeftab720\sa298\partightenfactor0
+
+\f0\b\fs36 \cf0 \strokec2 ALTERNATIVE: USING FUNCTIONS INDIVIDUALLY\
+\pard\pardeftab720\sa240\partightenfactor0
+
+\f1\b0\fs24 \cf0 If you prefer a modular workflow, you can call each function separately:\
+FREQ = FREQNESS_NetworkEstimation(...)\uc0\u8232 FREQNESS_Visualizer(FREQ,...)\u8232 FREQNESS_EntropyLandscape(FREQ)\u8232 FREQNESS_ExponentialDK(FREQ,...)\u8232 FREQNESS_FreqGradients(FREQ, MNI,...)\u8232 FREQNESS_CompGradients(FREQ, MNI,...)\u8232 FREQNESS_CrossCoupling(FREQ, lfo_freq,...)\
+However, the MAIN PIPELINE already handles the correct order, settings, and group-level bookkeeping automatically.\
+\pard\pardeftab720\partightenfactor0
+\cf3 \strokec3 \
+\pard\pardeftab720\sa298\partightenfactor0
+
+\f0\b\fs36 \cf0 \strokec2 WHERE TO FIND FULL DESCRIPTIONS\
+\pard\pardeftab720\sa240\partightenfactor0
+
+\f1\b0\fs24 \cf0 All functions are described in detail inside the header of the Main Pipeline file:\uc0\u8232 FREQNESS_MainPipeline.m\u8232 This includes the folder structure, required inputs, recommended settings, and interpretation of outputs.\
+\pard\pardeftab720\partightenfactor0
+\cf3 \strokec3 \
+\pard\pardeftab720\sa298\partightenfactor0
+
+\f0\b\fs36 \cf0 \strokec2 CITATION\
+\pard\pardeftab720\sa240\partightenfactor0
+
+\f1\b0\fs24 \cf0 If you use this toolbox, please cite:\
+Rosso, M., Fern\'e1ndez-Rubio, G., Keller, P. E., Brattico, E., Vuust, P., Kringelbach, M. L., & Bonetti, L. (2025).\uc0\u8232 FREQ-NESS Reveals the Dynamic Reconfiguration of Frequency-Resolved Brain Networks During Auditory Stimulation.\u8232 Advanced Science, 2413195. {\field{\*\fldinst{HYPERLINK "https://doi.org/10.1002/advs.202413195"}}{\fldrslt \cf4 \ul \ulc4 \strokec4 https://doi.org/10.1002/advs.202413195}}\
+}
