@@ -128,8 +128,7 @@ clc
 % ------------------------------------------------------------------------
 % 1) FREQNESS_NetworkEstimation
 % ------------------------------------------------------------------------
-frex   = 1.2:1.2:20
-*1.2; % frequency vector (Hz) used for the GED analysis
+frex   = 1.2:1.2:20*1.2; % frequency vector (Hz) used for the GED analysis
 srate  = 250;    % Sampling rate (Hz) of your data
 
 % ------------------------------------------------------------------------
