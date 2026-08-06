@@ -8,6 +8,7 @@ The first public API preserves the established FREQ-NESS function names:
 ```python
 from freqness import (
     FREQNESS_EntropyLandscape,
+    FREQNESS_ExponentialDK,
     FREQNESS_NetworkEstimation,
     FREQNESS_Startup,
     FREQNESS_Visualizer,
@@ -31,6 +32,11 @@ visualization = FREQNESS_Visualizer(
 )
 
 H2, ED = FREQNESS_EntropyLandscape(FREQ)
+decayCoeff, goodFit = FREQNESS_ExponentialDK(
+    FREQ,
+    which_comp=1,
+    range2fit=[2, 30],
+)
 ```
 
 The spatial-pattern view plots all valid MNI locations as small black points.
@@ -43,6 +49,10 @@ normalized activation magnitude controls marker size. Pass
 (`H2`) and effective dimensionality (`ED`) to preserve MATLAB numerical
 compatibility. Its figures intentionally show only `H2`.
 
+`FREQNESS_ExponentialDK` fits `A * exp(-lambda * frequency)` to one component
+using MATLAB-compatible one-based component numbering. It returns one decay
+coefficient and original-space R² value per participant.
+
 Install visualization dependencies with:
 
 ```text
@@ -52,7 +62,13 @@ python -m pip install -e ".[visualize]"
 Python-style aliases are also available:
 
 ```python
-from freqness import entropy_landscape, estimate_networks, startup, visualize
+from freqness import (
+    entropy_landscape,
+    estimate_networks,
+    exponential_decay,
+    startup,
+    visualize,
+)
 ```
 
 ## Development installation

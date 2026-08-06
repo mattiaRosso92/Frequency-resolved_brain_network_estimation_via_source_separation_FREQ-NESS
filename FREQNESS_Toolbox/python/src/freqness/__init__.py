@@ -1,6 +1,10 @@
 """Python implementation of the FREQ-NESS toolbox."""
 
 from .FREQNESS_EntropyLandscape import FREQNESS_EntropyLandscape
+from .FREQNESS_ExponentialDK import (
+    FREQNESS_ExponentialDK,
+    FREQNESSExponentialGoodFit,
+)
 from .FREQNESS_NetworkEstimation import (
     FREQNESS_NetworkEstimation,
     FREQNESSResult,
@@ -11,11 +15,14 @@ from .filterFGx import filterFGx
 
 estimate_networks = FREQNESS_NetworkEstimation
 entropy_landscape = FREQNESS_EntropyLandscape
+exponential_decay = FREQNESS_ExponentialDK
 startup = FREQNESS_Startup
 visualize = FREQNESS_Visualizer
 
 __all__ = [
     "FREQNESS_EntropyLandscape",
+    "FREQNESS_ExponentialDK",
+    "FREQNESSExponentialGoodFit",
     "FREQNESS_NetworkEstimation",
     "FREQNESS_Startup",
     "FREQNESSResult",
@@ -23,6 +30,7 @@ __all__ = [
     "FREQNESSVisualization",
     "entropy_landscape",
     "estimate_networks",
+    "exponential_decay",
     "filterFGx",
     "startup",
     "visualize",
