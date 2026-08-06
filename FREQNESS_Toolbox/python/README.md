@@ -7,6 +7,7 @@ The first public API preserves the established FREQ-NESS function names:
 
 ```python
 from freqness import (
+    FREQNESS_EntropyLandscape,
     FREQNESS_NetworkEstimation,
     FREQNESS_Startup,
     FREQNESS_Visualizer,
@@ -28,6 +29,8 @@ visualization = FREQNESS_Visualizer(
     Patterns,
     plot_all=False,
 )
+
+H2, ED = FREQNESS_EntropyLandscape(FREQ)
 ```
 
 The spatial-pattern view plots all valid MNI locations as small black points.
@@ -35,6 +38,10 @@ Requested frequencies follow a low-to-high `viridis` colour gradient, while
 normalized activation magnitude controls marker size. Pass
 `frequency_panels=True` for separate frequency-specific views, or
 `save_nifti=False` when only figures are required.
+
+`FREQNESS_EntropyLandscape` computes and returns both quadratic Rényi entropy
+(`H2`) and effective dimensionality (`ED`) to preserve MATLAB numerical
+compatibility. Its figures intentionally show only `H2`.
 
 Install visualization dependencies with:
 
@@ -45,7 +52,7 @@ python -m pip install -e ".[visualize]"
 Python-style aliases are also available:
 
 ```python
-from freqness import estimate_networks, startup, visualize
+from freqness import entropy_landscape, estimate_networks, startup, visualize
 ```
 
 ## Development installation
