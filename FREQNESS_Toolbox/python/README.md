@@ -7,6 +7,7 @@ The first public API preserves the established FREQ-NESS function names:
 
 ```python
 from freqness import (
+    FREQNESS_CrossCoupling,
     FREQNESS_EntropyLandscape,
     FREQNESS_ExponentialDK,
     FREQNESS_NetworkEstimation,
@@ -37,6 +38,12 @@ decayCoeff, goodFit = FREQNESS_ExponentialDK(
     which_comp=1,
     range2fit=[2, 30],
 )
+CFC = FREQNESS_CrossCoupling(
+    FREQ,
+    lfo_freq=2.4,
+    frex2model=[4, 30],
+    which_comp=1,
+)
 ```
 
 The spatial-pattern view plots all valid MNI locations as small black points.
@@ -53,6 +60,13 @@ compatibility. Its figures intentionally show only `H2`.
 using MATLAB-compatible one-based component numbering. It returns one decay
 coefficient and original-space R² value per participant.
 
+`FREQNESS_CrossCoupling` computes coupling between the phase of a neural
+low-frequency FREQ-NESS component and the power of the same component at
+higher carrier frequencies. Phase-binned carrier power is fitted with a fixed
+first-harmonic regression. This replaces the external MATLAB `sineFit.m`
+dependency with deterministic linear least squares and adds raw and normalized
+amplitude, preferred phase, MSE, R², fitted PAC curves, and valid-bin counts.
+
 Install visualization dependencies with:
 
 ```text
@@ -63,6 +77,7 @@ Python-style aliases are also available:
 
 ```python
 from freqness import (
+    cross_coupling,
     entropy_landscape,
     estimate_networks,
     exponential_decay,
