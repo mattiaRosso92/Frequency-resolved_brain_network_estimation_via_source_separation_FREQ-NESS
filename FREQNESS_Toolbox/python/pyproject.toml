@@ -19,9 +19,15 @@ dependencies = [
 
 [project.optional-dependencies]
 plot = ["matplotlib>=3.7"]
+nifti = ["nibabel>=5.0"]
+visualize = [
+  "matplotlib>=3.7",
+  "nibabel>=5.0",
+]
 test = [
   "pytest>=8",
   "matplotlib>=3.7",
+  "nibabel>=5.0",
 ]
 
 [project.urls]
@@ -37,4 +43,3 @@ where = ["src"]
 [tool.pytest.ini_options]
 addopts = "-ra"
 testpaths = ["tests"]
-

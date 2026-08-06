@@ -6,16 +6,46 @@ The existing MATLAB implementation remains unchanged in the parent directory.
 The first public API preserves the established FREQ-NESS function names:
 
 ```python
-from freqness import FREQNESS_NetworkEstimation, FREQNESS_Startup
+from freqness import (
+    FREQNESS_NetworkEstimation,
+    FREQNESS_Startup,
+    FREQNESS_Visualizer,
+)
 
 allData, MNI, path_home = FREQNESS_Startup("/path/to/FREQNESS_Toolbox")
 FREQ = FREQNESS_NetworkEstimation(allData[0], frex, srate)
+
+Landscape = {"frex": FREQ.frex, "ncomps": 3}
+Patterns = {
+    "MNI_coords": MNI,
+    "frex": [2.4, 8, 12],
+    "ncomps": 3,
+    "path_output": "/path/to/results",
+}
+visualization = FREQNESS_Visualizer(
+    FREQ,
+    Landscape,
+    Patterns,
+    plot_all=False,
+)
+```
+
+The spatial-pattern view plots all valid MNI locations as small black points.
+Requested frequencies follow a low-to-high `viridis` colour gradient, while
+normalized activation magnitude controls marker size. Pass
+`frequency_panels=True` for separate frequency-specific views, or
+`save_nifti=False` when only figures are required.
+
+Install visualization dependencies with:
+
+```text
+python -m pip install -e ".[visualize]"
 ```
 
 Python-style aliases are also available:
 
 ```python
-from freqness import estimate_networks, startup
+from freqness import estimate_networks, startup, visualize
 ```
 
 ## Development installation
@@ -34,4 +64,3 @@ Kringelbach, M. L., & Bonetti, L. (2025). FREQ-NESS Reveals the Dynamic
 Reconfiguration of Frequency-Resolved Brain Networks During Auditory
 Stimulation. *Advanced Science*, 2413195.
 https://doi.org/10.1002/advs.202413195
-
