@@ -1,9 +1,8 @@
 """Complete Python counterpart of ../FREQNESS_MainPipeline.m.
 
-The full pipeline is configured below. During MATLAB/Python validation, change
-`ANALYSES_TO_RUN` to a one-item tuple so that one complete function section is
-executed at a time. Command-line `--analysis` selections provide the same
-control without editing this file.
+The full workflow is configured below. Change `ANALYSES_TO_RUN` to execute
+only a subset of analysis sections. Command-line `--analysis` selections
+provide the same control without editing this file.
 """
 
 from pathlib import Path
@@ -25,7 +24,7 @@ from freqness.FREQNESS_MainPipeline import main
 
 TOOLBOX_ROOT = Path(__file__).resolve().parent.parent
 
-# Complete pipeline by default. For staged testing, use for example:
+# Complete pipeline by default. To run a subset, use for example:
 # ANALYSES_TO_RUN = ("FREQNESS_NetworkEstimation",)
 # ANALYSES_TO_RUN = ("FREQNESS_EntropyLandscape",)
 ANALYSES_TO_RUN = ALL_ANALYSES
@@ -104,8 +103,7 @@ LFO_FREQUENCY = 2.0
 # ============================================================================
 
 SHOW_FIGURES = True
-SAVE_COMPARISON_OUTPUTS = True
-OUTPUT_DIRECTORY = None
+VISUALIZER_OUTPUT_DIRECTORY = None
 
 
 CONFIG = FREQNESSPipelineConfig(
@@ -116,9 +114,8 @@ CONFIG = FREQNESSPipelineConfig(
     network_options=NETWORK_OPTIONS,
     plot_all=PLOT_ALL,
     show=SHOW_FIGURES,
-    save_outputs=SAVE_COMPARISON_OUTPUTS,
     save_nifti=SAVE_NIFTI,
-    output_directory=OUTPUT_DIRECTORY,
+    visualizer_output_directory=VISUALIZER_OUTPUT_DIRECTORY,
     landscape_frex=LANDSCAPE_FREQUENCIES,
     landscape_ncomps=LANDSCAPE_COMPONENTS,
     pattern_frex=PATTERN_FREQUENCIES,
@@ -141,9 +138,6 @@ def run_configured_pipeline():
         f"FREQ-NESS pipeline completed for {completed} non-empty "
         f"condition(s)."
     )
-    for condition in result.conditions:
-        for analysis, output_path in condition.files.items():
-            print(f"{condition.name} | {analysis} | {output_path}")
     return result
 
 

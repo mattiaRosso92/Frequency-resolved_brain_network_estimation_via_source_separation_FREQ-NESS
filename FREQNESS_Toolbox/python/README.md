@@ -139,12 +139,12 @@ as `threshold_sd` (defaults: 1 for frequency gradients and 2 for component
 gradients), and retained-voxel counts are included in the fit diagnostics.
 
 `FREQNESS_MainPipeline` mirrors the complete MATLAB pipeline across every
-folder in `FREQNESS_Data`. For staged MATLAB/Python validation, select one or
-more sections by exact function name. A core-only run saves
-`FREQNESS_NetworkEstimation_python.mat`; later secondary-function runs load
-that same checkpoint rather than silently recomputing it. Each section exports
-a separate MATLAB-readable `.mat` file under
-`python/FREQNESS_ComparisonOutputs/Python/<dataset>/`.
+folder in `FREQNESS_Data`. By default it runs the complete workflow and keeps
+numerical results in memory. Users can select one or more sections by exact
+function name when only a subset of analyses is needed. Network estimation is
+automatically computed as the prerequisite for selected secondary analyses.
+The pipeline keeps numerical outputs in memory; only the Visualizer's
+established NIfTI export can write files, when enabled.
 
 From the `python` directory, run only the core section with:
 
@@ -154,7 +154,7 @@ python FREQNESS_MainPipeline.py \
     --no-show
 ```
 
-Then run one secondary section against the saved core output, for example:
+Run only one secondary section, for example:
 
 ```text
 python FREQNESS_MainPipeline.py \

@@ -3,7 +3,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-from scipy.io import loadmat, savemat
+from scipy.io import savemat
 
 from freqness import (
     ENTROPY_LANDSCAPE,
@@ -31,7 +31,6 @@ def _toolbox(tmp_path: Path, *, empty_second: bool = False) -> Path:
         mni_root / "MNI.mat",
         {"MNI": np.column_stack([np.arange(3.0)] * 3)},
     )
-    (tmp_path / "python").mkdir()
     return tmp_path
 
 
@@ -64,11 +63,12 @@ def test_pipeline_defaults_mirror_matlab_settings():
     assert config.lfo_freq == 2
 
 
-def test_core_section_processes_every_dataset_and_exports_checkpoints(
+def test_core_section_processes_every_dataset_and_keeps_outputs_in_memory(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ):
     root = _toolbox(tmp_path)
+    original_mat_files = set(root.rglob("*.mat"))
     calls: list[float] = []
 
     def fake_estimation(data, frex, srate, **options):
@@ -93,45 +93,32 @@ def test_core_section_processes_every_dataset_and_exports_checkpoints(
         "Dataset_1",
         "Dataset_2",
     ]
-    for condition in result.conditions:
-        path = condition.files[NETWORK_ESTIMATION]
-        assert path.name == "FREQNESS_NetworkEstimation_python.mat"
-        contents = loadmat(path)
-        np.testing.assert_array_equal(contents["frex"].reshape(-1), [2, 4])
-        assert contents["evals"].shape == (2, 2, 1)
+    assert all(
+        isinstance(item.outputs[NETWORK_ESTIMATION], FREQNESSResult)
+        for item in result.conditions
+    )
+    assert set(root.rglob("*.mat")) == original_mat_files
 
 
-def test_secondary_section_loads_saved_core_without_recomputing(
+def test_secondary_section_computes_core_prerequisite_without_exporting_it(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ):
     root = _toolbox(tmp_path)
-    output_root = root / "comparison"
-    monkeypatch.setattr(
-        pipeline_module,
-        "FREQNESS_NetworkEstimation",
-        lambda *args, **kwargs: _freq_result(),
-    )
-    FREQNESS_MainPipeline(
-        FREQNESSPipelineConfig(
-            toolbox_root=root,
-            analyses=(NETWORK_ESTIMATION,),
-            output_directory=output_root,
-            show=False,
-        )
-    )
-
-    def cannot_recompute(*args, **kwargs):
-        raise AssertionError("core estimation was unexpectedly recomputed")
-
+    estimation_calls = 0
     seen_shapes: list[tuple[int, ...]] = []
+
+    def fake_estimation(*args, **kwargs):
+        nonlocal estimation_calls
+        estimation_calls += 1
+        return _freq_result()
 
     def fake_entropy(FREQ, **kwargs):
         seen_shapes.append(FREQ.evals.shape)
         return np.array([[0.5]]), np.array([[2.0]])
 
     monkeypatch.setattr(
-        pipeline_module, "FREQNESS_NetworkEstimation", cannot_recompute
+        pipeline_module, "FREQNESS_NetworkEstimation", fake_estimation
     )
     monkeypatch.setattr(
         pipeline_module, "FREQNESS_EntropyLandscape", fake_entropy
@@ -140,28 +127,19 @@ def test_secondary_section_loads_saved_core_without_recomputing(
         FREQNESSPipelineConfig(
             toolbox_root=root,
             analyses=(ENTROPY_LANDSCAPE,),
-            output_directory=output_root,
             show=False,
         )
     )
 
+    assert estimation_calls == 2
     assert seen_shapes == [(2, 2, 1), (2, 2, 1)]
     for condition in result.conditions:
-        contents = loadmat(condition.files[ENTROPY_LANDSCAPE])
-        np.testing.assert_array_equal(contents["H2"], [[0.5]])
-        np.testing.assert_array_equal(contents["ED"], [[2.0]])
-
-
-def test_secondary_section_requires_existing_core_checkpoint(tmp_path: Path):
-    root = _toolbox(tmp_path)
-
-    with pytest.raises(FileNotFoundError, match="Run FREQNESS_NetworkEstimation"):
-        FREQNESS_MainPipeline(
-            FREQNESSPipelineConfig(
-                toolbox_root=root,
-                analyses=(ENTROPY_LANDSCAPE,),
-                show=False,
-            )
+        assert set(condition.outputs) == {ENTROPY_LANDSCAPE}
+        np.testing.assert_array_equal(
+            condition.outputs[ENTROPY_LANDSCAPE]["H2"], [[0.5]]
+        )
+        np.testing.assert_array_equal(
+            condition.outputs[ENTROPY_LANDSCAPE]["ED"], [[2.0]]
         )
 
 
@@ -182,7 +160,6 @@ def test_empty_dataset_is_retained_and_skipped(
                 toolbox_root=root,
                 analyses=(NETWORK_ESTIMATION,),
                 show=False,
-                save_outputs=False,
             )
         )
 
@@ -200,12 +177,11 @@ def test_pipeline_rejects_invalid_section_selection(analyses):
         FREQNESS_MainPipeline(FREQNESSPipelineConfig(analyses=analyses))
 
 
-def test_executable_pipeline_help_does_not_run_analysis():
-    script = (
-        Path(__file__).resolve().parents[1] / "FREQNESS_MainPipeline.py"
-    )
+def test_executable_pipeline_is_complete_and_user_focused():
+    script = Path(__file__).resolve().parents[1] / "FREQNESS_MainPipeline.py"
     source = script.read_text()
     assert "ANALYSES_TO_RUN = ALL_ANALYSES" in source
     assert "# 1) FREQNESS_NetworkEstimation" in source
     assert "# 7) FREQNESS_CrossCoupling" in source
-    assert "default_toolbox_root=TOOLBOX_ROOT" in source
+    assert "comparison" not in source.lower()
+    assert "checkpoint" not in source.lower()

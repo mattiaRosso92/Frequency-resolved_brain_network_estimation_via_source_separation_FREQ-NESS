@@ -1,26 +1,22 @@
-"""Configurable, comparison-ready FREQ-NESS analysis pipeline."""
+"""Configurable folder-based FREQ-NESS analysis pipeline."""
 
 from __future__ import annotations
 
 import argparse
-from dataclasses import dataclass, field, fields as dataclass_fields
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 import warnings
 
 import numpy as np
 from numpy.typing import NDArray
-from scipy.io import loadmat, savemat
 
 from .FREQNESS_CompGradients import FREQNESS_CompGradients
 from .FREQNESS_CrossCoupling import FREQNESS_CrossCoupling
 from .FREQNESS_EntropyLandscape import FREQNESS_EntropyLandscape
 from .FREQNESS_ExponentialDK import FREQNESS_ExponentialDK
 from .FREQNESS_FreqGradients import FREQNESS_FreqGradients
-from .FREQNESS_NetworkEstimation import (
-    FREQNESS_NetworkEstimation,
-    FREQNESSResult,
-)
+from .FREQNESS_NetworkEstimation import FREQNESS_NetworkEstimation
 from .FREQNESS_Startup import FREQNESS_Startup
 from .FREQNESS_Visualizer import FREQNESS_Visualizer
 
@@ -59,9 +55,8 @@ class FREQNESSPipelineConfig:
     network_options: dict[str, Any] = field(default_factory=dict)
     plot_all: bool = False
     show: bool = True
-    save_outputs: bool = True
     save_nifti: bool = True
-    output_directory: str | Path | None = None
+    visualizer_output_directory: str | Path | None = None
     landscape_frex: FloatArray | None = None
     landscape_ncomps: int = 10
     pattern_frex: FloatArray = field(
@@ -85,11 +80,10 @@ class FREQNESSPipelineConfig:
 
 @dataclass(slots=True)
 class FREQNESSPipelineConditionResult:
-    """Outputs and exported files for one dataset folder."""
+    """In-memory outputs for one dataset folder."""
 
     name: str
     outputs: dict[str, Any] = field(default_factory=dict)
-    files: dict[str, Path] = field(default_factory=dict)
 
 
 @dataclass(slots=True)
@@ -119,7 +113,6 @@ def _validate_config(config: FREQNESSPipelineConfig) -> tuple[str, ...]:
     for value, name in (
         (config.plot_all, "plot_all"),
         (config.show, "show"),
-        (config.save_outputs, "save_outputs"),
         (config.save_nifti, "save_nifti"),
     ):
         if not isinstance(value, (bool, np.bool_)):
@@ -139,115 +132,6 @@ def _condition_names(root: Path, count: int) -> list[str]:
     return names
 
 
-def _output_root(config: FREQNESSPipelineConfig, root: Path) -> Path:
-    if config.output_directory is not None:
-        return Path(config.output_directory).expanduser().resolve()
-    return root / "python" / "FREQNESS_ComparisonOutputs" / "Python"
-
-
-def _checkpoint_path(output_root: Path, condition: str) -> Path:
-    return output_root / condition / f"{NETWORK_ESTIMATION}_python.mat"
-
-
-def _freq_payload(FREQ: FREQNESSResult, condition: str) -> dict[str, Any]:
-    return {
-        "condition": condition,
-        "evals": FREQ.evals,
-        "evecs": FREQ.evecs,
-        "pats": FREQ.pats,
-        "ts": FREQ.ts,
-        "frex": FREQ.frex,
-        "fwhm": FREQ.fwhm,
-        "srate": FREQ.srate,
-        "duration": FREQ.duration,
-        "bad_segments": FREQ.bad_segments,
-        "regularisation": FREQ.regularisation,
-        "scale_factors": FREQ.scale_factors,
-    }
-
-
-def _scalar(contents: Mapping[str, Any], name: str) -> float:
-    values = np.asarray(contents[name], dtype=float)
-    if values.size != 1:
-        raise ValueError(f"Invalid {name} in saved network-estimation output")
-    return float(values.reshape(-1)[0])
-
-
-def _load_freq_checkpoint(path: Path) -> FREQNESSResult:
-    if not path.is_file():
-        raise FileNotFoundError(
-            f"Required core checkpoint not found: {path}. Run "
-            f"{NETWORK_ESTIMATION} for this condition first."
-        )
-    contents = loadmat(path)
-    required = {
-        "evals",
-        "evecs",
-        "pats",
-        "ts",
-        "frex",
-        "fwhm",
-        "srate",
-        "duration",
-        "bad_segments",
-        "regularisation",
-        "scale_factors",
-    }
-    missing = sorted(required.difference(contents))
-    if missing:
-        raise ValueError(
-            f"Core checkpoint {path} is missing: {', '.join(missing)}"
-        )
-    return FREQNESSResult(
-        evals=np.asarray(contents["evals"], dtype=float),
-        evecs=np.asarray(contents["evecs"], dtype=float),
-        pats=np.asarray(contents["pats"], dtype=float),
-        ts=np.asarray(contents["ts"], dtype=float),
-        frex=np.asarray(contents["frex"], dtype=float).reshape(-1),
-        fwhm=np.asarray(contents["fwhm"], dtype=float).reshape(-1),
-        srate=_scalar(contents, "srate"),
-        duration=_scalar(contents, "duration"),
-        bad_segments=np.asarray(
-            contents["bad_segments"], dtype=np.int64
-        ).reshape(-1),
-        regularisation=_scalar(contents, "regularisation"),
-        scale_factors=np.asarray(
-            contents["scale_factors"], dtype=float
-        ).reshape(-1),
-    )
-
-
-def _serializable_dataclass(value: Any) -> dict[str, Any]:
-    payload: dict[str, Any] = {}
-    for item in dataclass_fields(value):
-        if item.name == "figures":
-            continue
-        field_value = getattr(value, item.name)
-        if field_value is None or isinstance(field_value, (str, Path)):
-            continue
-        if np.isscalar(field_value) or isinstance(field_value, np.ndarray):
-            payload[item.name] = field_value
-    return payload
-
-
-def _save_payload(
-    output_root: Path,
-    condition: str,
-    analysis: str,
-    payload: Mapping[str, Any],
-) -> Path:
-    condition_root = output_root / condition
-    condition_root.mkdir(parents=True, exist_ok=True)
-    path = condition_root / f"{analysis}_python.mat"
-    savemat(
-        path,
-        {"condition": condition, **dict(payload)},
-        do_compression=True,
-        long_field_names=True,
-    )
-    return path
-
-
 def _require_mni(
     MNI: NDArray[np.number] | None,
     analysis: str,
@@ -263,23 +147,31 @@ def _require_mni(
     return False
 
 
+def _visualizer_output_root(
+    config: FREQNESSPipelineConfig,
+    toolbox_root: Path,
+) -> Path:
+    if config.visualizer_output_directory is None:
+        return toolbox_root
+    return Path(config.visualizer_output_directory).expanduser().resolve()
+
+
 def FREQNESS_MainPipeline(
     config: FREQNESSPipelineConfig | None = None,
 ) -> FREQNESSPipelineResult:
-    """Run selected MATLAB-equivalent FREQ-NESS stages across dataset folders.
+    """Run selected FREQ-NESS sections across all dataset folders.
 
-    Analyses are selected using their exact public function names. If a
-    secondary analysis is requested without `FREQNESS_NetworkEstimation`, the
-    pipeline loads the previously exported Python core checkpoint. This makes
-    one-function-at-a-time MATLAB/Python validation deterministic and avoids
-    silently recomputing a different prerequisite.
+    Network estimation is always computed as the prerequisite for every
+    non-empty dataset, but is included in the returned outputs only when its
+    section is selected. All numerical analysis results remain in memory. The
+    only optional filesystem output is the Visualizer's established NIfTI
+    export, controlled by save_nifti.
     """
     if config is None:
         config = FREQNESSPipelineConfig()
     selected = _validate_config(config)
     all_data, MNI, root = FREQNESS_Startup(config.toolbox_root)
     names = _condition_names(root, len(all_data))
-    output_root = _output_root(config, root)
     results: list[FREQNESSPipelineConditionResult] = []
 
     for condition, data in zip(names, all_data, strict=True):
@@ -293,26 +185,14 @@ def FREQNESS_MainPipeline(
             )
             continue
 
+        FREQ = FREQNESS_NetworkEstimation(
+            data,
+            np.asarray(config.frex, dtype=float),
+            config.srate,
+            **dict(config.network_options),
+        )
         if NETWORK_ESTIMATION in selected:
-            FREQ = FREQNESS_NetworkEstimation(
-                data,
-                np.asarray(config.frex, dtype=float),
-                config.srate,
-                **dict(config.network_options),
-            )
             condition_result.outputs[NETWORK_ESTIMATION] = FREQ
-            if config.save_outputs:
-                path = _save_payload(
-                    output_root,
-                    condition,
-                    NETWORK_ESTIMATION,
-                    _freq_payload(FREQ, condition),
-                )
-                condition_result.files[NETWORK_ESTIMATION] = path
-        else:
-            FREQ = _load_freq_checkpoint(
-                _checkpoint_path(output_root, condition)
-            )
 
         if VISUALIZER in selected and _require_mni(MNI, VISUALIZER, condition):
             landscape_frex = (
@@ -329,7 +209,7 @@ def FREQNESS_MainPipeline(
                 {
                     "frex": np.asarray(config.pattern_frex, dtype=float),
                     "ncomps": config.pattern_ncomps,
-                    "path_output": output_root / condition,
+                    "path_output": _visualizer_output_root(config, root),
                     "MNI_coords": MNI,
                 },
                 plot_all=config.plot_all,
@@ -337,17 +217,6 @@ def FREQNESS_MainPipeline(
                 show=config.show,
             )
             condition_result.outputs[VISUALIZER] = visualization
-            if config.save_outputs:
-                payload = {
-                    "landscape_frequencies": visualization.landscape_frequencies,
-                    "pattern_frequencies": visualization.pattern_frequencies,
-                    "normalized_patterns": visualization.normalized_patterns,
-                }
-                if visualization.group_patterns is not None:
-                    payload["group_patterns"] = visualization.group_patterns
-                condition_result.files[VISUALIZER] = _save_payload(
-                    output_root, condition, VISUALIZER, payload
-                )
 
         if ENTROPY_LANDSCAPE in selected:
             H2, ED = FREQNESS_EntropyLandscape(
@@ -355,108 +224,58 @@ def FREQNESS_MainPipeline(
                 plot_all=config.plot_all,
                 show=config.show,
             )
-            output = {"H2": H2, "ED": ED}
-            condition_result.outputs[ENTROPY_LANDSCAPE] = output
-            if config.save_outputs:
-                condition_result.files[ENTROPY_LANDSCAPE] = _save_payload(
-                    output_root, condition, ENTROPY_LANDSCAPE, output
-                )
+            condition_result.outputs[ENTROPY_LANDSCAPE] = {
+                "H2": H2,
+                "ED": ED,
+            }
 
         if EXPONENTIAL_DK in selected:
-            decay_coefficients, good_fit = FREQNESS_ExponentialDK(
+            condition_result.outputs[EXPONENTIAL_DK] = FREQNESS_ExponentialDK(
                 FREQ,
                 which_comp=config.expdk_which_comp,
                 range2fit=config.expdk_range2fit,
                 plot_all=config.plot_all,
                 show=config.show,
             )
-            output = {
-                "decayCoeff": decay_coefficients,
-                "goodFit_R2": good_fit.R2,
-            }
-            condition_result.outputs[EXPONENTIAL_DK] = (
-                decay_coefficients,
-                good_fit,
-            )
-            if config.save_outputs:
-                condition_result.files[EXPONENTIAL_DK] = _save_payload(
-                    output_root, condition, EXPONENTIAL_DK, output
-                )
 
         if FREQ_GRADIENTS in selected and _require_mni(
             MNI, FREQ_GRADIENTS, condition
         ):
-            coefficients, good_fit = FREQNESS_FreqGradients(
-                FREQ,
-                MNI,
-                frex2model=config.freqgrad_frex2model,
-                comp2model=config.freqgrad_comp2model,
-                plot_all=config.plot_all,
-                show=config.show,
-            )
             condition_result.outputs[FREQ_GRADIENTS] = (
-                coefficients,
-                good_fit,
-            )
-            if config.save_outputs:
-                payload = {
-                    "gradCoeff": coefficients,
-                    **{
-                        f"goodFit_{name}": value
-                        for name, value in _serializable_dataclass(
-                            good_fit
-                        ).items()
-                    },
-                }
-                condition_result.files[FREQ_GRADIENTS] = _save_payload(
-                    output_root, condition, FREQ_GRADIENTS, payload
+                FREQNESS_FreqGradients(
+                    FREQ,
+                    MNI,
+                    frex2model=config.freqgrad_frex2model,
+                    comp2model=config.freqgrad_comp2model,
+                    plot_all=config.plot_all,
+                    show=config.show,
                 )
+            )
 
         if COMP_GRADIENTS in selected and _require_mni(
             MNI, COMP_GRADIENTS, condition
         ):
-            coefficients, good_fit = FREQNESS_CompGradients(
-                FREQ,
-                MNI,
-                freq2model=config.compgrad_freq2model,
-                comps2model=config.compgrad_comps2model,
-                plot_all=config.plot_all,
-                show=config.show,
-            )
             condition_result.outputs[COMP_GRADIENTS] = (
-                coefficients,
-                good_fit,
-            )
-            if config.save_outputs:
-                payload = {
-                    "gradCoeff": coefficients,
-                    **{
-                        f"goodFit_{name}": value
-                        for name, value in _serializable_dataclass(
-                            good_fit
-                        ).items()
-                    },
-                }
-                condition_result.files[COMP_GRADIENTS] = _save_payload(
-                    output_root, condition, COMP_GRADIENTS, payload
+                FREQNESS_CompGradients(
+                    FREQ,
+                    MNI,
+                    freq2model=config.compgrad_freq2model,
+                    comps2model=config.compgrad_comps2model,
+                    plot_all=config.plot_all,
+                    show=config.show,
                 )
+            )
 
         if CROSS_COUPLING in selected:
-            coupling = FREQNESS_CrossCoupling(
-                FREQ,
-                config.lfo_freq,
-                MNI=MNI,
-                plot_all=config.plot_all,
-                show=config.show,
-            )
-            condition_result.outputs[CROSS_COUPLING] = coupling
-            if config.save_outputs:
-                condition_result.files[CROSS_COUPLING] = _save_payload(
-                    output_root,
-                    condition,
-                    CROSS_COUPLING,
-                    _serializable_dataclass(coupling),
+            condition_result.outputs[CROSS_COUPLING] = (
+                FREQNESS_CrossCoupling(
+                    FREQ,
+                    config.lfo_freq,
+                    MNI=MNI,
+                    plot_all=config.plot_all,
+                    show=config.show,
                 )
+            )
 
     return FREQNESSPipelineResult(
         path_home=root,
@@ -474,7 +293,7 @@ def main(
     parser = argparse.ArgumentParser(
         description=(
             "Run selected FREQ-NESS analyses over FREQNESS_Data folders. "
-            "Repeat --analysis to run multiple stages."
+            "Repeat --analysis to run multiple sections."
         )
     )
     parser.add_argument(
@@ -490,11 +309,6 @@ def main(
         help="Exact function name to run; repeat as needed. Default: all.",
     )
     parser.add_argument(
-        "--output-directory",
-        type=Path,
-        help="Override the comparison-output directory.",
-    )
-    parser.add_argument(
         "--no-show",
         action="store_true",
         help="Create figures without opening interactive windows.",
@@ -504,11 +318,6 @@ def main(
         action="store_true",
         help="Do not export NIfTI files from FREQNESS_Visualizer.",
     )
-    parser.add_argument(
-        "--no-save",
-        action="store_true",
-        help="Do not save MATLAB-compatible stage outputs.",
-    )
     arguments = parser.parse_args(argv)
     config = FREQNESSPipelineConfig(
         toolbox_root=arguments.toolbox_root,
@@ -517,10 +326,8 @@ def main(
             if arguments.analysis is not None
             else ALL_ANALYSES
         ),
-        output_directory=arguments.output_directory,
         show=not arguments.no_show,
         save_nifti=not arguments.no_nifti,
-        save_outputs=not arguments.no_save,
     )
     result = FREQNESS_MainPipeline(config)
     completed = sum(bool(condition.outputs) for condition in result.conditions)
@@ -528,9 +335,6 @@ def main(
         f"FREQ-NESS pipeline completed for {completed} non-empty "
         f"condition(s)."
     )
-    for condition in result.conditions:
-        for analysis, path in condition.files.items():
-            print(f"{condition.name} | {analysis} | {path}")
     return 0
 
 
