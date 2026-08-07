@@ -8,9 +8,11 @@ The first public API preserves the established FREQ-NESS function names:
 ```python
 from freqness import (
     FREQNESS_BackProjection,
+    FREQNESS_CompGradients,
     FREQNESS_CrossCoupling,
     FREQNESS_EntropyLandscape,
     FREQNESS_ExponentialDK,
+    FREQNESS_FreqGradients,
     FREQNESS_InducedResponses,
     FREQNESS_NetworkEstimation,
     FREQNESS_NetworkRemoval,
@@ -67,6 +69,20 @@ IND = FREQNESS_InducedResponses(
     frex2model=[2, 30],
     plot_avg=True,
 )
+freqGradCoeff, freqGoodFit = FREQNESS_FreqGradients(
+    FREQ,
+    MNI,
+    frex2model=[4, 30],
+    comp2model=1,
+    show=False,
+)
+compGradCoeff, compGoodFit = FREQNESS_CompGradients(
+    FREQ,
+    MNI,
+    freq2model=10,
+    comps2model=[1, 3],
+    show=False,
+)
 ```
 
 The spatial-pattern view plots all valid MNI locations as small black points.
@@ -110,6 +126,14 @@ averaging. Event samples and component numbers remain one-based. Epoch
 endpoints are inclusive, while baseline windows use `[start, end)` so a
 prestimulus baseline ending at zero excludes event onset.
 
+`FREQNESS_FreqGradients` and `FREQNESS_CompGradients` model whether dominant
+spatial-pattern locations vary linearly or quadratically along the MNI X, Y,
+and Z axes. Both return coefficients in `[b0, b1, b2]` order and use BIC to
+select model order. The regression targets remain one-based frequency-bin or
+component indices for MATLAB compatibility. The legacy thresholds are exposed
+as `threshold_sd` (defaults: 1 for frequency gradients and 2 for component
+gradients), and retained-voxel counts are included in the fit diagnostics.
+
 Install visualization dependencies with:
 
 ```text
@@ -121,10 +145,12 @@ Python-style aliases are also available:
 ```python
 from freqness import (
     back_project,
+    component_gradients,
     cross_coupling,
     entropy_landscape,
     estimate_networks,
     exponential_decay,
+    frequency_gradients,
     induced_responses,
     remove_network,
     startup,

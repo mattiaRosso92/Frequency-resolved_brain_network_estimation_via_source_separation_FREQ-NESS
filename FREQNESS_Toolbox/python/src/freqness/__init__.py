@@ -5,10 +5,15 @@ from .FREQNESS_CrossCoupling import (
     FREQNESS_CrossCoupling,
     FREQNESSCrossCouplingResult,
 )
+from .FREQNESS_CompGradients import FREQNESS_CompGradients
 from .FREQNESS_EntropyLandscape import FREQNESS_EntropyLandscape
 from .FREQNESS_ExponentialDK import (
     FREQNESS_ExponentialDK,
     FREQNESSExponentialGoodFit,
+)
+from .FREQNESS_FreqGradients import (
+    FREQNESS_FreqGradients,
+    FREQNESSGradientGoodFit,
 )
 from .FREQNESS_InducedResponses import (
     FREQNESS_InducedResponses,
@@ -26,8 +31,10 @@ from .filterFGx import filterFGx
 estimate_networks = FREQNESS_NetworkEstimation
 back_project = FREQNESS_BackProjection
 cross_coupling = FREQNESS_CrossCoupling
+component_gradients = FREQNESS_CompGradients
 entropy_landscape = FREQNESS_EntropyLandscape
 exponential_decay = FREQNESS_ExponentialDK
+frequency_gradients = FREQNESS_FreqGradients
 induced_responses = FREQNESS_InducedResponses
 remove_network = FREQNESS_NetworkRemoval
 startup = FREQNESS_Startup
@@ -37,9 +44,12 @@ __all__ = [
     "FREQNESS_BackProjection",
     "FREQNESS_CrossCoupling",
     "FREQNESSCrossCouplingResult",
+    "FREQNESS_CompGradients",
     "FREQNESS_EntropyLandscape",
     "FREQNESS_ExponentialDK",
     "FREQNESSExponentialGoodFit",
+    "FREQNESS_FreqGradients",
+    "FREQNESSGradientGoodFit",
     "FREQNESS_InducedResponses",
     "FREQNESSInducedResponsesResult",
     "FREQNESS_NetworkEstimation",
@@ -50,9 +60,11 @@ __all__ = [
     "FREQNESSVisualization",
     "back_project",
     "cross_coupling",
+    "component_gradients",
     "entropy_landscape",
     "estimate_networks",
     "exponential_decay",
+    "frequency_gradients",
     "filterFGx",
     "induced_responses",
     "remove_network",
