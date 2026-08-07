@@ -7,16 +7,29 @@ The first public API preserves the established FREQ-NESS function names:
 
 ```python
 from freqness import (
+    FREQNESS_BackProjection,
     FREQNESS_CrossCoupling,
     FREQNESS_EntropyLandscape,
     FREQNESS_ExponentialDK,
     FREQNESS_NetworkEstimation,
+    FREQNESS_NetworkRemoval,
     FREQNESS_Startup,
     FREQNESS_Visualizer,
 )
 
 allData, MNI, path_home = FREQNESS_Startup("/path/to/FREQNESS_Toolbox")
 FREQ = FREQNESS_NetworkEstimation(allData[0], frex, srate)
+backProj = FREQNESS_BackProjection(
+    FREQ,
+    freq2project=10,
+    comps2project=[1, 2],
+)
+dataClean, removedActivity = FREQNESS_NetworkRemoval(
+    FREQ,
+    allData[0],
+    freq2remove=10,
+    comps2remove=[1, 2],
+)
 
 Landscape = {"frex": FREQ.frex, "ncomps": 3}
 Patterns = {
@@ -67,6 +80,19 @@ first-harmonic regression. This replaces the external MATLAB `sineFit.m`
 dependency with deterministic linear least squares and adds raw and normalized
 amplitude, preferred phase, MSE, R², fitted PAC curves, and valid-bin counts.
 
+`FREQNESS_BackProjection` reconstructs the broadband voxel-space contribution
+of one or more networks from the complete retained GED filter set and stored
+component time series. Component numbers remain one-based for MATLAB
+compatibility. The closest analyzed frequency is used when necessary, and
+stored rescaling factors are removed so output is expressed in the original
+data units.
+
+`FREQNESS_NetworkRemoval` uses that backprojection to subtract selected
+broadband network contributions from the original analyzed data. It returns
+both the cleaned data and removed activity in matching dimensions and original
+input units, with one-based component numbering retained for MATLAB
+compatibility.
+
 Install visualization dependencies with:
 
 ```text
@@ -77,10 +103,12 @@ Python-style aliases are also available:
 
 ```python
 from freqness import (
+    back_project,
     cross_coupling,
     entropy_landscape,
     estimate_networks,
     exponential_decay,
+    remove_network,
     startup,
     visualize,
 )
