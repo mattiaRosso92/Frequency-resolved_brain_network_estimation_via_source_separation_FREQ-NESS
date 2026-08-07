@@ -6,11 +6,13 @@ import pytest
 from scipy.io import savemat
 
 from freqness import (
+    BACK_PROJECTION,
     ENTROPY_LANDSCAPE,
     FREQNESS_MainPipeline,
     FREQNESSPipelineConfig,
     FREQNESSResult,
     NETWORK_ESTIMATION,
+    NETWORK_REMOVAL,
 )
 
 
@@ -61,6 +63,12 @@ def test_pipeline_defaults_mirror_matlab_settings():
     np.testing.assert_array_equal(config.freqgrad_frex2model, [8, 12])
     np.testing.assert_array_equal(config.compgrad_comps2model, [1, 5])
     assert config.lfo_freq == 2
+    assert config.backproj_freq2project == 8.4
+    np.testing.assert_array_equal(config.backproj_comps2project, [1])
+    assert config.netrem_freq2remove == 8.4
+    np.testing.assert_array_equal(config.netrem_comps2remove, [1])
+    assert config.netrem_plot_landscape is True
+    assert config.netrem_landscape_ncomps == 3
 
 
 def test_core_section_processes_every_dataset_and_keeps_outputs_in_memory(
@@ -168,6 +176,79 @@ def test_empty_dataset_is_retained_and_skipped(
     assert not result.conditions[1].outputs
 
 
+def test_backprojection_and_network_removal_sections_are_independent(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    root = _toolbox(tmp_path)
+    estimation_inputs: list[np.ndarray] = []
+    backprojection_settings: list[tuple[float, list[int]]] = []
+    removal_settings: list[tuple[float, list[int]]] = []
+    visualization_settings: list[tuple[list[float], int, object]] = []
+
+    def fake_estimation(data, *args, **kwargs):
+        estimation_inputs.append(np.asarray(data).copy())
+        return _freq_result(float(np.asarray(data)[0, 0, 0]))
+
+    def fake_backprojection(FREQ, frequency, *, comps2project):
+        backprojection_settings.append(
+            (float(frequency), np.asarray(comps2project).tolist())
+        )
+        return np.full((3, 20), 0.25)
+
+    def fake_removal(FREQ, data, frequency, *, comps2remove):
+        removal_settings.append(
+            (float(frequency), np.asarray(comps2remove).tolist())
+        )
+        removed = np.full_like(data, 0.25, dtype=float)
+        return np.asarray(data, dtype=float) - removed, removed
+
+    def fake_visualizer(FREQ, Landscape, Patterns, **kwargs):
+        visualization_settings.append(
+            (list(Landscape["frex"]), Landscape["ncomps"], Patterns)
+        )
+        assert kwargs["save_nifti"] is False
+        return "clean landscape"
+
+    monkeypatch.setattr(
+        pipeline_module, "FREQNESS_NetworkEstimation", fake_estimation
+    )
+    monkeypatch.setattr(
+        pipeline_module, "FREQNESS_BackProjection", fake_backprojection
+    )
+    monkeypatch.setattr(
+        pipeline_module, "FREQNESS_NetworkRemoval", fake_removal
+    )
+    monkeypatch.setattr(
+        pipeline_module, "FREQNESS_Visualizer", fake_visualizer
+    )
+
+    result = FREQNESS_MainPipeline(
+        FREQNESSPipelineConfig(
+            toolbox_root=root,
+            frex=np.array([2.0, 4.0]),
+            analyses=(BACK_PROJECTION, NETWORK_REMOVAL),
+            show=False,
+        )
+    )
+
+    assert len(estimation_inputs) == 4
+    assert backprojection_settings == [(8.4, [1]), (8.4, [1])]
+    assert removal_settings == [(8.4, [1]), (8.4, [1])]
+    assert visualization_settings == [([2.0, 4.0], 3, None)] * 2
+    for condition in result.conditions:
+        assert set(condition.outputs) == {BACK_PROJECTION, NETWORK_REMOVAL}
+        removal = condition.outputs[NETWORK_REMOVAL]
+        assert removal["visualization"] == "clean landscape"
+        assert isinstance(removal["FREQ_clean"], FREQNESSResult)
+        np.testing.assert_allclose(
+            removal["dataClean"] + removal["removedActivity"],
+            estimation_inputs[0]
+            if condition.name == "Dataset_1"
+            else estimation_inputs[2],
+        )
+
+
 @pytest.mark.parametrize(
     "analyses",
     [(), ("UnknownFunction",), (NETWORK_ESTIMATION, NETWORK_ESTIMATION)],
@@ -183,5 +264,7 @@ def test_executable_pipeline_is_complete_and_user_focused():
     assert "ANALYSES_TO_RUN = ALL_ANALYSES" in source
     assert "# 1) FREQNESS_NetworkEstimation" in source
     assert "# 7) FREQNESS_CrossCoupling" in source
+    assert "# 8) FREQNESS_BackProjection" in source
+    assert "# 9) FREQNESS_NetworkRemoval" in source
     assert "comparison" not in source.lower()
     assert "checkpoint" not in source.lower()

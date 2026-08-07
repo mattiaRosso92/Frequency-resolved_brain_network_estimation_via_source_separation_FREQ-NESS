@@ -99,6 +99,24 @@ LFO_FREQUENCY = 2.0
 
 
 # ============================================================================
+# 8) FREQNESS_BackProjection
+# ============================================================================
+
+BACKPROJ_FREQUENCY = 8.4
+BACKPROJ_COMPONENTS = np.array([1], dtype=np.int64)
+
+
+# ============================================================================
+# 9) FREQNESS_NetworkRemoval
+# ============================================================================
+
+NETREM_FREQUENCY = 8.4
+NETREM_COMPONENTS = np.array([1], dtype=np.int64)
+NETREM_PLOT_LANDSCAPE = True
+NETREM_LANDSCAPE_COMPONENTS = 3
+
+
+# ============================================================================
 # OUTPUT AND DISPLAY SETTINGS
 # ============================================================================
 
@@ -127,6 +145,12 @@ CONFIG = FREQNESSPipelineConfig(
     compgrad_freq2model=COMPGRAD_FREQUENCY,
     compgrad_comps2model=COMPGRAD_COMPONENTS,
     lfo_freq=LFO_FREQUENCY,
+    backproj_freq2project=BACKPROJ_FREQUENCY,
+    backproj_comps2project=BACKPROJ_COMPONENTS,
+    netrem_freq2remove=NETREM_FREQUENCY,
+    netrem_comps2remove=NETREM_COMPONENTS,
+    netrem_plot_landscape=NETREM_PLOT_LANDSCAPE,
+    netrem_landscape_ncomps=NETREM_LANDSCAPE_COMPONENTS,
 )
 
 

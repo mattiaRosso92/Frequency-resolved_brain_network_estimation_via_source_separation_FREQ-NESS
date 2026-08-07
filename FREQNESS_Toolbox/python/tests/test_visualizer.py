@@ -93,6 +93,27 @@ def test_visualizer_creates_group_landscape_and_frequency_colored_patterns():
     assert colorbar_axis.get_ylabel() == "Frequency (Hz)"
 
 
+def test_visualizer_supports_landscape_only_without_mni_or_nifti():
+    FREQ, Landscape, _ = _example_inputs(nsubs=2)
+    landscape_only = SimpleNamespace(frex=FREQ.frex, evals=FREQ.evals)
+
+    result = FREQNESS_Visualizer(
+        landscape_only,
+        Landscape,
+        None,
+        save_nifti=True,
+        show=False,
+    )
+
+    assert len(result.landscape_figures) == 1
+    assert result.pattern_figures == []
+    assert result.frequency_panel_figures == []
+    assert result.nifti_paths == []
+    assert result.pattern_frequencies is None
+    assert result.normalized_patterns is None
+    assert result.group_patterns is None
+
+
 def test_visualizer_plot_all_and_frequency_panels_include_each_subject():
     FREQ, Landscape, Patterns = _example_inputs(nsubs=2)
 

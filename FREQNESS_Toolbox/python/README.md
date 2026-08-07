@@ -143,8 +143,13 @@ folder in `FREQNESS_Data`. By default it runs the complete workflow and keeps
 numerical results in memory. Users can select one or more sections by exact
 function name when only a subset of analyses is needed. Network estimation is
 automatically computed as the prerequisite for selected secondary analyses.
-The pipeline keeps numerical outputs in memory; only the Visualizer's
-established NIfTI export can write files, when enabled.
+The BackProjection and NetworkRemoval sections use MATLAB-compatible,
+one-based component numbering. NetworkRemoval returns the cleaned data and
+removed activity in memory; when requested, the pipeline re-estimates the
+cleaned data and plots its first three network components. The re-estimation
+is deliberately kept in the pipeline, leaving NetworkRemoval as a focused
+subtraction function. The pipeline keeps numerical outputs in memory; only
+the Visualizer's established NIfTI export can write files, when enabled.
 
 From the `python` directory, run only the core section with:
 

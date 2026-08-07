@@ -26,8 +26,8 @@ class FREQNESSVisualization:
     frequency_panel_figures: list[Figure]
     nifti_paths: list[Path]
     landscape_frequencies: FloatArray
-    pattern_frequencies: FloatArray
-    normalized_patterns: FloatArray
+    pattern_frequencies: FloatArray | None
+    normalized_patterns: FloatArray | None
     group_patterns: FloatArray | None
 
 
@@ -102,7 +102,6 @@ def _canonical_inputs(
     frequencies = _frequency_vector(
         _field(FREQ, "frex"), "FREQ.frex", sort=False
     )
-
     eigenvalues = np.asarray(_field(FREQ, "evals"), dtype=float)
     if eigenvalues.ndim == 2:
         eigenvalues = eigenvalues[:, :, np.newaxis]
@@ -110,7 +109,6 @@ def _canonical_inputs(
         raise ValueError(
             "FREQ.evals must have shape (components, frequencies[, participants])"
         )
-
     patterns = np.asarray(_field(FREQ, "pats"), dtype=float)
     if patterns.ndim == 3:
         patterns = patterns[:, :, :, np.newaxis]
@@ -167,6 +165,42 @@ def _canonical_inputs(
         landscape_frequencies,
         pattern_indices,
         pattern_frequencies,
+    )
+
+
+def _canonical_landscape_inputs(
+    FREQ: Any,
+    Landscape: Any,
+) -> tuple[FloatArray, FloatArray, int, NDArray[np.int64], FloatArray]:
+    """Validate the inputs required for a landscape-only visualization."""
+    frequencies = _frequency_vector(
+        _field(FREQ, "frex"), "FREQ.frex", sort=False
+    )
+    eigenvalues = np.asarray(_field(FREQ, "evals"), dtype=float)
+    if eigenvalues.ndim == 2:
+        eigenvalues = eigenvalues[:, :, np.newaxis]
+    if eigenvalues.ndim != 3:
+        raise ValueError(
+            "FREQ.evals must have shape (components, frequencies[, participants])"
+        )
+    if eigenvalues.shape[1] != frequencies.size:
+        raise ValueError("FREQ.evals frequency dimension does not match FREQ.frex")
+    landscape_ncomps = _positive_integer(
+        _field(Landscape, "ncomps"), "Landscape.ncomps"
+    )
+    if landscape_ncomps > eigenvalues.shape[0]:
+        raise ValueError(
+            "Landscape.ncomps exceeds the number of estimated networks"
+        )
+    landscape_indices, landscape_frequencies = _nearest_frequency_indices(
+        frequencies, _field(Landscape, "frex"), "Landscape"
+    )
+    return (
+        frequencies,
+        eigenvalues,
+        landscape_ncomps,
+        landscape_indices,
+        landscape_frequencies,
     )
 
 
@@ -605,7 +639,7 @@ def _nifti_output(
 def FREQNESS_Visualizer(
     FREQ: Any,
     Landscape: Any,
-    Patterns: Any,
+    Patterns: Any | None,
     *,
     plot_all: bool = False,
     threshold_sd: float | None = 1.0,
@@ -619,8 +653,9 @@ def FREQNESS_Visualizer(
     ``FREQ`` may be a :class:`~freqness.FREQNESSResult`, a mapping, or an
     object exposing ``evals``, ``pats``, and ``frex`` attributes. ``Landscape``
     and ``Patterns`` accept MATLAB-like mappings or objects with the same field
-    names. Pattern colour represents the requested frequency; marker size
-    represents normalized activation magnitude.
+    names. Pass ``Patterns=None`` to produce only the network landscape, with
+    no MNI requirement or NIfTI output. Pattern colour represents the requested
+    frequency; marker size represents normalized activation magnitude.
 
     Parameters
     ----------
@@ -656,6 +691,38 @@ def FREQNESS_Visualizer(
         if threshold_sd < 0:
             raise ValueError("threshold_sd cannot be negative")
         threshold_sd = float(threshold_sd)
+
+    if Patterns is None:
+        (
+            _frequencies,
+            eigenvalues,
+            landscape_ncomps,
+            landscape_indices,
+            landscape_frequencies,
+        ) = _canonical_landscape_inputs(FREQ, Landscape)
+        selected_eigenvalues = eigenvalues[
+            :landscape_ncomps, landscape_indices, :
+        ]
+        landscape_figures = _landscape_plots(
+            selected_eigenvalues,
+            landscape_frequencies,
+            landscape_ncomps,
+            plot_all=bool(plot_all),
+        )
+        if show:
+            import matplotlib.pyplot as plt
+
+            plt.show()
+        return FREQNESSVisualization(
+            landscape_figures=landscape_figures,
+            pattern_figures=[],
+            frequency_panel_figures=[],
+            nifti_paths=[],
+            landscape_frequencies=landscape_frequencies,
+            pattern_frequencies=None,
+            normalized_patterns=None,
+            group_patterns=None,
+        )
 
     (
         _frequencies,

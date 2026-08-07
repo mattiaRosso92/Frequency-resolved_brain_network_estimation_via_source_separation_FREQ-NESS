@@ -11,12 +11,14 @@ import warnings
 import numpy as np
 from numpy.typing import NDArray
 
+from .FREQNESS_BackProjection import FREQNESS_BackProjection
 from .FREQNESS_CompGradients import FREQNESS_CompGradients
 from .FREQNESS_CrossCoupling import FREQNESS_CrossCoupling
 from .FREQNESS_EntropyLandscape import FREQNESS_EntropyLandscape
 from .FREQNESS_ExponentialDK import FREQNESS_ExponentialDK
 from .FREQNESS_FreqGradients import FREQNESS_FreqGradients
 from .FREQNESS_NetworkEstimation import FREQNESS_NetworkEstimation
+from .FREQNESS_NetworkRemoval import FREQNESS_NetworkRemoval
 from .FREQNESS_Startup import FREQNESS_Startup
 from .FREQNESS_Visualizer import FREQNESS_Visualizer
 
@@ -30,6 +32,8 @@ EXPONENTIAL_DK = "FREQNESS_ExponentialDK"
 FREQ_GRADIENTS = "FREQNESS_FreqGradients"
 COMP_GRADIENTS = "FREQNESS_CompGradients"
 CROSS_COUPLING = "FREQNESS_CrossCoupling"
+BACK_PROJECTION = "FREQNESS_BackProjection"
+NETWORK_REMOVAL = "FREQNESS_NetworkRemoval"
 
 ALL_ANALYSES = (
     NETWORK_ESTIMATION,
@@ -39,6 +43,8 @@ ALL_ANALYSES = (
     FREQ_GRADIENTS,
     COMP_GRADIENTS,
     CROSS_COUPLING,
+    BACK_PROJECTION,
+    NETWORK_REMOVAL,
 )
 
 
@@ -76,6 +82,16 @@ class FREQNESSPipelineConfig:
         default_factory=lambda: np.array([1, 5], dtype=np.int64)
     )
     lfo_freq: float = 2.0
+    backproj_freq2project: float = 8.4
+    backproj_comps2project: NDArray[np.int64] = field(
+        default_factory=lambda: np.array([1], dtype=np.int64)
+    )
+    netrem_freq2remove: float = 8.4
+    netrem_comps2remove: NDArray[np.int64] = field(
+        default_factory=lambda: np.array([1], dtype=np.int64)
+    )
+    netrem_plot_landscape: bool = True
+    netrem_landscape_ncomps: int = 3
 
 
 @dataclass(slots=True)
@@ -114,6 +130,7 @@ def _validate_config(config: FREQNESSPipelineConfig) -> tuple[str, ...]:
         (config.plot_all, "plot_all"),
         (config.show, "show"),
         (config.save_nifti, "save_nifti"),
+        (config.netrem_plot_landscape, "netrem_plot_landscape"),
     ):
         if not isinstance(value, (bool, np.bool_)):
             raise TypeError(f"config.{name} must be a boolean")
@@ -277,6 +294,52 @@ def FREQNESS_MainPipeline(
                 )
             )
 
+        if BACK_PROJECTION in selected:
+            condition_result.outputs[BACK_PROJECTION] = FREQNESS_BackProjection(
+                FREQ,
+                config.backproj_freq2project,
+                comps2project=config.backproj_comps2project,
+            )
+
+        if NETWORK_REMOVAL in selected:
+            analyzed_data = np.asarray(data, dtype=float)[
+                :, : FREQ.ts.shape[1], ...
+            ]
+            data_clean, removed_activity = FREQNESS_NetworkRemoval(
+                FREQ,
+                analyzed_data,
+                config.netrem_freq2remove,
+                comps2remove=config.netrem_comps2remove,
+            )
+            network_removal_output: dict[str, Any] = {
+                "dataClean": data_clean,
+                "removedActivity": removed_activity,
+            }
+            if config.netrem_plot_landscape:
+                FREQ_clean = FREQNESS_NetworkEstimation(
+                    data_clean,
+                    np.asarray(config.frex, dtype=float),
+                    config.srate,
+                    **dict(config.network_options),
+                )
+                clean_visualization = FREQNESS_Visualizer(
+                    FREQ_clean,
+                    {
+                        "frex": np.asarray(config.frex, dtype=float),
+                        "ncomps": config.netrem_landscape_ncomps,
+                    },
+                    None,
+                    save_nifti=False,
+                    show=config.show,
+                )
+                network_removal_output.update(
+                    {
+                        "FREQ_clean": FREQ_clean,
+                        "visualization": clean_visualization,
+                    }
+                )
+            condition_result.outputs[NETWORK_REMOVAL] = network_removal_output
+
     return FREQNESSPipelineResult(
         path_home=root,
         MNI=MNI,
@@ -340,6 +403,7 @@ def main(
 
 __all__ = [
     "ALL_ANALYSES",
+    "BACK_PROJECTION",
     "COMP_GRADIENTS",
     "CROSS_COUPLING",
     "ENTROPY_LANDSCAPE",
@@ -350,6 +414,7 @@ __all__ = [
     "FREQNESSPipelineResult",
     "FREQ_GRADIENTS",
     "NETWORK_ESTIMATION",
+    "NETWORK_REMOVAL",
     "VISUALIZER",
     "main",
 ]

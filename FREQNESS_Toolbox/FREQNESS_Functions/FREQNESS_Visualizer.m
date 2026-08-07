@@ -50,7 +50,8 @@ function FREQNESS_Visualizer(FREQ,Landscape,Patterns,varargin)
 %      - Landscape.ncomps     : Number of components (networks) to visualize in the landscape.
 %
 %
-%  - Patterns                 : Structure containing settings for activation patterns visualization
+%  - Patterns                 : Structure containing settings for activation patterns visualization.
+%                               Pass [] to generate only the network landscape.
 %      - Patterns.MNI_coords  : MNI coordinates provided in the same order as your data
 %                               (N x 3, where N is the brain voxel number)
 %      - Patterns.frex        : Vector of frequencies to visualize the associated
@@ -228,6 +229,12 @@ if nsubs > 1
         'Location', 'Northeast', 'FontSize', 12);
     grid minor; set(gca, 'FontSize', 12, 'LineWidth', 1.5); box on; set(gcf, 'Color', 'w');
 
+end
+
+
+% Landscape-only mode: skip spatial-pattern figures and NIFTI output.
+if isempty(Patterns)
+    return
 end
 
 
@@ -503,6 +510,5 @@ end
 
 
 end
-
 
 

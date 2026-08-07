@@ -21,6 +21,7 @@ from .FREQNESS_InducedResponses import (
 )
 from .FREQNESS_MainPipeline import (
     ALL_ANALYSES,
+    BACK_PROJECTION,
     COMP_GRADIENTS,
     CROSS_COUPLING,
     ENTROPY_LANDSCAPE,
@@ -31,6 +32,7 @@ from .FREQNESS_MainPipeline import (
     FREQNESSPipelineResult,
     FREQ_GRADIENTS,
     NETWORK_ESTIMATION,
+    NETWORK_REMOVAL,
     VISUALIZER,
 )
 from .FREQNESS_NetworkEstimation import (
@@ -91,12 +93,14 @@ __all__ = [
     "startup",
     "visualize",
     "ALL_ANALYSES",
+    "BACK_PROJECTION",
     "COMP_GRADIENTS",
     "CROSS_COUPLING",
     "ENTROPY_LANDSCAPE",
     "EXPONENTIAL_DK",
     "FREQ_GRADIENTS",
     "NETWORK_ESTIMATION",
+    "NETWORK_REMOVAL",
     "VISUALIZER",
 ]
 
