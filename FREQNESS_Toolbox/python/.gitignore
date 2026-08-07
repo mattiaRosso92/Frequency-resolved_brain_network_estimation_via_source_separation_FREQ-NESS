@@ -5,4 +5,4 @@ __pycache__/
 *.egg-info/
 build/
 dist/
-
+FREQNESS_ComparisonOutputs/

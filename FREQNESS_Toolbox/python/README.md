@@ -14,6 +14,7 @@ from freqness import (
     FREQNESS_ExponentialDK,
     FREQNESS_FreqGradients,
     FREQNESS_InducedResponses,
+    FREQNESS_MainPipeline,
     FREQNESS_NetworkEstimation,
     FREQNESS_NetworkRemoval,
     FREQNESS_Startup,
@@ -83,6 +84,9 @@ compGradCoeff, compGoodFit = FREQNESS_CompGradients(
     comps2model=[1, 3],
     show=False,
 )
+
+# Run the complete folder-based workflow, or select exact function sections.
+pipeline = FREQNESS_MainPipeline()
 ```
 
 The spatial-pattern view plots all valid MNI locations as small black points.
@@ -134,6 +138,30 @@ component indices for MATLAB compatibility. The legacy thresholds are exposed
 as `threshold_sd` (defaults: 1 for frequency gradients and 2 for component
 gradients), and retained-voxel counts are included in the fit diagnostics.
 
+`FREQNESS_MainPipeline` mirrors the complete MATLAB pipeline across every
+folder in `FREQNESS_Data`. For staged MATLAB/Python validation, select one or
+more sections by exact function name. A core-only run saves
+`FREQNESS_NetworkEstimation_python.mat`; later secondary-function runs load
+that same checkpoint rather than silently recomputing it. Each section exports
+a separate MATLAB-readable `.mat` file under
+`python/FREQNESS_ComparisonOutputs/Python/<dataset>/`.
+
+From the `python` directory, run only the core section with:
+
+```text
+python FREQNESS_MainPipeline.py \
+    --analysis FREQNESS_NetworkEstimation \
+    --no-show
+```
+
+Then run one secondary section against the saved core output, for example:
+
+```text
+python FREQNESS_MainPipeline.py \
+    --analysis FREQNESS_EntropyLandscape \
+    --no-show
+```
+
 Install visualization dependencies with:
 
 ```text
@@ -152,6 +180,7 @@ from freqness import (
     exponential_decay,
     frequency_gradients,
     induced_responses,
+    main_pipeline,
     remove_network,
     startup,
     visualize,
