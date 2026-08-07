@@ -11,6 +11,7 @@ from freqness import (
     FREQNESS_CrossCoupling,
     FREQNESS_EntropyLandscape,
     FREQNESS_ExponentialDK,
+    FREQNESS_InducedResponses,
     FREQNESS_NetworkEstimation,
     FREQNESS_NetworkRemoval,
     FREQNESS_Startup,
@@ -57,6 +58,15 @@ CFC = FREQNESS_CrossCoupling(
     frex2model=[4, 30],
     which_comp=1,
 )
+IND = FREQNESS_InducedResponses(
+    FREQ,
+    events=[501, 1501, 2501],
+    epoch_window=[-0.5, 1.0],
+    baseline_window=[-0.4, 0.0],
+    which_comp=1,
+    frex2model=[2, 30],
+    plot_avg=True,
+)
 ```
 
 The spatial-pattern view plots all valid MNI locations as small black points.
@@ -93,6 +103,13 @@ both the cleaned data and removed activity in matching dimensions and original
 input units, with one-based component numbering retained for MATLAB
 compatibility.
 
+`FREQNESS_InducedResponses` continuously filters selected broadband component
+time series at their corresponding network frequencies, computes Hilbert
+power, and applies trial-wise baseline normalization in decibels before trial
+averaging. Event samples and component numbers remain one-based. Epoch
+endpoints are inclusive, while baseline windows use `[start, end)` so a
+prestimulus baseline ending at zero excludes event onset.
+
 Install visualization dependencies with:
 
 ```text
@@ -108,6 +125,7 @@ from freqness import (
     entropy_landscape,
     estimate_networks,
     exponential_decay,
+    induced_responses,
     remove_network,
     startup,
     visualize,
