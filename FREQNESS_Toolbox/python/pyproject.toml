@@ -1,0 +1,46 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "freqness"
+version = "0.1.0.dev0"
+description = "Python implementation of the FREQ-NESS toolbox"
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [
+  { name = "Mattia Rosso" },
+  { name = "Chiara Malvaso", email = "chiara.malvaso2@unibo.it" },
+  { name = "Leonardo Bonetti" },
+]
+dependencies = [
+  "numpy>=1.24",
+  "scipy>=1.10",
+]
+
+[project.optional-dependencies]
+plot = ["matplotlib>=3.7"]
+nifti = ["nibabel>=5.0"]
+visualize = [
+  "matplotlib>=3.7",
+  "nibabel>=5.0",
+]
+test = [
+  "pytest>=8",
+  "matplotlib>=3.7",
+  "nibabel>=5.0",
+]
+
+[project.urls]
+Repository = "https://github.com/mattiaRosso92/Frequency-resolved_brain_network_estimation_via_source_separation_FREQ-NESS"
+Publication = "https://doi.org/10.1002/advs.202413195"
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+addopts = "-ra"
+testpaths = ["tests"]

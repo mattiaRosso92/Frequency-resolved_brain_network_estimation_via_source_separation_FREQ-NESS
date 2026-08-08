@@ -3,7 +3,7 @@ function [allData, MNI, path_home] = FREQNESS_Startup()
 %  FREQNESS STARTUP FUNCTION
 % ========================================================================
 %
-%  If you find this function useful, please cite the first FREQNESS paper:
+%  If you use this toolbox, please cite:
 %  Rosso, M., Fernández‐Rubio, G., Keller, P. E., Brattico, E., Vuust, P.,
 %  Kringelbach, M. L., & Bonetti, L. (2025).
 %  FREQ-NESS Reveals the Dynamic Reconfiguration of Frequency-Resolved
@@ -16,6 +16,13 @@ function [allData, MNI, path_home] = FREQNESS_Startup()
 %  This function initializes the FREQNESS toolbox by automatically
 %  determining its installation directory and adding all required
 %  subfolders to the MATLAB path.
+%
+%  AUTHORS:
+%  Mattia Rosso & Leonardo Bonetti
+%  mattia.rosso@clin.au.dk
+%  leonardo.bonetti@clin.au.dk; leonardo.bonetti@psych.ox.ac.uk
+%  Center for Music in the Brain, Aarhus University
+%  Centre for Eudaimonia and Human Flourishing, Linacre College, University of Oxford
 %
 % ========================================================================
 

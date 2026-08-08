@@ -3,7 +3,7 @@ function FREQNESS_Visualizer(FREQ,Landscape,Patterns,varargin)
 % ========================================================================
 %  FREQNESS VISUALIZER: NETWORK LANDSCAPE & BRAIN ACTIVATION PATTERNS
 %
-%  Please cite the first FREQNESS paper:
+%  If you use this toolbox, please cite:
 %  Rosso, M., Fernández‐Rubio, G., Keller, P. E., Brattico, E., Vuust, P.,
 %  Kringelbach, M. L., & Bonetti, L. (2025).
 %  FREQ‐NESS Reveals the Dynamic Reconfiguration of Frequency‐Resolved Brain
@@ -50,7 +50,8 @@ function FREQNESS_Visualizer(FREQ,Landscape,Patterns,varargin)
 %      - Landscape.ncomps     : Number of components (networks) to visualize in the landscape.
 %
 %
-%  - Patterns                 : Structure containing settings for activation patterns visualization
+%  - Patterns                 : Structure containing settings for activation patterns visualization.
+%                               Pass [] to generate only the network landscape.
 %      - Patterns.MNI_coords  : MNI coordinates provided in the same order as your data
 %                               (N x 3, where N is the brain voxel number)
 %      - Patterns.frex        : Vector of frequencies to visualize the associated
@@ -228,6 +229,12 @@ if nsubs > 1
         'Location', 'Northeast', 'FontSize', 12);
     grid minor; set(gca, 'FontSize', 12, 'LineWidth', 1.5); box on; set(gcf, 'Color', 'w');
 
+end
+
+
+% Landscape-only mode: skip spatial-pattern figures and NIFTI output.
+if isempty(Patterns)
+    return
 end
 
 
@@ -503,6 +510,4 @@ end
 
 
 end
-
-
 

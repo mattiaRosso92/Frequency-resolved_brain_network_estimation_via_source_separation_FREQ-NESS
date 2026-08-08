@@ -1,7 +1,7 @@
 % ========================================================================
 %  FREQNESS: Main analysis pipeline for brain network estimation
 %
-%  Please cite the first FREQNESS paper:
+%  If you use this toolbox, please cite:
 %  Rosso, M., Fernández‐Rubio, G., Keller, P. E., Brattico, E., Vuust, P., Kringelbach, M. L., & Bonetti, L. (2025).
 %  FREQ‐NESS Reveals the Dynamic Reconfiguration of Frequency‐Resolved Brain Networks During Auditory Stimulation.
 %  Advanced Science, 2413195.
@@ -98,6 +98,15 @@
 %    PAC histograms and sine-fit parameters (amplitude, phase shift, etc.), with
 %    optional 3D visualizations of the LFO and peak carrier networks in MNI space.
 %
+%  - FREQNESS_BackProjection(FREQ, freq2project, ...)
+%    Reconstructs selected frequency-resolved components in broadband voxel
+%    space using the GED forward model and component time series.
+%
+%  - FREQNESS_NetworkRemoval(FREQ, data, freq2remove, ...)
+%    Removes selected backprojected network activity from the original data.
+%    The cleaned data can then be re-estimated to inspect the residual
+%    frequency-resolved network landscape.
+%
 % ------------------------------------------------------------------------
 %  AUTHORS:
 %  Mattia Rosso & Leonardo Bonetti
@@ -177,6 +186,20 @@ compgrad_comps2model = [1 5]; % range of components to include in the gradient f
 % ------------------------------------------------------------------------
 lfo_freq = 2; % low-frequency oscillator (Hz)
 
+% ------------------------------------------------------------------------
+% 8) FREQNESS_BackProjection
+% ------------------------------------------------------------------------
+backproj_freq2project  = 8.4; % network frequency to backproject (Hz)
+backproj_comps2project = 1;   % component(s) to backproject
+
+% ------------------------------------------------------------------------
+% 9) FREQNESS_NetworkRemoval
+% ------------------------------------------------------------------------
+netrem_freq2remove      = 8.4; % network frequency to remove (Hz)
+netrem_comps2remove     = 1;   % component(s) to remove
+netrem_plot_landscape   = true; % re-estimate and plot the cleaned landscape
+netrem_landscape_ncomps = 3;    % cleaned components to visualize
+
 %% ========================================================================
 % INITIALIZE OUTPUT VARIABLES (one per Group / Condition)
 % ========================================================================
@@ -200,6 +223,12 @@ gradCoeff_c = cell(nconds,1);
 goodFit_c   = cell(nconds,1);
 % Cross-frequency coupling structure
 CFC         = cell(nconds,1);
+% Backprojected broadband network activity
+backProj    = cell(nconds,1);
+% Network-removal outputs and cleaned-data re-estimation
+dataClean       = cell(nconds,1);
+removedActivity = cell(nconds,1);
+FREQ_clean      = cell(nconds,1);
 
 % Iterate the pipeline over Conditions or Groups
 for condi = 1:nconds
@@ -303,6 +332,35 @@ for condi = 1:nconds
 
     CFC{condi} = FREQNESS_CrossCoupling(FREQ{condi}, lfo_freq, 'mni', MNI);
 
+    %% ========================================================================
+    % 8) FREQNESS BACKPROJECTION
+    % ========================================================================
+
+    backProj{condi} = FREQNESS_BackProjection(FREQ{condi}, ...
+        backproj_freq2project, ...
+        'comps2project',backproj_comps2project);
+
+    %% ========================================================================
+    % 9) FREQNESS NETWORK REMOVAL
+    % ========================================================================
+
+    % Match the exact data segment analyzed by FREQNESS_NetworkEstimation.
+    data2remove = allData{condi}(:,1:size(FREQ{condi}.ts,2),:);
+    [dataClean{condi}, removedActivity{condi}] = FREQNESS_NetworkRemoval( ...
+        FREQ{condi}, data2remove, netrem_freq2remove, ...
+        'comps2remove',netrem_comps2remove);
+
+    % Re-estimation belongs to the pipeline rather than NetworkRemoval:
+    % dataClean remains available for any subsequent analysis chosen by users.
+    if netrem_plot_landscape
+        FREQ_clean{condi} = FREQNESS_NetworkEstimation(dataClean{condi},frex,srate);
+        Landscape_clean = [];
+        Landscape_clean.frex = frex;
+        Landscape_clean.ncomps = netrem_landscape_ncomps;
+        FREQNESS_Visualizer(FREQ_clean{condi},Landscape_clean,[], ...
+            'plot_all',plot_all)
+    end
+
 end
 
 %% ========================================================================
@@ -329,11 +387,10 @@ end
 % Leonardo Bonetti: leonardo.bonetti@clin.au.dk
 %                   leonardo.bonetti@psych.ox.ac.uk
 %
-%  Please cite the first FREQNESS paper:
+%  If you use this toolbox, please cite:
 %  M. Rosso, G. Fernández-Rubio, P. E. Keller, E. Brattico, P. Vuust, M. L. Kringelbach, L. Bonetti.
 %  FREQ-NESS Reveals the Dynamic Reconfiguration of Frequency-Resolved Brain Networks During Auditory Stimulation.
 %  Adv. Sci. 2025, 2413195.
 %  https://doi.org/10.1002/advs.202413195
 
 %%
-
