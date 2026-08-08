@@ -4,7 +4,7 @@ function [dataClean, removedActivity] = FREQNESS_NetworkRemoval(FREQ, data, freq
 %
 %  FREQUENCY-RESOLVED NETWORK ESTIMATION TOOLBOX
 %
-%  If you find this function useful, please cite the first FREQNESS paper:
+%  If you use this toolbox, please cite:
 %  Rosso, M., Fernández‐Rubio, G., Keller, P. E., Brattico, E., Vuust, P.,
 %  Kringelbach, M. L., & Bonetti, L. (2025).
 %  FREQ‐NESS Reveals the Dynamic Reconfiguration of Frequency‐Resolved Brain

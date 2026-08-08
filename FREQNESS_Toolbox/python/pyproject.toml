@@ -10,6 +10,7 @@ readme = "README.md"
 requires-python = ">=3.10"
 authors = [
   { name = "Mattia Rosso" },
+  { name = "Chiara Malvaso", email = "chiara.malvaso2@unibo.it" },
   { name = "Leonardo Bonetti" },
 ]
 dependencies = [

@@ -3,7 +3,7 @@ function FREQNESS_Visualizer(FREQ,Landscape,Patterns,varargin)
 % ========================================================================
 %  FREQNESS VISUALIZER: NETWORK LANDSCAPE & BRAIN ACTIVATION PATTERNS
 %
-%  Please cite the first FREQNESS paper:
+%  If you use this toolbox, please cite:
 %  Rosso, M., Fernández‐Rubio, G., Keller, P. E., Brattico, E., Vuust, P.,
 %  Kringelbach, M. L., & Bonetti, L. (2025).
 %  FREQ‐NESS Reveals the Dynamic Reconfiguration of Frequency‐Resolved Brain
@@ -510,5 +510,4 @@ end
 
 
 end
-
 

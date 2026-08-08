@@ -4,7 +4,7 @@ function CFC = FREQNESS_CrossCoupling(FREQ, lfo_freq, varargin)
 %
 %  FREQUENCY-RESOLVED NETWORK ESTIMATION TOOLBOX
 %
-%  If you find this function useful, please cite the first FREQNESS paper:
+%  If you use this toolbox, please cite:
 %  Rosso, M., Fernández‐Rubio, G., Keller, P. E., Brattico, E., Vuust, P.,
 %  Kringelbach, M. L., & Bonetti, L. (2025).
 %  FREQ‐NESS Reveals the Dynamic Reconfiguration of Frequency-Resolved Brain
@@ -98,6 +98,14 @@ function CFC = FREQNESS_CrossCoupling(FREQ, lfo_freq, varargin)
 %   - PAC as a function of phase and frequency (surface plot)
 %   - Optional 3D brain plots of LFO and peak carrier networks if MNI
 %     coordinates and FREQ.pats are provided.
+%
+% ------------------------------------------------------------------------
+%  AUTHORS:
+%  Mattia Rosso & Leonardo Bonetti
+%  mattia.rosso@clin.au.dk
+%  leonardo.bonetti@clin.au.dk; leonardo.bonetti@psych.ox.ac.uk
+%  Center for Music in the Brain, Aarhus University
+%  Centre for Eudaimonia and Human Flourishing, Linacre College, University of Oxford
 %
 % ========================================================================
 
