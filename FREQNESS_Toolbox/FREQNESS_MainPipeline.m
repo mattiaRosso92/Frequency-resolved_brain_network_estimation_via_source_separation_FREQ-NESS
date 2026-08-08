@@ -94,7 +94,7 @@
 %    Computes phase–amplitude cross-frequency coupling (PAC) between a low-frequency
 %    network and higher-frequency carrier networks for a selected component.
 %    For each carrier frequency, carrier power is binned by LFO phase to obtain
-%    PAC histograms and sine-fit parameters (amplitude, phase shift, etc.), with
+%    PAC histograms and deterministic first-harmonic parameters, with
 %    optional 3D visualizations of the LFO and peak carrier networks in MNI space.
 %
 %  - FREQNESS_BackProjection(FREQ, freq2project, ...)
