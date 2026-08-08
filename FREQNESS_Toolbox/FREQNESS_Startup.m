@@ -121,8 +121,12 @@ if numel(files_mni) == 1
     if numel(fn) == 1
         temp_mni = S.(fn{1});
 
-        % Must have 3 columns (XYZ coordinates)
-        if size(temp_mni,2) == 3
+        % Must contain a real numeric XYZ coordinate matrix
+        if ~isnumeric(temp_mni) || ~isreal(temp_mni) || isempty(temp_mni) || ...
+                any(isinf(temp_mni(:)))
+            warning(['MNI file %s ignored: coordinates must be provided as ' ...
+                'a real numeric matrix without infinite values.'],files_mni(1).name);
+        elseif size(temp_mni,2) == 3
             MNI = temp_mni;
         elseif size(temp_mni,1) == 3 && size(temp_mni,2) ~= 3
             MNI = temp_mni'; % transpose if has coordinates along the rows
@@ -138,6 +142,24 @@ if numel(files_mni) == 1
 elseif numel(files_mni) > 1
     warning('Multiple MNI .mat files found. None loaded.');
 
+end
+
+% Ensure that the coordinate grid matches every non-empty dataset
+if ~isempty(MNI)
+    data_nvoxs = [];
+    for foldi = 1:nfolds
+        if ~isempty(allData{foldi})
+            data_nvoxs(end+1) = size(allData{foldi},1); %#ok<AGROW>
+        end
+    end
+
+    if ~isempty(data_nvoxs) && any(data_nvoxs ~= size(MNI,1))
+        warning(['MNI coordinates ignored: the coordinate file contains %d rows, ' ...
+            'but the loaded datasets contain %s voxels. Replace the coordinate ' ...
+            'file with one matching the voxel order and source space of your data.'], ...
+            size(MNI,1),mat2str(unique(data_nvoxs)));
+        MNI = [];
+    end
 end
 
 

@@ -12,14 +12,10 @@
 \outl0\strokewidth0 \strokec2 MNI Coordinates Input\
 \pard\pardeftab720\sa240\partightenfactor0
 
-\f1\b0\fs24 \cf0 Place 
-\f0\b one and only one
-\f1\b0  
-\fs26 .mat
-\fs24  file inside this folder.\
-This 
-\fs26 .mat
-\fs24  file must contain 
+\f1\b0\fs24 \cf0 This folder includes 
+\f0\b MNI152_8mm_coord_dyi.mat
+\f1\b0 , containing coordinates for the 3559-voxel MNI152 8-mm grid used by the FREQ-NESS example data. Keep one and only one .mat coordinate file in this folder. If your source-reconstructed data use a different source space or voxel ordering, replace the bundled file with your own coordinate file.\
+The .mat file must contain 
 \f0\b a single variable
 \f1\b0 :\
 \pard\tx220\tx720\pardeftab720\li720\fi-720\sa240\partightenfactor0
@@ -43,7 +39,7 @@ This
 \fs24 The pipeline will automatically load this file and use the voxel coordinates to operate along the 
 \f0\b voxel dimension
 \f1\b0  and generate spatial visualizations.\
-Make sure the number of rows (voxels) in this coordinate matrix matches the number of voxels in your source-reconstructed dataset.\
+The number of rows and their ordering must match the voxels in every source-reconstructed dataset. If the row count does not match, FREQNESS_Startup will ignore the coordinates and the pipeline will continue without spatial analyses.\
 \pard\pardeftab720\sa280\partightenfactor0
 
 \f0\b\fs28 \cf0 CITATION\

@@ -65,10 +65,9 @@
 %    to visualize both the network landscape and brain topographies.
 %
 %  - FREQNESS_EntropyLandscape(FREQ)
-%    Computes entropy-based measures of the eigenspectrum across
-%    frequencies, returning effective dimensionality (ED) and quadratic
-%    Rényi entropy (H2). These indices summarize how variance is
-%    distributed across components and how this changes over frequency.
+%    Computes quadratic Rényi entropy (H2) and effective dimensionality
+%    (ED) across frequencies. Both measures are returned for numerical
+%    analysis, while only the H2 entropy landscape is visualized.
 %
 %  - FREQNESS_ExponentialDK(FREQ, ...)
 %    Fits an exponentially decaying function to the eigenvalues of a
@@ -154,13 +153,14 @@ network_rescale        = false;         % rescale very low-amplitude data
 % ------------------------------------------------------------------------
 % Flag to visualize all participants (discouraged for large samples)
 plot_all   = false;
+save_nifti = true; % save 8-mm NIFTI activation maps
 % Brain network landscape
 Landscape = [];
 Landscape.frex   = frex; % assign 'frex' to visualize all frequencies
 Landscape.ncomps = 10;   % how many components in the network landscape
 % Spatial activation patterns
 Patterns = [];
-Patterns.frex    = [2 8];          % select frequencies
+Patterns.frex    = [2.4 8.4];      % select frequencies
 Patterns.ncomps  = 1;              % set how many top components to visualize
 Patterns.path_output =  path_home; % set output path to save nifti images
 Patterns.MNI_coords = MNI; % assigning the MNI coordinates of your data
@@ -268,8 +268,17 @@ for condi = 1:nconds
     % 2) FREQNESS VISUALIZATION
     % ========================================================================
 
-    % Plot network landscape and save nifti images
-    FREQNESS_Visualizer(FREQ{condi},Landscape,Patterns,'plot_all',plot_all)
+    % Plot network landscape and, when MNI coordinates are available,
+    % spatial activation patterns and optional NIFTI images
+    if isempty(MNI)
+        warning(['MNI coordinates are unavailable or do not match the data. ' ...
+            'Only the network landscape will be visualized.']);
+        FREQNESS_Visualizer(FREQ{condi},Landscape,[], ...
+            'plot_all',plot_all,'save_nifti',false)
+    else
+        FREQNESS_Visualizer(FREQ{condi},Landscape,Patterns, ...
+            'plot_all',plot_all,'save_nifti',save_nifti)
+    end
 
     % NOTE: computation and storage of NIFTI files supported only for 8mm MNI space
 

@@ -28,9 +28,9 @@
 % ------------------------------------------------------------------------
 %  FUNCTIONS OVERVIEW:
 % ------------------------------------------------------------------------
-%  - FREQNESS_Startup(path_home) 
-%    Initializes the environment. Given `path_home` as input, it sets up 
-%    the necessary directories.
+%  - FREQNESS_Startup()
+%    Initializes the environment, sets up the necessary directories, and
+%    fetches data and MNI coordinates from the respective folders.
 %
 %  - FREQNESS_NetworkEstimation(...) 
 %    Performs Generalized Eigendecomposition (GED) over a user-defined 
@@ -57,10 +57,8 @@ clear
 close all
 clc
 
-% Setup directories
-path_home = '[insert-your-path-to-the-toolbox]/FREQNESS_Toolbox';
-addpath(path_home)
-FREQNESS_Startup(path_home);
+% Setup directories and load the bundled MNI coordinates
+[~,MNI,path_home] = FREQNESS_Startup();
 
 
 %% PERFORM FREQNESS (ONLY ESSENTIAL INPUTS)
@@ -88,7 +86,7 @@ end
 
 
 % Run FREQNESS network estimation (default parameters)
-GED = FREQNESS_NetworkEstimation(testData, testFrex, testSrate);
+FREQ = FREQNESS_NetworkEstimation(testData,testFrex,testSrate);
 
 
 %% PERFORM FREQNESS (ALTERNATIVE SCENARIO WITH OPTIONAL INPUTS)
@@ -148,26 +146,18 @@ Landscape.ncomps = 10;
 Patterns = [];
 Patterns.frex    = [12.4 2.4];
 Patterns.ncomps  = 1; % set how many top components to visualize
-Patterns.path_output =  path_home; % set output path to save nifti images
+Patterns.path_output = path_home; % set output path to save nifti images
 
-% Load MNI coordinates related to the brain voxels of the current dataset
-% NOTE: provide the MNI coordinates in the order matching YOUR OWN DATA!
-load('MNI152_8mm_coord_dyi.mat'); %all voxels MNI coordinates
-Patterns.MNI_coords = MNI8; %assigning the MNI coordinates of your data for visualization purposes (Outputs #2 and #3)
-
-%%%   if you wish to remove the cerebellum voxels (not included in template of Output #2), please uncomment the following lines; NOTE: this removal works only for 8mm brain %%% 
-%     load('cerebellum_coords.mat'); %only cerebellar voxels
-%     % Remove cerebellar voxels since they are not covered by the template in Output #2
-%     % Please, note that you DO NOT NECESSARILY have to remove them
-%     [~, idx_cerebellum] = ismember(MNI8, cerebellum_coords, 'rows');  % find cerebellum indexes in MNI coordinates matrix (all voxels)
-%     MNI8(idx_cerebellum~=0,:) = nan; %assigning nans to MNI coordinates matrix
-%     Patterns.MNI_coords = MNI8; %assigning the MNI coordinates of your data for visualization purposes (Outputs #2 and #3)
+% Assign MNI coordinates related to the brain voxels of the current dataset
+% NOTE: provide coordinates in the same order as YOUR OWN DATA.
+Patterns.MNI_coords = MNI;
 
 
 %%% ------------------ COMPUTATION --------------------- %%%
 
 % Plot network landscape and save nifti images
-FREQNESS_Visualizer(FREQ,Landscape,Patterns,'plot_all',false) % set 'plot_all' to true if you have multiple subjects and you want to plot them all
+FREQNESS_Visualizer(FREQ,Landscape,Patterns, ...
+    'plot_all',false,'save_nifti',true) % set plot_all to true to plot all participants
 
 
 %%
