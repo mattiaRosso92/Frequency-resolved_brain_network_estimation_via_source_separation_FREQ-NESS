@@ -138,7 +138,16 @@ clc
 % 1) FREQNESS_NetworkEstimation
 % ------------------------------------------------------------------------
 frex   = 1.2:1.2:20*1.2; % frequency vector (Hz) used for the GED analysis
-srate  = 250;    % Sampling rate (Hz) of your data
+srate  = 250;             % sampling rate (Hz) of your data
+
+% Optional network-estimation settings
+network_duration       = [];            % seconds; leave [] to use all data
+network_fwidth         = [];            % scalar or one value per frequency
+network_filter         = 'logarithmic'; % or 'linear'
+network_regularisation = 0.01;          % covariance shrinkage factor
+network_ncomps         = 30;            % components retained per frequency
+network_bad_segments   = [];            % sample indices excluded from covariance
+network_rescale        = false;         % rescale very low-amplitude data
 
 % ------------------------------------------------------------------------
 % 2) FREQNESS_Visualizer
@@ -210,8 +219,8 @@ nconds = numel(allData);
 % 1) Core FREQNESS output
 FREQ        = cell(nconds,1);
 % Entropy landscape
-ed          = cell(nconds,1);
 h2          = cell(nconds,1);
+ed          = cell(nconds,1);
 % Exponential decay of eigenvalues
 decayCoeff  = cell(nconds,1);
 goodFit_exp = cell(nconds,1);
@@ -244,35 +253,15 @@ for condi = 1:nconds
     % 1) FREQNESS network estimation
     % ========================================================================
 
-    % Core function, with default parameters
-    FREQ{condi} = FREQNESS_NetworkEstimation(allData{condi}, frex, srate);
-
-    %% ========================================================================
-    % 1) FREQNESS network estimation
-    % ========================================================================
-
-    % This section demonstrates the same function as above,
-    % but with optional settings provided. Any missing arguments
-    % will automatically use their default values.
-    % NOTE: you only need to run one section: EITHER THIS ONE OR THE PREVIOUS ONE.
-
-    % % Define optional arguments
-    % time          = 20;              % seconds
-    % fwidth        = 0.1;             % FWHM at the lowest frequency
-    % filter_type   = 'logarithmic';   % or 'linear'
-    % regular       = 0.01;            % regularisation factor
-    % ncomps        = 30;              % number of components to retain
-    % bad_segments  = [];              % or a vector of sample indices to remove
-    %
-
-    % Core function, with optional name-value pairs)
-    % FREQ = FREQNESS_NetworkEstimation(data, frex, srate, ...
-    %     'duration',       time, ...
-    %     'fwidth',         fwidth, ...
-    %     'filter',         filter_type, ...
-    %     'regularisation', regular, ...
-    %     'ncomps',         ncomps, ...
-    %     'bad_segments',   bad_segments);
+    % Core function with the settings defined above
+    FREQ{condi} = FREQNESS_NetworkEstimation(allData{condi},frex,srate, ...
+        'duration',network_duration, ...
+        'fwidth',network_fwidth, ...
+        'filter',network_filter, ...
+        'regularisation',network_regularisation, ...
+        'ncomps',network_ncomps, ...
+        'bad_segments',network_bad_segments, ...
+        'rescale',network_rescale);
 
 
     %% ========================================================================
@@ -289,7 +278,7 @@ for condi = 1:nconds
     % ========================================================================
 
     % Compute entropy-based indices of the eigenspectrum
-    [ed{condi}, h2{condi}] = FREQNESS_EntropyLandscape(FREQ{condi});
+    [h2{condi}, ed{condi}] = FREQNESS_EntropyLandscape(FREQ{condi});
 
 
     %% ========================================================================
@@ -353,7 +342,14 @@ for condi = 1:nconds
     % Re-estimation belongs to the pipeline rather than NetworkRemoval:
     % dataClean remains available for any subsequent analysis chosen by users.
     if netrem_plot_landscape
-        FREQ_clean{condi} = FREQNESS_NetworkEstimation(dataClean{condi},frex,srate);
+        FREQ_clean{condi} = FREQNESS_NetworkEstimation(dataClean{condi},frex,srate, ...
+            'duration',network_duration, ...
+            'fwidth',network_fwidth, ...
+            'filter',network_filter, ...
+            'regularisation',network_regularisation, ...
+            'ncomps',network_ncomps, ...
+            'bad_segments',network_bad_segments, ...
+            'rescale',network_rescale);
         Landscape_clean = [];
         Landscape_clean.frex = frex;
         Landscape_clean.ncomps = netrem_landscape_ncomps;

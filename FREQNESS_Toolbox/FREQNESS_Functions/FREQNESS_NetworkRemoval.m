@@ -78,12 +78,17 @@ if nargin < 3 || isempty(freq2remove)
         'the range covered by FREQ.frex.']);
 end
 
-if ~isnumeric(data) || isempty(data)
-    error('data must be a non-empty numeric matrix.');
+if ~isnumeric(data) || ~isreal(data) || isempty(data) || any(~isfinite(data(:)))
+    error('data must be a non-empty real numeric array containing finite values.');
 end
 
 if ndims(data) > 3
     error('data must be [nVoxels x nTime] or [nVoxels x nTime x nSubs].');
+end
+
+if ~isnumeric(freq2remove) || ~isreal(freq2remove) || ...
+        ~isscalar(freq2remove) || ~isfinite(freq2remove) || freq2remove <= 0
+    error('freq2remove must be one positive finite scalar frequency expressed in Hz.');
 end
 
 %% Handle optional arguments (name-value pairs)
