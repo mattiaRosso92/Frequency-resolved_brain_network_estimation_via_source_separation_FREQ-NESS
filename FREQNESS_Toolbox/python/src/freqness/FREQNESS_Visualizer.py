@@ -386,9 +386,9 @@ def _pattern_figure(
         brain_coordinates[:, 0],
         brain_coordinates[:, 1],
         brain_coordinates[:, 2],
-        s=4,
+        s=12,
         c="black",
-        alpha=0.15,
+        alpha=0.35,
         linewidths=0,
         depthshade=False,
     )
@@ -416,14 +416,14 @@ def _pattern_figure(
         overlay_values = np.concatenate(point_values)
         overlay_colors = np.concatenate(point_colors, axis=0)
         order = np.argsort(overlay_values, kind="stable")
-        marker_areas = 15.0 + 85.0 * overlay_values[order]
+        marker_areas = 20.0 + 100.0 * overlay_values[order]
         axis.scatter(
             overlay_coordinates[order, 0],
             overlay_coordinates[order, 1],
             overlay_coordinates[order, 2],
             s=marker_areas,
             c=overlay_colors[order],
-            alpha=0.85,
+            alpha=0.9,
             linewidths=0,
             depthshade=False,
         )
@@ -465,9 +465,9 @@ def _frequency_panel_figure(
             brain_coordinates[:, 0],
             brain_coordinates[:, 1],
             brain_coordinates[:, 2],
-            s=4,
+            s=12,
             c="black",
-            alpha=0.15,
+            alpha=0.35,
             linewidths=0,
             depthshade=False,
         )
@@ -481,13 +481,13 @@ def _frequency_panel_figure(
                 active_coordinates[:, 0],
                 active_coordinates[:, 1],
                 active_coordinates[:, 2],
-                s=15.0 + 85.0 * active_values,
+                s=20.0 + 100.0 * active_values,
                 c=np.repeat(
                     frequency_colors[frequency_index][np.newaxis, :],
                     active_values.size,
                     axis=0,
                 ),
-                alpha=0.85,
+                alpha=0.9,
                 linewidths=0,
                 depthshade=False,
             )

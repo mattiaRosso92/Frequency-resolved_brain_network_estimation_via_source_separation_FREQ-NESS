@@ -21,8 +21,8 @@ function FREQNESS_Visualizer(FREQ,Landscape,Patterns,varargin)
 %    (see Rosso et al., 2025, Advanced Science, Figure 2).
 %
 %  - Spatial activation patterns of the networks
-%    - All valid MNI coordinates are shown as small black reference dots.
-%    - Requested frequencies are encoded by a low-to-high parula gradient.
+%    - All valid MNI coordinates are shown as visible black reference dots.
+%    - Requested frequencies are encoded by a low-to-high viridis gradient.
 %    - Normalized activation magnitude is encoded by marker size.
 %    - NIFTI files can be generated for each requested network.
 %
@@ -372,15 +372,17 @@ function plot_activation_patterns(MNI_coords,patterns,frex,threshold_sd,title_te
 valid_mni = all(isfinite(MNI_coords),2);
 mni_brain = MNI_coords(valid_mni,:);
 
-figure('Color','w','Units','normalized','Position',[0.2 0.15 0.55 0.7]);
-hold on
+fig = figure('Color','w','Units','pixels','Position',[100 100 900 700], ...
+    'Renderer','opengl');
+ax = axes('Parent',fig);
+hold(ax,'on')
 
-% Anatomical reference: all valid MNI coordinates as small black dots
-scatter3(mni_brain(:,1),mni_brain(:,2),mni_brain(:,3),6,[0 0 0], ...
-    'filled','MarkerFaceAlpha',0.15,'MarkerEdgeAlpha',0.15);
+% Anatomical reference: all valid MNI coordinates as visible black dots
+scatter3(ax,mni_brain(:,1),mni_brain(:,2),mni_brain(:,3),12,[0 0 0], ...
+    'filled','MarkerFaceAlpha',0.35,'MarkerEdgeColor','none');
 
 % Frequency gradient
-cmap = parula(256);
+cmap = viridis_colormap(256);
 if numel(frex) == 1
     color_idx = round(size(cmap,1)/2);
     color_limits = [frex(1)-max(abs(frex(1))*0.05,0.5) ...
@@ -391,6 +393,9 @@ else
 end
 
 % Active voxels: frequency is color and normalized magnitude is marker size
+active_mni = [];
+active_values = [];
+active_colors = [];
 for frexi = 1:numel(frex)
     this_pat = squeeze(patterns(:,1,frexi));
     valid_pat = isfinite(this_pat);
@@ -401,31 +406,81 @@ for frexi = 1:numel(frex)
     idx_active = valid_mni & valid_pat & this_pat >= cutoff & this_pat > 0;
 
     if any(idx_active)
-        active_values = this_pat(idx_active);
-        active_mni = MNI_coords(idx_active,:);
-        [active_values,sort_idx] = sort(active_values,'ascend');
-        active_mni = active_mni(sort_idx,:);
-        marker_size = 15 + 85*active_values;
-
-        scatter3(active_mni(:,1),active_mni(:,2),active_mni(:,3), ...
-            marker_size,cmap(color_idx(frexi),:),'filled', ...
-            'MarkerFaceAlpha',0.85,'MarkerEdgeAlpha',0.85);
+        this_values = this_pat(idx_active);
+        this_mni = MNI_coords(idx_active,:);
+        this_colors = repmat(cmap(color_idx(frexi),:),numel(this_values),1);
+        active_values = [active_values; this_values]; %#ok<AGROW>
+        active_mni = [active_mni; this_mni]; %#ok<AGROW>
+        active_colors = [active_colors; this_colors]; %#ok<AGROW>
     end
 end
 
-colormap(gca,cmap)
-clim(color_limits)
-cb = colorbar;
+% Plot all frequencies together, ordering points only by activation magnitude
+if ~isempty(active_values)
+    [active_values,sort_idx] = sort(active_values,'ascend');
+    active_mni = active_mni(sort_idx,:);
+    active_colors = active_colors(sort_idx,:);
+    marker_size = 20 + 100*active_values;
+
+    scatter3(ax,active_mni(:,1),active_mni(:,2),active_mni(:,3), ...
+        marker_size,active_colors,'filled', ...
+        'MarkerFaceAlpha',0.9,'MarkerEdgeColor','none');
+end
+
+colormap(ax,cmap)
+clim(ax,color_limits)
+cb = colorbar(ax);
 cb.Label.String = 'Frequency (Hz)';
 cb.Label.FontWeight = 'bold';
 cb.Ticks = unique(frex);
+cb.FontSize = 11;
+cb.Position = [0.87 0.18 0.025 0.64];
 
-title(title_text,'FontSize',14,'FontWeight','bold')
-axis equal
-axis vis3d
-axis off
-view(135,25)
-rotate3d on
+% Match Matplotlib's centered equal-scale MNI-space projection
+coordinate_min = min(mni_brain,[],1);
+coordinate_max = max(mni_brain,[],1);
+coordinate_span = coordinate_max-coordinate_min;
+coordinate_span(coordinate_span == 0) = 1;
+coordinate_padding = 0.05*coordinate_span;
+xlim(ax,[coordinate_min(1)-coordinate_padding(1) ...
+    coordinate_max(1)+coordinate_padding(1)])
+ylim(ax,[coordinate_min(2)-coordinate_padding(2) ...
+    coordinate_max(2)+coordinate_padding(2)])
+zlim(ax,[coordinate_min(3)-coordinate_padding(3) ...
+    coordinate_max(3)+coordinate_padding(3)])
+daspect(ax,[1 1 1])
+pbaspect(ax,coordinate_span)
+axis(ax,'vis3d')
+axis(ax,'off')
+view(ax,135,25)
+camproj(ax,'perspective')
+camtarget(ax,(coordinate_min+coordinate_max)/2)
+camzoom(ax,0.60)
+ax.Position = [0.43 0.10 0.60 0.80];
+title(ax,title_text,'FontSize',14,'FontWeight','bold','Visible','on')
+rotate3d(fig,'on')
+
+end
+
+
+%% Helper function: Viridis frequency colormap
+function cmap = viridis_colormap(ncolors)
+
+anchor_colors = [ ...
+    0.267004 0.004874 0.329415; ...
+    0.281412 0.155834 0.469201; ...
+    0.244972 0.287675 0.537260; ...
+    0.190631 0.407061 0.556089; ...
+    0.147607 0.511733 0.557049; ...
+    0.119699 0.618490 0.536347; ...
+    0.208030 0.718701 0.472873; ...
+    0.430983 0.808473 0.346476; ...
+    0.709898 0.868751 0.169257; ...
+    0.993248 0.906157 0.143936];
+
+anchor_positions = linspace(0,1,size(anchor_colors,1));
+color_positions = linspace(0,1,ncolors);
+cmap = interp1(anchor_positions,anchor_colors,color_positions,'linear');
 
 end
 
