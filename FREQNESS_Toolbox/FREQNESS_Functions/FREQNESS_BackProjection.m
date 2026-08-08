@@ -49,6 +49,8 @@ function backProj = FREQNESS_BackProjection(FREQ, freq2project, varargin)
 %           • FREQ.ts    -> broadband component time series
 %                           [nComp x nTime x nFrex x (nSubs)]
 %           • FREQ.frex  -> frequency vector [nFrex x 1]
+%           • FREQ.scale_factors -> participant-wise scale factors applied
+%                                   during network estimation (optional)
 %
 %  - freq2project : scalar frequency in Hz identifying the GED solution
 %                   to backproject. If the requested value is not present
@@ -70,6 +72,9 @@ function backProj = FREQNESS_BackProjection(FREQ, freq2project, varargin)
 %  - backProj : reconstructed broadband network activity in voxel space.
 %               Its dimensions are [nVoxels x nTime] for one participant
 %               and [nVoxels x nTime x nSubs] for multiple participants.
+%               Activity is returned in the units of the original data,
+%               including when internal rescaling was requested during
+%               FREQNESS_NetworkEstimation.
 %
 % ------------------------------------------------------------------------
 %  AUTHORS:
@@ -100,8 +105,9 @@ for fieldi = 1:numel(required_fields)
     end
 end
 
-if ~isnumeric(freq2project) || ~isscalar(freq2project) || ~isfinite(freq2project)
-    error('freq2project must be one finite scalar frequency expressed in Hz.');
+if ~isnumeric(freq2project) || ~isreal(freq2project) || ...
+        ~isscalar(freq2project) || ~isfinite(freq2project) || freq2project <= 0
+    error('freq2project must be one positive finite scalar frequency expressed in Hz.');
 end
 
 %% Handle optional arguments (name-value pairs)
@@ -122,6 +128,22 @@ frex  = FREQ.frex(:);
 evecs = FREQ.evecs;
 ts    = FREQ.ts;
 
+if ~isnumeric(frex) || ~isreal(frex) || any(~isfinite(frex)) || any(frex <= 0)
+    error('FREQ.frex must contain positive finite frequencies.');
+end
+
+if ~isnumeric(evecs) || ~isreal(evecs) || any(~isfinite(evecs(:))) || ...
+        ndims(evecs) > 4
+    error(['FREQ.evecs must be a real finite numeric array in ' ...
+        '[nVoxels x nComp x nFrex x (nSubs)] format.']);
+end
+
+if ~isnumeric(ts) || ~isreal(ts) || any(~isfinite(ts(:))) || ...
+        ndims(ts) > 4
+    error(['FREQ.ts must be a real finite numeric array in ' ...
+        '[nComp x nTime x nFrex x (nSubs)] format.']);
+end
+
 nvoxs  = size(evecs,1);
 ncomps = size(evecs,2);
 nfrex  = size(evecs,3);
@@ -133,6 +155,19 @@ end
 
 if size(ts,1) ~= ncomps || size(ts,3) ~= nfrex || size(ts,4) ~= nsubs
     error('FREQ.evecs and FREQ.ts have incompatible dimensions.');
+end
+
+% Legacy FREQ structures did not store scale factors and therefore imply
+% that network estimation and backprojection used the same input units.
+if isfield(FREQ,'scale_factors') && ~isempty(FREQ.scale_factors)
+    scale_factors = FREQ.scale_factors(:)';
+    if ~isnumeric(scale_factors) || ~isreal(scale_factors) || ...
+            numel(scale_factors) ~= nsubs || any(~isfinite(scale_factors)) || ...
+            any(scale_factors <= 0)
+        error('FREQ.scale_factors must contain one positive finite value per participant.');
+    end
+else
+    scale_factors = ones(1,nsubs);
 end
 
 if ~isnumeric(comps2project) || ~isvector(comps2project) || ...
@@ -178,7 +213,8 @@ for subi = 1:nsubs
     Y = reshape(ts(:,:,which_frex,subi),ncomps,ntime);
 
     % Summed voxel-space contribution of the selected networks
-    backProj(:,:,subi) = A(:,comps2project) * Y(comps2project,:);
+    backProj(:,:,subi) = ...
+        (A(:,comps2project) * Y(comps2project,:)) / scale_factors(subi);
 
 end
 

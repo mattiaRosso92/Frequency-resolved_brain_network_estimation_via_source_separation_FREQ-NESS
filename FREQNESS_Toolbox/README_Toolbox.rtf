@@ -19,7 +19,7 @@ The FREQ-NESS toolbox allows you to extract frequency-resolved brain networks fr
 \ls1\ilvl0\cf0 \kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	1	}\expnd0\expndtw0\kerning0
 \outl0\strokewidth0 \strokec2 Use each FREQ-NESS function individually, found in the \'91FREQNESS_Functions\'92 folder, \uc0\u8232 or\
 \ls1\ilvl0\kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	2	}\expnd0\expndtw0\kerning0
-\outl0\strokewidth0 \strokec2 Run everything automatically through the \'91FREQNESS_MainPipeline.m\'92.\
+\outl0\strokewidth0 \strokec2 Run the core analysis and select optional downstream analyses through the \'91FREQNESS_MainPipeline.m\'92.\
 \pard\pardeftab720\sa240\partightenfactor0
 \cf0 Most users will want option (2).\
 \pard\pardeftab720\partightenfactor0
@@ -34,13 +34,13 @@ The FREQ-NESS toolbox allows you to extract frequency-resolved brain networks fr
 \ls2\ilvl0\cf0 \kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	1	}\expnd0\expndtw0\kerning0
 \outl0\strokewidth0 \strokec2 Place your data files in the appropriate folders inside \'93FREQNESS_Data\'94.\uc0\u8232 \'95 Each Group or Condition is a \'91Dataset\'92 folder.\u8232 \'95 Each participant is one .mat file containing a voxels\'d7time matrix.\
 \ls2\ilvl0\kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	2	}\expnd0\expndtw0\kerning0
-\outl0\strokewidth0 \strokec2 (Optional but recommended) Place a .mat file containing the voxel MNI coordinates (Nvoxels\'d73)\uc0\u8232 inside the \'91FREQNESS_MNI_Coordinates\'92 folder. These are required for spatial visualizations and gradient modelling.\
+\outl0\strokewidth0 \strokec2 The \'91FREQNESS_MNI_Coordinates\'92 folder contains bundled coordinates for the 3559-voxel MNI152 8-mm grid. Replace this file if your data use a different source space or voxel ordering. Matching coordinates are required for spatial visualizations and gradient modelling.\
 \ls2\ilvl0\kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	4	}\expnd0\expndtw0\kerning0
 \outl0\strokewidth0 \strokec2 Open the file:\uc0\u8232 FREQNESS_MainPipeline.m\
 \ls2\ilvl0\kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	5	}\expnd0\expndtw0\kerning0
-\outl0\strokewidth0 \strokec2 Scroll to the section \'93DEFINE ANALYSIS SETTINGS\'94 and edit:\uc0\u8232 \'95 frex (frequencies for GED)\u8232 \'95 srate (sampling rate)\u8232 \'95 visualization settings (landscape, patterns, output paths)\u8232 \'95 entropy, exponential decay, gradient modelling and CFC options\u8232 \'95 backprojection and network-removal frequency/component settings\
+\outl0\strokewidth0 \strokec2 Scroll to the section \'93DEFINE ANALYSIS SETTINGS\'94 and edit:\uc0\u8232 \'95 the run_* flags selecting optional analyses\u8232 \'95 frex (frequencies for GED)\u8232 \'95 srate (sampling rate)\u8232 \'95 network-estimation settings (duration, filter, regularisation, components, bad segments, and optional rescaling)\u8232 \'95 visualization settings (landscape, patterns, output paths)\u8232 \'95 entropy, exponential decay, gradient modelling and CFC options\u8232 \'95 backprojection and network-removal frequency/component settings\
 \ls2\ilvl0\kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	6	}\expnd0\expndtw0\kerning0
-\outl0\strokewidth0 \strokec2 Press RUN.\uc0\u8232 The pipeline will automatically:\u8232 \'96 Load all datasets\u8232 \'96 Run frequency-resolved GED via FREQNESS_NetworkEstimation\u8232 \'96 Produce network landscapes and activation maps via FREQNESS_Visualizer\u8232 \'96 Compute entropy and effective dimensionality\u8232 \'96 Fit exponential decay of eigenvalues\u8232 \'96 Model spatial gradients across frequencies and components\u8232 \'96 Compute phase\'96amplitude cross-frequency coupling\u8232 \'96 Backproject selected networks and remove them from broadband data\u8232 \'96 Re-estimate and visualize the cleaned network landscape when requested\u8232 \'96 Generate figures and save NIfTI images when requested\
+\outl0\strokewidth0 \strokec2 Press RUN.\uc0\u8232 The pipeline will automatically:\u8232 \'96 Load datasets in deterministic folder and file order\u8232 \'96 Run frequency-resolved GED via FREQNESS_NetworkEstimation\u8232 \'96 Run only the optional analyses enabled through their run_* flags\u8232 \'96 Produce network landscapes and MNI-coordinate activation maps via FREQNESS_Visualizer when requested\u8232 \'96 Compute H2 entropy and effective dimensionality while visualizing only the H2 landscape when requested\u8232 \'96 Fit exponential decay of eigenvalues when requested\u8232 \'96 Model spatial gradients across frequencies and components when requested\u8232 \'96 Compute phase\'96amplitude cross-frequency coupling when requested\u8232 \'96 Backproject selected networks and remove them from broadband data when requested\u8232 \'96 Re-estimate and visualize the cleaned network landscape when requested\u8232 \'96 Generate figures and save NIfTI images when requested\
 \pard\pardeftab720\sa240\partightenfactor0
 \cf0 No manual intervention is needed after the initial settings.\
 \pard\pardeftab720\partightenfactor0
@@ -51,7 +51,8 @@ The FREQ-NESS toolbox allows you to extract frequency-resolved brain networks fr
 \pard\pardeftab720\sa240\partightenfactor0
 
 \f1\b0\fs24 \cf0 If you prefer a modular workflow, you can call each function separately:\
-FREQ = FREQNESS_NetworkEstimation(...)\uc0\u8232 FREQNESS_Visualizer(FREQ,...)\u8232 FREQNESS_EntropyLandscape(FREQ)\u8232 FREQNESS_ExponentialDK(FREQ,...)\u8232 FREQNESS_FreqGradients(FREQ, MNI,...)\u8232 FREQNESS_CompGradients(FREQ, MNI,...)\u8232 FREQNESS_CrossCoupling(FREQ, lfo_freq,...)\u8232 FREQNESS_BackProjection(FREQ, freq2project,...)\u8232 FREQNESS_NetworkRemoval(FREQ, data, freq2remove,...)\
+FREQ = FREQNESS_NetworkEstimation(...)\uc0\u8232 FREQNESS_Visualizer(FREQ,...)\u8232 FREQNESS_EntropyLandscape(FREQ)\u8232 FREQNESS_ExponentialDK(FREQ,...)\u8232 FREQNESS_FreqGradients(FREQ, MNI,...)\u8232 FREQNESS_CompGradients(FREQ, MNI,...)\u8232 FREQNESS_CrossCoupling(FREQ, lfo_freq,...)\u8232 FREQNESS_BackProjection(FREQ, freq2project,...)\u8232 FREQNESS_NetworkRemoval(FREQ, data, freq2remove,...)\u8232 IND = FREQNESS_InducedResponses(FREQ, events, epoch_window, baseline_window,...)\
+FREQNESS uses its own FFT-based analytic-signal helper, so cross-coupling and induced responses do not require an external Hilbert-transform implementation. Event-related induced responses remain an individual call because event samples, epoch windows, and baseline windows are experiment-specific.\
 However, the MAIN PIPELINE already handles the correct order, settings, and group-level bookkeeping automatically.\
 \pard\pardeftab720\partightenfactor0
 \cf3 \strokec3 \

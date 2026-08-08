@@ -1,4 +1,4 @@
-function [H2,ED] = FREQNESS_EntropyLandscape(FREQ, varargin)
+function [H2,ED] = FREQNESS_EntropyLandscape(FREQ,varargin)
 
 % ========================================================================
 %
@@ -7,60 +7,39 @@ function [H2,ED] = FREQNESS_EntropyLandscape(FREQ, varargin)
 %  If you use this toolbox, please cite:
 %  Rosso, M., Fernández‐Rubio, G., Keller, P. E., Brattico, E., Vuust, P.,
 %  Kringelbach, M. L., & Bonetti, L. (2025).
-%  FREQ‐NESS Reveals the Dynamic Reconfiguration of Frequency-Resolved Brain
+%  FREQ‐NESS Reveals the Dynamic Reconfiguration of Frequency‐Resolved Brain
 %  Networks During Auditory Stimulation.
 %  Advanced Science, 2413195.
 %  https://doi.org/10.1002/advs.202413195
 %
 % ========================================================================
-%  This function estimates effective dimensionality (ED) and quadratic
-%  Rényi entropy (H2) across frequencies, given the eigenspectrum of a
+%  This function estimates quadratic Rényi entropy (H2) and effective
+%  dimensionality (ED) across frequencies from the eigenspectrum of a
 %  covariance matrix. It uses the entropy-based index derived by Pirk et al.
 %  (2012) to estimate the effective number of uncorrelated measurements, as
-%  described in Del Giudice (2020).
+%  described in Del Giudice (2021).
 %
-%  It can be applied to a 1-D vector of eigenvalues, as well as directly to
-%  the FREQ.evals output produced by FREQNESS_NetworkEstimation().
-%  If FREQ.evals is given as an input, this can consist of either a 2D or
-%  3D matrix, depending on whether FREQNESS was run on individual
-%  participants or at the group level.
+%  Both H2 and ED are returned for numerical analyses. The visualization
+%  deliberately shows only the H2 entropy landscape.
 %
-%  When FREQ.evals is provided as input, the ED output will reflect the
-%  effective number of uncorrelated measurements across the frequency
-%  spectrum. If FREQ.evals contains participants as a 3rd dimension, then ED
-%  will also include an additional dimension for multiple participants.
-%  This will allow to visualize the grand-average entropy landscape and
-%  eventually carry out statistical testing.
-% ========================================================================
-
 % ------------------------------------------------------------------------
 %  INPUT ARGUMENTS:
 % ------------------------------------------------------------------------
-%
 %  - FREQ : structure with fields
 %           • FREQ.evals -> eigenvalue array [nComp x nFrex x (nSubs)]
-%           • FREQ.frex  -> frequency vector [nFrex x 1] (optional but
-%                            used for the x-axis in the visualization)
+%           • FREQ.frex  -> frequency vector [nFrex x 1] (optional)
 %
-% - Optional argument:
-%
-%   - plot_all   : logical flag (true/false). When true, the function
-%                  produces additional figures for each individual
-%                  participant, plotting their eigenspectrum and fitted
-%                  exponential decay. By default, plot_all = false and
-%                  only the grand-average fit is visualized.
+%  - Optional name-value pair:
+%      - 'plot_all' : when true, additionally plot the H2 landscape for
+%                     every participant. Default: false.
 %
 % ------------------------------------------------------------------------
 %  OUTPUT ARGUMENTS:
 % ------------------------------------------------------------------------
+%  - H2 : Quadratic Rényi entropy of the eigenvalue distribution.
 %
-% - H2    : Quadratic Rényi entropy of the eigenvalue distribution.
-%           Provides a log-scaled measure of the evenness of variance
-%           across components, without conversion to an equivalent
-%           number of dimensions.
-%
-% - ED    : Scalar or array containing the estimate of effective
-%           dimensionality.
+%  - ED : Effective dimensionality. This output is retained for numerical
+%         analysis and backwards compatibility but is not visualized.
 %
 % ------------------------------------------------------------------------
 %  REFERENCES:
@@ -71,11 +50,6 @@ function [H2,ED] = FREQNESS_EntropyLandscape(FREQ, varargin)
 %  - Pirk, R. J., Remley, K. A., & Patané, C. S. L. (2012).
 %    Reverberation chamber measurement correlation.
 %    IEEE Transactions on Electromagnetic Compatibility, 54(3), 533–545.
-%
-%  - Rosso, M., Fernández‐Rubio, G., Keller, P. E., Brattico, E., Vuust, P.,
-%    Kringelbach, M. L., & Bonetti, L. (2025).
-%    FREQ‐NESS Reveals the Dynamic Reconfiguration of Frequency-Resolved Brain
-%    Networks During Auditory Stimulation. Advanced Science, 2413195.
 %
 % ------------------------------------------------------------------------
 %  AUTHORS:
@@ -88,210 +62,160 @@ function [H2,ED] = FREQNESS_EntropyLandscape(FREQ, varargin)
 %
 % ========================================================================
 
-%% Handle optional arguments (name-value pairs)
 
-opts = struct('plot_all', false);
-opts = parse_name_value_pairs(opts, varargin{:});
+%% Handle optional arguments
+
+opts = struct('plot_all',false);
+opts = parse_name_value_pairs(opts,varargin{:});
 plot_all = opts.plot_all;
 
-%% Map inputs from FREQ
+if ~islogical(plot_all) || ~isscalar(plot_all)
+    error('plot_all must be one logical value (true or false).');
+end
+
+
+%% Map and validate inputs from FREQ
 
 if ~isstruct(FREQ)
-    error('Input must be a struct with fields FREQ.evals (and optionally FREQ.frex).');
+    error('Input must be a FREQ structure.');
 end
+
 if ~isfield(FREQ,'evals') || isempty(FREQ.evals)
     error('FREQ.evals is missing or empty.');
 end
+
 eigenspectrum = FREQ.evals;
-
-% Optional frequency axis for plotting
-if isfield(FREQ,'frex') && ~isempty(FREQ.frex)
-    frex = FREQ.frex(:);
+if ~isnumeric(eigenspectrum) || ~isreal(eigenspectrum) || ...
+        ndims(eigenspectrum) > 3 || any(isinf(eigenspectrum(:))) || ...
+        any(eigenspectrum(:) < 0)
+    error(['FREQ.evals must be a real numeric array of non-negative, ' ...
+        'non-infinite eigenvalues in [nComp x nFrex x (nSubs)] format.']);
 end
-
-%% Normalize input shape to [nComp x nFrex x nSubs]
 
 if isvector(eigenspectrum)
-    eigenspectrum = eigenspectrum(:);               % [nComp x 1]
+    eigenspectrum = eigenspectrum(:);
 end
 
-% Get the number of dimensions in the input
-nd = ndims(eigenspectrum);
-if nd == 2
-    % [nComp x nFrex] -> [nComp x nFrex x 1]
-    eigenspectrum = reshape(eigenspectrum, size(eigenspectrum,1), size(eigenspectrum,2), 1);
-elseif nd > 3
-    error('eigenspectrum must be 1D, 2D, or 3D (nComp x nFrex x nSubs).');
-end
+nfrex = size(eigenspectrum,2);
+nsubs = size(eigenspectrum,3);
 
-% Define Ns
-ncomps = size(eigenspectrum,1);
-nfrex  = size(eigenspectrum,2);
-nsubs  = size(eigenspectrum,3);
-
-
-% Display for the user
-fprintf('\nFREQNESS Entropy Landscape: computing Rénvy entropy (H2) and effective dimensionality (ED) for %d participants\n', nsubs);
-
-
-%% Compute the quadratic Rényi entropy
-
-% Normalize across components (dim 1) to get probabilities p
-sumtemp = sum(eigenspectrum,1);
-sumtemp = max(sumtemp, realmin);
-p = eigenspectrum ./ sumtemp;
-
-% Quadratic Rényi entropy H2 = -log(sum p_i^2)
-H2 = squeeze( -log( sum(p.^2, 1) ) );
-
-
-%% Compute effective dimensionality (ED)
-
-num   = sum(eigenspectrum, 1).^2;       % [1 x nFrex x nSubs]
-denom = sum(eigenspectrum.^2, 1);       % [1 x nFrex x nSubs]
-
-% Guard against division by zero
-denom = max(denom, realmin);
-
-% Compute (sum(lambda))^2 / sum(lambda.^2) along component dimension
-ED = squeeze(num ./ denom);             % [nFrex x nSubs]
-
-
-%% Visualize entropy landscapes: ED and H2
-
-% X-axis: use 'frex' if available, otherwise frequency index
-if exist('frex','var') && numel(frex)==nfrex
-    x = frex(:);
-    xlab = 'Frequency';
+% Use the analyzed frequencies when valid; otherwise use frequency indices
+if isfield(FREQ,'frex') && isnumeric(FREQ.frex) && isreal(FREQ.frex) && ...
+        isvector(FREQ.frex) && numel(FREQ.frex)==nfrex && ...
+        all(isfinite(FREQ.frex))
+    x = FREQ.frex(:);
+    xlab = 'Frequency (Hz)';
 else
-    x = (1:nfrex).';
+    x = (1:nfrex)';
     xlab = 'Frequency index';
 end
 
-% Mean ± SEM across subjects
+fprintf(['\nFREQNESS Entropy Landscape: computing Rényi entropy (H2) ' ...
+    'and effective dimensionality (ED) for %d participants.\n'],nsubs);
+
+
+%% Compute quadratic Rényi entropy and effective dimensionality
+
+sumtemp = sum(eigenspectrum,1);
+sumtemp = max(sumtemp,realmin);
+p = eigenspectrum./sumtemp;
+
+% Quadratic Rényi entropy: H2 = -log(sum(p_i^2))
+H2 = reshape(-log(sum(p.^2,1)),nfrex,nsubs);
+
+% Effective dimensionality: ED = sum(lambda)^2/sum(lambda^2)
+num = sum(eigenspectrum,1).^2;
+denom = max(sum(eigenspectrum.^2,1),realmin);
+ED = reshape(num./denom,nfrex,nsubs);
+
+
+%% Visualize H2 entropy landscape
+
+avg_H2 = mean(H2,2,'omitnan');
 if nsubs > 1
-    avg_ED  = mean(ED,  2, 'omitnan');
-    avg_H2  = mean(H2,  2, 'omitnan');
-    sem_ED  = std(ED,  0, 2, 'omitnan') ./ sqrt(nsubs);
-    sem_H2  = std(H2,  0, 2, 'omitnan') ./ sqrt(nsubs);
+    sem_H2 = std(H2,0,2,'omitnan')/sqrt(nsubs);
 else
-    avg_ED = ED;
-    avg_H2 = H2;
-    sem_ED = [];
     sem_H2 = [];
 end
 
-% Define parula-based line color
-cmap     = parula(256);
-col_line = cmap(1,:);   % first parula color
+cmap = parula(256);
+col_line = cmap(1,:);
 
-figure('Color','w', 'Units','normalized', 'Position',[0.3 0.3 0.35 0.5]);
-
-% --- H2 ---
-subplot(2,1,1); hold on
+figure('Color','w','Units','normalized','Position',[0.3 0.3 0.35 0.5]);
+hold on
 if nsubs > 1 && ~all(isnan(sem_H2))
-    fill([x; flipud(x)], [avg_H2 - sem_H2; flipud(avg_H2 + sem_H2)], ...
-        [0 0 0], 'FaceAlpha', 0.1, 'EdgeColor', 'none');
+    fill([x; flipud(x)],[avg_H2-sem_H2; flipud(avg_H2+sem_H2)], ...
+        [0 0 0],'FaceAlpha',0.1,'EdgeColor','none');
 end
-plot(x, avg_H2, 'Color', col_line, 'LineWidth', 2);
-xlabel(xlab, 'FontSize', 13, 'FontWeight', 'bold');
-ylabel('H_2', 'FontSize', 13, 'FontWeight', 'bold');
-title('Quadratic Rényi Entropy', 'FontSize', 14, 'FontWeight', 'bold');
-set(gca, 'FontSize', 12, 'LineWidth', 1.2, 'Box', 'off');
-grid on; grid minor; xlim([min(x) max(x)]);
-
-% --- ED ---
-subplot(2,1,2); hold on
-if nsubs > 1 && ~all(isnan(sem_ED))
-    fill([x; flipud(x)], [avg_ED - sem_ED; flipud(avg_ED + sem_ED)], ...
-        [0 0 0], 'FaceAlpha', 0.1, 'EdgeColor', 'none');
-end
-plot(x, avg_ED, 'Color', col_line, 'LineWidth', 2);
-ylabel('ED', 'FontSize', 13, 'FontWeight', 'bold');
-title('Effective Dimensionality', 'FontSize', 14, 'FontWeight', 'bold');
-set(gca, 'FontSize', 12, 'LineWidth', 1.2, 'Box', 'off');
-grid on; grid minor; xlim([min(x) max(x)]);
-sgtitle('Entropy across frequencies - Grand Average', 'FontSize', 18)
+plot(x,avg_H2,'Color',col_line,'LineWidth',2);
+xlabel(xlab,'FontSize',13,'FontWeight','bold');
+ylabel('H_2','FontSize',13,'FontWeight','bold');
+title('Quadratic Rényi Entropy - Grand Average', ...
+    'FontSize',14,'FontWeight','bold');
+set(gca,'FontSize',12,'LineWidth',1.2,'Box','off');
+grid on
+grid minor
+set_frequency_limits(x)
 
 
-%% -------------------------------------------------------------------------
-% Optional: individual-subject plots
-% -------------------------------------------------------------------------
+%% Optional individual-participant plots
 
 if plot_all
     for subi = 1:nsubs
-
-        this_H2 = H2(:,subi);
-        this_ED = ED(:,subi);
-
-        figure('Color','w', 'Units','normalized', 'Position',[0.3 0.3 0.35 0.5]);
-
-        % H2 per subject
-        subplot(2,1,1); hold on
-        plot(x, this_H2, 'Color', col_line, 'LineWidth', 1.5);
-        xlabel(xlab, 'FontSize', 13, 'FontWeight', 'bold');
-        ylabel('H_2', 'FontSize', 13, 'FontWeight', 'bold');
-        title(sprintf('Quadratic Rényi Entropy - Subject #%d', subi), ...
-            'FontSize', 14, 'FontWeight', 'bold');
-        set(gca, 'FontSize', 12, 'LineWidth', 1.2, 'Box', 'off');
-        grid on; grid minor; xlim([min(x) max(x)]);
-
-        % ED per subject
-        subplot(2,1,2); hold on
-        plot(x, this_ED, 'Color', col_line, 'LineWidth', 1.5);
-        xlabel(xlab, 'FontSize', 13, 'FontWeight', 'bold');
-        ylabel('ED', 'FontSize', 13, 'FontWeight', 'bold');
-        title(sprintf('Effective Dimensionality - Subject #%d', subi), ...
-            'FontSize', 14, 'FontWeight', 'bold');
-        set(gca, 'FontSize', 12, 'LineWidth', 1.2, 'Box', 'off');
-        grid on; grid minor; xlim([min(x) max(x)]);
+        figure('Color','w','Units','normalized','Position',[0.3 0.3 0.35 0.5]);
+        plot(x,H2(:,subi),'Color',col_line,'LineWidth',1.5);
+        xlabel(xlab,'FontSize',13,'FontWeight','bold');
+        ylabel('H_2','FontSize',13,'FontWeight','bold');
+        title(sprintf('Quadratic Rényi Entropy - Participant #%d',subi), ...
+            'FontSize',14,'FontWeight','bold');
+        set(gca,'FontSize',12,'LineWidth',1.2,'Box','off');
+        grid on
+        grid minor
+        set_frequency_limits(x)
     end
 end
 
 
-%% Adjust outputs
+%% Adjust scalar outputs
 
-% If single frequency & single subject, return scalar
-if isempty(ED)
-    ED = NaN;
-elseif isscalar(ED)
-    % leave as scalar
+if numel(H2) == 1
+    H2 = H2(1);
+    ED = ED(1);
+end
+
+end
+
+
+%% Helper function: Set frequency limits
+function set_frequency_limits(frex)
+
+if numel(frex) == 1
+    padding = max(abs(frex(1))*0.05,0.5);
+    xlim([frex(1)-padding frex(1)+padding])
 else
-    % ensure 2D output [nFrex x nSubs]
-    ED = reshape(ED, nfrex, nsubs);
+    xlim([min(frex) max(frex)])
 end
-
-% If single frequency & single subject, return scalar
-if isempty(H2)
-    H2 = NaN;
-elseif isscalar(H2)
-    % leave as scalar
-else
-    % ensure 2D output [nFrex x nSubs]
-    H2 = reshape(H2, nfrex, nsubs);
-end
-
 
 end
 
 
-%% Helper Function: Parse Name-Value Pairs
-function opts = parse_name_value_pairs(opts, varargin)
-% Simple name-value parser used to handle optional arguments.
-% Example:
-%   opts = struct('which_comp', [], 'range2fit', [], 'plot_all', false);
-%   opts = parse_name_value_pairs(opts, 'which_comp', 2, 'range2fit', [8 12], 'plot_all', true);
+%% Helper function: Parse name-value pairs
+function opts = parse_name_value_pairs(opts,varargin)
 
-if mod(length(varargin), 2) ~= 0
+if mod(length(varargin),2) ~= 0
     error('Arguments must be given as name-value pairs.');
 end
 
 for i = 1:2:length(varargin)
-    name = lower(varargin{i});
-    if isfield(opts, name)
+    if ~(ischar(varargin{i}) || (isstring(varargin{i}) && isscalar(varargin{i})))
+        error('Optional argument names must be text.');
+    end
+    name = lower(char(varargin{i}));
+    if isfield(opts,name)
         opts.(name) = varargin{i+1};
     else
-        error(['Unrecognized argument: ', name]);
+        error(['Unrecognized argument: ' name]);
     end
 end
+
 end

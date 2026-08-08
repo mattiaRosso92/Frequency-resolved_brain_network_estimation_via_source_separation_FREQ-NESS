@@ -109,6 +109,9 @@ if ~isfield(FREQ,'evals') || isempty(FREQ.evals)
     error('FREQ.evals is missing or empty.');
 end
 eigenspectrum = FREQ.evals;
+if ~isnumeric(eigenspectrum) || ~isreal(eigenspectrum) || any(~isfinite(eigenspectrum(:)))
+    error('FREQ.evals must be a real numeric array containing finite values.');
+end
 
 % Optional frequency axis for plotting
 if isfield(FREQ,'frex') && ~isempty(FREQ.frex)
@@ -135,10 +138,6 @@ ncomps = size(eigenspectrum,1);
 nfrex  = size(eigenspectrum,2);
 nsubs  = size(eigenspectrum,3);
 
-% Display for the user
-fprintf('\nFREQNESS ExponentialDK: modelling eigenvalue decay from %.1f to %.1f Hz for %d participants.\n', ...
-    range2fit(1), range2fit(end), nsubs);
-
 %% Fit exponentially decaying function
 
 % -------------------------------------------------------------------------
@@ -147,10 +146,9 @@ fprintf('\nFREQNESS ExponentialDK: modelling eigenvalue decay from %.1f to %.1f 
 if isempty(which_comp)
     disp('Component not specified. Defaulting to analyzing the 1st component.');
     which_comp = 1;
-elseif ~isscalar(which_comp) || which_comp < 1 || which_comp > ncomps
-    warning(['Input variable "which_comp" must be a scalar between 1 and ', num2str(ncomps), ...
-             '. Defaulting to analyzing the 1st component.']);
-    which_comp = 1;
+elseif ~isnumeric(which_comp) || ~isscalar(which_comp) || ~isfinite(which_comp) || ...
+        which_comp ~= round(which_comp) || which_comp < 1 || which_comp > ncomps
+    error('which_comp must be an integer between 1 and %d.',ncomps);
 end
 
 % Extract eigenspectrum for the selected component: [nFrex x nSubs]
@@ -180,15 +178,16 @@ else
     if ~exist('frex','var')
         error('range2fit was provided in Hz, but FREQ.frex is missing.');
     end
-    if numel(range2fit) ~= 2
+    if ~isnumeric(range2fit) || numel(range2fit) ~= 2 || any(~isfinite(range2fit))
         error(['The variable range2fit must be a 2-element vector containing the boundaries ' ...
                'of the frequency range to fit the exponential decay, e.g. [8 12].']);
     end
+    range2fit = sort(range2fit(:),'ascend');
     
     % Find closest 1st and last frequencies
     [~, idx_first] = min(abs(frex - range2fit(1)));
     [~, idx_last]  = min(abs(frex - range2fit(2)));
-    idx_range2fit  = idx_first:idx_last;
+    idx_range2fit  = min(idx_first,idx_last):max(idx_first,idx_last);
     
     % Warn if requested boundaries are not exact matches
     tol = 1e-3; % Hz
@@ -199,6 +198,10 @@ end
 
 % Frequencies (or indices) actually used for the fit
 x_fit = x_all(idx_range2fit);
+
+% Display the frequency range that is actually modelled
+fprintf('\nFREQNESS ExponentialDK: modelling eigenvalue decay from %.1f to %.1f Hz for %d participants.\n', ...
+    x_fit(1),x_fit(end),nsubs);
 
 % -------------------------------------------------------------------------
 % 4) Fit exponential decay per subject: y = A * exp(-lambda * x)
@@ -316,18 +319,22 @@ ylabel('Eigenvalue','FontSize',13,'FontWeight','bold');
 title(sprintf('Exponential decay fit - Component #%d', which_comp), ...
       'FontSize',14,'FontWeight','bold');
 set(gca,'FontSize',12,'LineWidth',1.2,'Box','off');
-grid on; grid minor; xlim([min(x) max(x)]);
-legend( ...
-    [h_eig, h_fit, h_min], ...   % include only one dashed line (they are identical)
-    {'Mean eigenspectrum', 'Exponential fit', 'Fit range'}, ...
-    'Location','northeast', ...
-    'FontSize',12);
+grid on; grid minor; set_x_limits(x);
+if exist('h_fit','var')
+    legend([h_eig, h_fit, h_min], ...
+        {'Mean eigenspectrum', 'Exponential fit', 'Fit range'}, ...
+        'Location','northeast','FontSize',12);
+else
+    legend([h_eig, h_min], {'Mean eigenspectrum','Fit range'}, ...
+        'Location','northeast','FontSize',12);
+end
 
 % -------------------------------------------------------------------------
 % Optional individual-subject plots
 % -------------------------------------------------------------------------
 if plot_all
     for subi = 1:nsubs
+        h_fit_s = [];
         
         y_full = eig_comp(:,subi);
         
@@ -353,10 +360,10 @@ if plot_all
         title(sprintf('Subject %d – exponential decay fit (component %d)', subi, which_comp), ...
               'FontSize',14,'FontWeight','bold');
         set(gca,'FontSize',12,'LineWidth',1.2,'Box','off');
-        grid on; grid minor; xlim([min(x) max(x)]);
+        grid on; grid minor; set_x_limits(x);
 
         % Legend (per subject)
-        if exist('h_fit_s','var')
+        if ~isempty(h_fit_s)
             legend([h_eig_s, h_fit_s, h_min_s], ...
                 {'Eigenspectrum','Exponential fit','Fit range'}, ...
                 'Location','northeast','FontSize',12);
@@ -367,6 +374,17 @@ if plot_all
         end
 
     end
+end
+
+
+%% Helper Function: Set Safe X-Axis Limits
+function set_x_limits(x)
+if numel(x) == 1
+    padding = max(abs(x(1))*0.05,0.5);
+    xlim(x(1)+[-padding padding]);
+else
+    xlim([min(x) max(x)]);
+end
 end
 
 end

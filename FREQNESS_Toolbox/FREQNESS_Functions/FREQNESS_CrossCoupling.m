@@ -1,4 +1,4 @@
-function CFC = FREQNESS_CrossCoupling(FREQ, lfo_freq, varargin)
+function CFC = FREQNESS_CrossCoupling(FREQ,lfo_freq,varargin)
 
 % ========================================================================
 %
@@ -7,97 +7,78 @@ function CFC = FREQNESS_CrossCoupling(FREQ, lfo_freq, varargin)
 %  If you use this toolbox, please cite:
 %  Rosso, M., Fernández‐Rubio, G., Keller, P. E., Brattico, E., Vuust, P.,
 %  Kringelbach, M. L., & Bonetti, L. (2025).
-%  FREQ‐NESS Reveals the Dynamic Reconfiguration of Frequency-Resolved Brain
+%  FREQ‐NESS Reveals the Dynamic Reconfiguration of Frequency‐Resolved Brain
 %  Networks During Auditory Stimulation.
 %  Advanced Science, 2413195.
 %  https://doi.org/10.1002/advs.202413195
 %
 % ========================================================================
-%  This function computes cross-frequency coupling (CFC) between a low-
-%  frequency oscillator (LFO) and higher-frequency carrier networks, using
-%  the FREQNESS component time series stored in FREQ.ts.
+%  This function computes phase-amplitude cross-frequency coupling (PAC)
+%  between a low-frequency oscillator (LFO) and higher-frequency carrier
+%  networks using the FREQNESS component time series stored in FREQ.ts.
 %
-%  Specifically, it quantifies how the instantaneous phase of one
-%  component at a low frequency (the modulator) modulates the power of the
-%  *same* component across the eigenspectrum (the carriers).
+%  The selected component is re-filtered at the LFO and carrier frequencies.
+%  The neural LFO phase and carrier power are obtained from their analytic
+%  signals, and mean carrier power is computed in LFO phase bins.
 %
-%  CFC is estimated via:
-%      Phase-amplitude coupling (PAC): mean carrier power in
-%      phase bins across one LFO cycle, with a sinusoidal fit (sineFit.m)
-%      to estimate modulation amplitude, phase shift, etc.
+%  PAC modulation is summarized through a deterministic first-harmonic
+%  regression fitted over the phase-bin centres:
 %
-%  The function operates on ONE component only (which_comp), which acts
-%  both as the LFO modulator and as the carrier component across
-%  frequencies.
+%      P(phi) = b0 + bc*cos(phi) + bs*sin(phi)
+%
+%  The function operates on one component only, which acts both as the LFO
+%  modulator and as the carrier component across frequencies.
 %
 % ------------------------------------------------------------------------
 %  INPUT ARGUMENTS:
 % ------------------------------------------------------------------------
-%
 %  - FREQ : structure with fields
+%           • FREQ.frex  -> frequency vector [nFrex x 1]
+%           • FREQ.ts    -> component time series
+%                          [nComp x nTime x nFrex x (nSubs)]
+%           • FREQ.srate -> sampling rate (Hz)
+%           • FREQ.fwhm  -> one filter width per frequency
+%           • FREQ.pats  -> optional spatial activation patterns
 %
-%           • FREQ.frex   -> frequency vector [nFrex x 1]
-%           • FREQ.ts     -> component time series
-%                            [nComp x nTime x nFrex x (nSubs)]
-%                            or [nComp x nTime x nFrex] for single-subject
-%           • FREQ.srate  -> sampling rate (Hz) of the component time
-%                            series in FREQ.ts. Used here to re-filter
-%                            components around each center frequency.
-%           • FREQ.fwhm   -> vector of full-width at half-maximum (FWHM)
-%                            values for the bandpass / wavelet used at
-%                            each frequency, [nFrex x 1]. CFC re-filters
-%                            the time series at each frex using
-%                            filterFGx(FREQ.srate, FREQ.frex, FREQ.fwhm).
-%
-%           (optional but very relevant for visualization)
-%           • FREQ.pats   -> activation patterns
-%                            [nVoxels x nComp x nFrex x (nSubs)]
-%
-%  - lfo_freq : scalar with the frequency (in Hz) of the low-frequency
-%               oscillator to be used as phase modulator. The closest
-%               value in FREQ.frex will be used.
+%  - lfo_freq : positive scalar LFO frequency (Hz). The closest value in
+%               FREQ.frex is used.
 %
 % ------------------------------------------------------------------------
-%  OPTIONAL NAME–VALUE PAIRS:
+%  OPTIONAL NAME-VALUE PAIRS:
 % ------------------------------------------------------------------------
+%  - 'mni'        : MNI coordinates [nVoxels x 3], used only for optional
+%                   spatial visualization.
 %
-%  - 'MNI'        : MNI coordinates for voxels (N x 3), same order as
-%                   FREQ.pats. Used only for visualization.
+%  - 'frex2model' : ascending [fmin fmax] carrier-frequency range.
+%                   Default: all frequencies above the selected LFO.
 %
-%  - 'frex2model' : [fmin fmax] frequency range (Hz) within which carrier
-%                   frequencies are considered. The LFO frequency is
-%                   automatically excluded from carriers.
-%                   Default: [min(FREQ.frex) max(FREQ.frex)].
+%  - 'which_comp' : component used as modulator and carrier. Default: 1.
 %
-%  - 'which_comp' : scalar index of the component to use as both modulator
-%                   and carrier across frequencies. Default: 1.
+%  - 'plot_all'   : plot participant-level PAC summaries. Default: false.
 %
-%  - 'plot_all'   : logical flag. When true, produces per-subject CFC
-%                   plots in addition to the group-level visualization.
-%                   Default: false.
+%  - 'nbins'      : number of LFO phase bins. Default: 37.
+%
+%  - 'min_valid_bins' : minimum populated phase bins required for harmonic
+%                       regression. Default: max(6,ceil(nbins/2)).
 %
 % ------------------------------------------------------------------------
 %  OUTPUT:
 % ------------------------------------------------------------------------
+%  - CFC.PAC_all       : [nCarriers x nSubs x nBins] PAC histograms
+%  - CFC.PAC_avg       : [nCarriers x nBins] group-average PAC
+%  - CFC.fitted_PAC    : first-harmonic fits over phase bins
+%  - CFC.coefficients  : [b0 bc bs] regression coefficients
+%  - CFC.amplitude_raw : first-harmonic amplitude
+%  - CFC.amplitude_normalized : amplitude as % of absolute DC offset
+%  - CFC.preferred_phase : preferred LFO phase (rad)
+%  - CFC.dc_offset     : first-harmonic DC offset
+%  - CFC.mse / CFC.r2  : regression goodness-of-fit
+%  - CFC.valid_bins    : populated bins available to each fit
+%  - CFC.lfo_phase     : neural LFO phase time series
 %
-%  CFC : structure with fields
-%
-%     • CFC.PAC_all      -> [nCarriers x nSubs x nBins] PAC histograms
-%     • CFC.PAC_avg      -> [nCarriers x nBins] group average PAC
-%     • CFC.sAmpl        -> [nCarriers x nSubs] sine-fit amplitude
-%     • CFC.pShift       -> [nCarriers x nSubs] sine-fit phase shift
-%     • CFC.dcOff        -> [nCarriers x nSubs] sine-fit DC offset
-%     • CFC.mFrex        -> [nCarriers x nSubs] sine-fit modulation freq
-%     • CFC.goodFit      -> [nCarriers x nSubs] sine-fit error / goodness
-%     • CFC.carrier_frex -> [nCarriers x 1] carrier frequencies (Hz)
-%     • CFC.lfo_freq     -> scalar, actual LFO frequency used (Hz)
-%     • CFC.comp         -> scalar, component index used
-%     • CFC.phase_edges  -> [1 x (nBins+1)] phase bin edges (rad)
-%
-%  Additionally, the function produces group-level figures summarizing:
-%   - PAC as a function of phase and frequency (surface plot)
-%   - Optional 3D brain plots of LFO and peak carrier networks if MNI
-%     coordinates and FREQ.pats are provided.
+%  Legacy aliases are retained: sAmpl, pShift, dcOff, goodFit, and mFrex.
+%  mFrex is fixed to 1/nbins cycles per bin, equivalent to one cycle per
+%  LFO phase cycle.
 %
 % ------------------------------------------------------------------------
 %  AUTHORS:
@@ -109,378 +90,448 @@ function CFC = FREQNESS_CrossCoupling(FREQ, lfo_freq, varargin)
 %
 % ========================================================================
 
-%% ----------------------- Parse and validate inputs ----------------------
 
-% Handle optional arguments (name–value pairs) via helper
-opts = struct( ...
-    'mni',        [], ...
-    'frex2model', [min(FREQ.frex) max(FREQ.frex)], ...
-    'which_comp', 1, ...
-    'plot_all',   false);
+%% Check mandatory inputs
 
-opts = parse_name_value_pairs(opts, varargin{:});
-
-MNI        = opts.mni;
-frex2model = opts.frex2model;
-which_comp = opts.which_comp;
-plot_all   = opts.plot_all;
-
-% Check required fields
-if ~isfield(FREQ,'frex')
-    error('FREQNESS_CrossCoupling:MissingField', ...
-        'FREQ.frex is required.');
-end
-if ~isfield(FREQ,'ts')
-    error('FREQNESS_CrossCoupling:MissingField', ...
-        'FREQ.ts is required (nComp x nTime x nFrex x (sub)).');
-end
-if ~isfield(FREQ,'srate')
-    error('FREQNESS_CrossCoupling:MissingField', ...
-        'FREQ.srate is required for re-filtering the network time series.');
-end
-if ~isfield(FREQ,'fwhm')
-    error('FREQNESS_CrossCoupling:MissingField', ...
-        'FREQ.fwhm is required for re-filtering the network time series and must contain one FWHM value per frequency in FREQ.frex.');
+if nargin < 2 || ~isstruct(FREQ)
+    error('FREQ and lfo_freq are required inputs.');
 end
 
-% Assignment to local variable
+required_fields = {'frex','ts','srate','fwhm'};
+for fieldi = 1:numel(required_fields)
+    if ~isfield(FREQ,required_fields{fieldi}) || isempty(FREQ.(required_fields{fieldi}))
+        error('FREQ.%s is missing or empty.',required_fields{fieldi});
+    end
+end
+
 frex = FREQ.frex(:);
-nfrex = numel(frex);
-
-% Bring FREQ.ts to 4D: comp x time x frex x sub
-ts = FREQ.ts;
-switch ndims(ts)
-    case 3
-        [ncomps, npnts, nfrex_ts] = size(ts);
-        nsubs = 1;
-        ts    = reshape(ts, [ncomps, npnts, nfrex_ts, 1]);
-    case 4
-        [ncomps, npnts, nfrex_ts, nsubs] = size(ts);
-    otherwise
-        error('FREQ.ts must be a 3D or 4D array.');
+if ~isnumeric(frex) || ~isreal(frex) || any(~isfinite(frex)) || ...
+        any(frex <= 0) || any(diff(frex) <= 0)
+    error('FREQ.frex must contain positive, finite, strictly increasing frequencies.');
 end
 
-if nfrex_ts ~= nfrex
+if ~isnumeric(lfo_freq) || ~isreal(lfo_freq) || ~isscalar(lfo_freq) || ...
+        ~isfinite(lfo_freq) || lfo_freq <= 0
+    error('lfo_freq must be one positive finite scalar.');
+end
+
+if ~isnumeric(FREQ.srate) || ~isreal(FREQ.srate) || ...
+        ~isscalar(FREQ.srate) || ~isfinite(FREQ.srate) || FREQ.srate <= 0
+    error('FREQ.srate must be one positive finite scalar.');
+end
+
+if any(frex >= FREQ.srate/2)
+    error('FREQ.frex must be lower than the Nyquist frequency.');
+end
+
+ts = FREQ.ts;
+if ~isnumeric(ts) || ~isreal(ts) || any(~isfinite(ts(:))) || ...
+        ndims(ts) < 3 || ndims(ts) > 4
+    error(['FREQ.ts must be a real finite numeric array in ' ...
+        '[nComp x nTime x nFrex x (nSubs)] format.']);
+end
+
+ncomps = size(ts,1);
+npnts = size(ts,2);
+nfrex = size(ts,3);
+nsubs = size(ts,4);
+
+if npnts < 2
+    error('FREQ.ts must contain at least two timepoints.');
+end
+
+if nfrex ~= numel(frex)
     error('FREQ.ts and FREQ.frex have incompatible frequency dimensions.');
 end
 
-% Check FWHM dimensionality
 fwhm = FREQ.fwhm(:);
-if numel(fwhm) ~= nfrex
-    error('FREQ.fwhm must have one entry per frequency in FREQ.frex.');
+if ~isnumeric(fwhm) || ~isreal(fwhm) || numel(fwhm) ~= nfrex || ...
+        any(~isfinite(fwhm)) || any(fwhm <= 0)
+    error('FREQ.fwhm must contain one positive finite value per frequency.');
 end
 
-% Component sanity check
-if which_comp < 1 || which_comp > ncomps
-    error('which_comp (%d) is out of bounds. Available components: 1..%d.', ...
-        which_comp, ncomps);
+
+%% Handle optional arguments
+
+opts = struct('mni',[],'frex2model',[],'which_comp',1, ...
+    'plot_all',false,'nbins',37,'min_valid_bins',[]);
+opts = parse_name_value_pairs(opts,varargin{:});
+
+MNI = opts.mni;
+frex2model = opts.frex2model;
+which_comp = opts.which_comp;
+plot_all = opts.plot_all;
+nbins = opts.nbins;
+min_valid_bins = opts.min_valid_bins;
+
+if isempty(frex2model)
+    frex2model = [frex(1) frex(end)];
+elseif ~isnumeric(frex2model) || ~isreal(frex2model) || ...
+        ~isvector(frex2model) || numel(frex2model) ~= 2 || ...
+        any(~isfinite(frex2model)) || frex2model(1) > frex2model(2)
+    error('frex2model must contain two finite ascending frequency boundaries.');
+else
+    frex2model = frex2model(:)';
 end
 
-%% ---------------------- Define LFO and carriers -------------------------
+if ~isnumeric(which_comp) || ~isreal(which_comp) || ~isscalar(which_comp) || ...
+        ~isfinite(which_comp) || which_comp ~= round(which_comp) || ...
+        which_comp < 1 || which_comp > ncomps
+    error('which_comp must be an integer between 1 and %d.',ncomps);
+end
 
-% Find index of LFO in FREQ.frex
-[~, idx_lfo] = min(abs(frex - lfo_freq));
+if ~islogical(plot_all) || ~isscalar(plot_all)
+    error('plot_all must be one logical value (true or false).');
+end
+
+if ~isnumeric(nbins) || ~isreal(nbins) || ~isscalar(nbins) || ...
+        ~isfinite(nbins) || nbins ~= round(nbins) || nbins < 6
+    error('nbins must be one integer greater than or equal to 6.');
+end
+
+if isempty(min_valid_bins)
+    min_valid_bins = max(6,ceil(nbins/2));
+elseif ~isnumeric(min_valid_bins) || ~isreal(min_valid_bins) || ...
+        ~isscalar(min_valid_bins) || ~isfinite(min_valid_bins) || ...
+        min_valid_bins ~= round(min_valid_bins) || min_valid_bins < 3 || ...
+        min_valid_bins > nbins
+    error('min_valid_bins must be one integer from 3 to nbins.');
+end
+
+if ~isempty(MNI) && (~isnumeric(MNI) || ~isreal(MNI) || ...
+        ndims(MNI) ~= 2 || size(MNI,2) ~= 3 || any(isinf(MNI(:))))
+    error('MNI must be a real [nVoxels x 3] numeric matrix without infinite values.');
+end
+
+
+%% Define LFO and carrier frequencies
+
+[~,idx_lfo] = min(abs(frex-lfo_freq));
 lfo_freq_actual = frex(idx_lfo);
 
-% Frequency mask for carriers
-mask_frex = frex >= frex2model(1) & frex <= frex2model(2);
-mask_frex(1:idx_lfo) = false; % exclude frequencies <= LFO itself
-
-idx_carriers = find(mask_frex);
-if isempty(idx_carriers)
-    error('No carrier frequencies found in the specified frex2model range.');
+if abs(lfo_freq_actual-lfo_freq) > 1e-3
+    warning('lfo_freq %.3g Hz is unavailable. Using %.3g Hz.', ...
+        lfo_freq,lfo_freq_actual);
 end
 
-% Assign carrier frequencies
+mask_frex = frex >= frex2model(1) & frex <= frex2model(2);
+mask_frex(1:idx_lfo) = false;
+idx_carriers = find(mask_frex);
+
+if isempty(idx_carriers)
+    error('No carrier frequencies remain above the selected LFO.');
+end
+
 carrier_frex = frex(idx_carriers);
 ncars = numel(carrier_frex);
 
-%% ------------------ Compute LFO phase for all subjects ------------------
 
-% Re-filter the LFO component time series around lfo_freq_actual using the
-% same filter width used during FREQNESS_NetworkEstimation, then compute 
-% phase via Hilbert transform.
+%% Compute neural LFO phase
 
-lfo_phase_all = zeros(npnts, nsubs);
+lfo_phase_all = zeros(npnts,nsubs);
 
 for subi = 1:nsubs
-    % Raw LFO component time series (1 x nTime for filterFGx)
-    lfo_ts = squeeze(ts(which_comp,:,idx_lfo, subi));         % [1 x nTime]
-    % Re-filter around the LFO frequency
-    lfo_ts = filterFGx(lfo_ts, FREQ.srate, lfo_freq_actual, fwhm(idx_lfo), 0);
-    % Hilbert operates along columns (time x chans), hence transpose back
-    lfo_phase_all(:,subi) = angle( hilbert(lfo_ts.') );       % [nTime x 1], in [-pi, pi]
+    lfo_ts = squeeze(ts(which_comp,:,idx_lfo,subi));
+    lfo_ts = filterFGx(lfo_ts,FREQ.srate,lfo_freq_actual,fwhm(idx_lfo),0);
+    lfo_phase_all(:,subi) = angle(FREQNESS_AnalyticSignal(lfo_ts'));
 end
 
-% Define phase binning
-nbins        = 37; % as in the paper implementation
-phase_edges  = linspace(-pi, pi, nbins+1);
+phase_edges = linspace(-pi,pi,nbins+1);
 phase_centers = phase_edges(1:end-1) + diff(phase_edges)/2;
 
-%% --------------------- PAC across carriers & subjects -------------------
 
-PAC_all = nan(ncars, nsubs, nbins);     % [nCarriers x nSubs x nBins]
+%% Compute PAC across carriers and participants
+
+PAC_all = nan(ncars,nsubs,nbins);
 
 for carri = 1:ncars
-    
-    idx_freq = idx_carriers(carri); % actual frequency index in FREQ.frex
-    
+    idx_freq = idx_carriers(carri);
+
     for subi = 1:nsubs
-        
-        % Carrier time series: re-filter around current carrier frequency
-        carr_ts = squeeze(ts(which_comp, :, idx_freq, subi));      % [1 x nTime]
-        carr_ts = filterFGx(carr_ts, FREQ.srate, frex(idx_freq), fwhm(idx_freq), 0);
-        carr_pow = abs( hilbert(carr_ts.')).^2;                    % [nTime x 1] power
-        
-        % Phase of the LFO (same component, lfo_freq)
-        phase = lfo_phase_all(:,subi);                             % [nTime x 1]
-        
-        % --- PAC: mean power per phase bin ---
+        carr_ts = squeeze(ts(which_comp,:,idx_freq,subi));
+        carr_ts = filterFGx(carr_ts,FREQ.srate,frex(idx_freq),fwhm(idx_freq),0);
+        carr_pow = abs(FREQNESS_AnalyticSignal(carr_ts')).^2;
+        phase = lfo_phase_all(:,subi);
+
         for bini = 1:nbins
             idx_phase = phase > phase_edges(bini) & phase <= phase_edges(bini+1);
             if any(idx_phase)
-                PAC_all(carri,subi,bini) = mean(carr_pow(idx_phase), 'omitnan');
+                PAC_all(carri,subi,bini) = mean(carr_pow(idx_phase),'omitnan');
             end
         end
-        
-    end % subjects
-    
-end % carriers
+    end
+end
 
-% Group-level averages: [nCarriers x nBins]
-PAC_avg = squeeze(mean(PAC_all, 2, 'omitnan'));
+PAC_avg = reshape(mean(PAC_all,2,'omitnan'),ncars,nbins);
 
-%% ------------------ Sinusoidal fit of PAC (sineFit.m) -------------------
 
-smth = 1;  % smoothing factor for PAC curves before fitting
+%% Fit deterministic first-harmonic regression
 
-sAmpl   = nan(ncars, nsubs);  % amplitude
-mFrex   = nan(ncars, nsubs);  % modulation frequency
-pShift  = nan(ncars, nsubs);  % phase shift
-dcOff   = nan(ncars, nsubs);  % DC offset
-goodFit = nan(ncars, nsubs);  % MSE / goodness (depends on sineFit)
-
-x2fit = 1:nbins;
+coefficients = nan(ncars,nsubs,3);
+fitted_PAC = nan(size(PAC_all));
+amplitude_raw = nan(ncars,nsubs);
+amplitude_normalized = nan(ncars,nsubs);
+preferred_phase = nan(ncars,nsubs);
+dc_offset = nan(ncars,nsubs);
+mse = nan(ncars,nsubs);
+r2 = nan(ncars,nsubs);
+valid_bins = zeros(ncars,nsubs);
 
 for carri = 1:ncars
     for subi = 1:nsubs
-        
-        y = squeeze(PAC_all(carri,subi,:));   % [nBins x 1]
-        if all(isnan(y))
+        y = squeeze(PAC_all(carri,subi,:));
+        valid_fit = isfinite(phase_centers(:)) & isfinite(y);
+        valid_bins(carri,subi) = sum(valid_fit);
+
+        if valid_bins(carri,subi) < min_valid_bins
             continue
         end
-        
-        % Smooth and fit sine: params = [dcOff, ampl, freq, phase, mse]
-        y_sm = smooth(y, smth)';             % row vector
-        
-        params = sineFit(x2fit, y_sm, 0);        % no plot
-        
-        dcOff(carri,subi)   = params(1);
-        sAmpl(carri,subi)   = params(2);
-        mFrex(carri,subi)   = params(3);
-        pShift(carri,subi)  = params(4);
-        goodFit(carri,subi) = params(5);
-        
+
+        phi = phase_centers(valid_fit)';
+        y_valid = y(valid_fit);
+        design = [ones(numel(phi),1) cos(phi) sin(phi)];
+        beta = design\y_valid;
+        yfit = beta(1) + beta(2)*cos(phase_centers(:)) + ...
+            beta(3)*sin(phase_centers(:));
+        residuals = y_valid-design*beta;
+        sse = sum(residuals.^2);
+        sst = sum((y_valid-mean(y_valid)).^2);
+
+        coefficients(carri,subi,:) = reshape(beta,1,1,3);
+        fitted_PAC(carri,subi,:) = reshape(yfit,1,1,nbins);
+        amplitude_raw(carri,subi) = hypot(beta(2),beta(3));
+        preferred_phase(carri,subi) = atan2(beta(3),beta(2));
+        dc_offset(carri,subi) = beta(1);
+        mse(carri,subi) = mean(residuals.^2);
+
+        if abs(beta(1)) > eps
+            amplitude_normalized(carri,subi) = ...
+                100*amplitude_raw(carri,subi)/abs(beta(1));
+        end
+        if sst > eps
+            r2(carri,subi) = 1-sse/sst;
+        end
     end
 end
 
-% Replace zeros with NaN (mirroring the paper script)
-sAmpl(  sAmpl   == 0) = NaN;
-pShift( pShift  == 0) = NaN;
-dcOff(  dcOff   == 0) = NaN;
+mFrex = nan(ncars,nsubs);
+mFrex(isfinite(amplitude_raw)) = 1/nbins;
+amplitude_avg = mean(amplitude_raw,2,'omitnan');
 
-% Compute average amplitude modulation index, for plotting
-sAmpl_avg = squeeze( mean(sAmpl,2,'omitnan') );
 
-%% ---------------------------- Pack output -------------------------------
+%% Pack output
 
-CFC.PAC_all       = PAC_all;
-CFC.PAC_avg       = PAC_avg;
-
-CFC.sAmpl         = sAmpl;
-CFC.pShift        = pShift;
-CFC.dcOff         = dcOff;
-CFC.mFrex         = mFrex;
-CFC.goodFit       = goodFit;
-
-CFC.carrier_frex  = carrier_frex;
-CFC.lfo_freq      = lfo_freq_actual;
-CFC.comp          = which_comp;
-CFC.phase_edges   = phase_edges;
+CFC.PAC_all = PAC_all;
+CFC.PAC_avg = PAC_avg;
+CFC.carrier_frex = carrier_frex;
+CFC.lfo_freq = lfo_freq_actual;
+CFC.comp = which_comp;
+CFC.phase_edges = phase_edges;
 CFC.phase_centers = phase_centers;
+CFC.fitted_PAC = fitted_PAC;
+CFC.coefficients = coefficients;
+CFC.amplitude_raw = amplitude_raw;
+CFC.amplitude_normalized = amplitude_normalized;
+CFC.preferred_phase = preferred_phase;
+CFC.dc_offset = dc_offset;
+CFC.mse = mse;
+CFC.r2 = r2;
+CFC.valid_bins = valid_bins;
+CFC.lfo_phase = lfo_phase_all;
 
-%% ----------------------- Group-level visualizations ---------------------
+% Legacy output aliases
+CFC.sAmpl = amplitude_raw;
+CFC.pShift = preferred_phase;
+CFC.dcOff = dc_offset;
+CFC.mFrex = mFrex;
+CFC.goodFit = mse;
 
-figure('Name','FREQNESS CrossCoupling: PAC','Color','w'); clf
-cmap = parula(ncars);  % one color per carrier frequency
 
-% PAC histograms (power over phase) for all carrier frequencies
+%% Group-level PAC visualization
+
+figure('Name','FREQNESS CrossCoupling: PAC','Color','w');
+cmap = parula(ncars);
+
 subplot(2,1,1); hold on
 for carri = 1:ncars
-    plot(phase_centers, ...
-         PAC_avg(carri,:), ...
-         'Color', cmap(carri,:), ...
-         'LineWidth', 1.6);
+    plot(phase_centers,PAC_avg(carri,:),'Color',cmap(carri,:), ...
+        'LineWidth',1.6);
 end
-xlabel('Phase (rad)', 'FontSize', 13, 'FontWeight','bold');
-ylabel('Modulation amplitude (a.u.)',       'FontSize', 13, 'FontWeight','bold');
-title(sprintf('PAC across frequencies (Group Average): LFO %.3g Hz (comp %d)', ...
-    lfo_freq_actual, which_comp), ...
-    'FontSize', 14, 'FontWeight','bold');
+xlabel('LFO phase (rad)','FontSize',13,'FontWeight','bold');
+ylabel('Carrier power (a.u.)','FontSize',13,'FontWeight','bold');
+title(sprintf(['PAC across frequencies - Group average: LFO %.3g Hz ' ...
+    '(component %d)'],lfo_freq_actual,which_comp), ...
+    'FontSize',14,'FontWeight','bold');
 set(gca,'FontSize',12,'LineWidth',1.2,'Box','off');
-grid on; grid minor;
-% Legend with carrier frequencies (on the second subplot)
-leg_entries = cell(ncars,1);
-for carri = 1:ncars
-    leg_entries{carri} = sprintf('%.1f Hz', carrier_frex(carri));
-end
-legend(leg_entries, 'Location','eastoutside');
+grid on
+grid minor
 
-% Sine-fit amplitude (power modulation) across carrier frequencies
+leg_entries = arrayfun(@(x) sprintf('%.1f Hz',x),carrier_frex, ...
+    'UniformOutput',false);
+legend(leg_entries,'Location','eastoutside');
+
 subplot(2,1,2); hold on
-col_line = cmap(1,:);  % pick the first parula color for this line
-plot(carrier_frex, sAmpl_avg, 'Color', col_line, 'LineWidth', 1.8);
-xlabel('Carrier frequency (Hz)', 'FontSize', 13, 'FontWeight','bold');
-ylabel('Power (a.u.)', 'FontSize', 13, 'FontWeight','bold');
-title(sprintf('Power modulation: LFO %.3g Hz (comp %d)', ...
-    lfo_freq_actual, which_comp), ...
-    'FontSize', 14, 'FontWeight','bold');
+plot(carrier_frex,amplitude_avg,'Color',cmap(1,:),'LineWidth',1.8);
+xlabel('Carrier frequency (Hz)','FontSize',13,'FontWeight','bold');
+ylabel('First-harmonic amplitude (a.u.)','FontSize',13,'FontWeight','bold');
+title(sprintf('Power modulation: LFO %.3g Hz (component %d)', ...
+    lfo_freq_actual,which_comp),'FontSize',14,'FontWeight','bold');
 set(gca,'FontSize',12,'LineWidth',1.2,'Box','off');
-grid on; grid minor;
+grid on
+grid minor
 
 
-%% -------- Optional: brain plots if MNI & activation patterns provided ----
+%% Optional spatial visualization
 
-if ~isempty(MNI) && isfield(FREQ,'pats')
-    
-    pats = FREQ.pats;
-    switch ndims(pats)
-        case 3
-            [nvoxs, ncomps_pat, nfrex_pat] = size(pats);
-            nSubs_p = 1;
-            pats    = reshape(pats,[nvoxs ncomps_pat nfrex_pat 1]);
-        case 4
-            [nvoxs, ncomps_pat, nfrex_pat, nSubs_p] = size(pats);
-        otherwise
-            warning('FREQ.pats has unexpected dimensionality. Skipping brain plots.');
-            nSubs_p = 0;
-    end
-    
-    if nSubs_p > 0 && ncomps_pat >= which_comp && nfrex_pat == nfrex
-        
-        % LFO pattern (group average if multi-subject)
-        lfo_pat = squeeze(pats(:, which_comp, idx_lfo, :)); % [nVox x nSubs_p]
-        if nSubs_p > 1
-            lfo_pat = mean(lfo_pat, 2, 'omitnan');
-        end
-        
-        % Carrier with maximal (mean-over-phase) PAC
-        PAC_avg_scalar = mean(PAC_avg, 2, 'omitnan');   % [nCarriers x 1]
-        [~, idx_peak_local] = max(PAC_avg_scalar);
-        idx_peak_frex = idx_carriers(idx_peak_local);
-        
-        peak_pat = squeeze(pats(:, which_comp, idx_peak_frex, :));
-        if nSubs_p > 1
-            peak_pat = mean(peak_pat, 2, 'omitnan');
-        end
-        
-        % Normalize 0–1 for visualization
-        lfo_vis  = abs( lfo_pat  ./ max(abs(lfo_pat)) );
-        peak_vis = abs( peak_pat ./ max(abs(peak_pat)) );
-        
-        figure('Name','FREQNESS CrossCoupling: Networks Spatial Patterns','Color','w'); clf
-        subplot(1,2,1); hold on
-        scatter3(MNI(:,1), MNI(:,2), MNI(:,3), ...
-            20, lfo_vis, 'filled');
-        title(sprintf('LFO network (%.3g Hz, comp %d)', lfo_freq_actual, which_comp));
-        axis equal; grid on; view(135,30); colorbar;
-        xlabel('X'); ylabel('Y'); zlabel('Z');
-        
-        subplot(1,2,2); hold on
-        scatter3(MNI(:,1), MNI(:,2), MNI(:,3), ...
-            20, peak_vis, 'filled');
-        title(sprintf('Peak carrier (%.3g Hz, comp %d)', ...
-            frex(idx_peak_frex), which_comp));
-        axis equal; grid on; view(135,30); colorbar;
-        xlabel('X'); ylabel('Y'); zlabel('Z');
-        
-    end
+if ~isempty(MNI)
+    plot_spatial_patterns(FREQ,MNI,which_comp,idx_lfo,idx_carriers, ...
+        PAC_avg,frex,nsubs)
 end
 
-%% -------------------------- Per-subject plots ---------------------------
+
+%% Optional participant-level PAC visualizations
 
 if plot_all
-    cmap = parula(ncars);
-
     for subi = 1:nsubs
-        
-        figure('Name',sprintf('FREQNESS CFC: PAC Sub %d',subi), ...
-               'Color','w','Units','normalized','Position',[0.32 0.32 0.35 0.55]); 
-        clf
-        
-        % --- PAC histograms (power over phase) for this subject ---
+        figure('Name',sprintf('FREQNESS CFC: PAC Participant %d',subi), ...
+            'Color','w','Units','normalized','Position',[0.32 0.32 0.35 0.55]);
+
         subplot(2,1,1); hold on
         for carri = 1:ncars
-            plot(phase_centers, ...
-                 squeeze(PAC_all(carri,subi,:)), ...
-                 'Color', cmap(carri,:), ...
-                 'LineWidth', 1.6);
+            plot(phase_centers,squeeze(PAC_all(carri,subi,:)), ...
+                'Color',cmap(carri,:),'LineWidth',1.6);
         end
-        xlabel('Phase (rad)', 'FontSize', 13, 'FontWeight','bold');
-        ylabel('Modulation amplitude (a.u.)', 'FontSize', 13, 'FontWeight','bold');
-        title(sprintf('PAC across frequencies (Sub %d): LFO %.3g Hz (comp %d)', ...
-            subi, lfo_freq_actual, which_comp), ...
+        xlabel('LFO phase (rad)','FontSize',13,'FontWeight','bold');
+        ylabel('Carrier power (a.u.)','FontSize',13,'FontWeight','bold');
+        title(sprintf(['PAC - Participant #%d: LFO %.3g Hz ' ...
+            '(component %d)'],subi,lfo_freq_actual,which_comp), ...
             'FontSize',14,'FontWeight','bold');
         set(gca,'FontSize',12,'LineWidth',1.2,'Box','off');
-        grid on; grid minor;
-
-        % Legend with carrier frequencies
-        leg_entries = cell(ncars,1);
-        for carri = 1:ncars
-            leg_entries{carri} = sprintf('%.1f Hz', carrier_frex(carri));
-        end
+        grid on
+        grid minor
         legend(leg_entries,'Location','eastoutside');
 
-        % --- Sine-fit amplitude (power modulation) for this subject ---
         subplot(2,1,2); hold on
-        col_line   = cmap(1,:);              % first parula color
-        sAmpl_sub  = sAmpl(:,subi);          % [nCarriers x 1]
-        plot(carrier_frex, sAmpl_sub, ...
-            'Color', col_line, 'LineWidth', 1.8);
-        xlabel('Carrier frequency (Hz)', 'FontSize', 13, 'FontWeight','bold');
-        ylabel('Power (a.u.)', 'FontSize', 13, 'FontWeight','bold');
-        title(sprintf('Power modulation (Sub %d): LFO %.3g Hz (comp %d)', ...
-            subi, lfo_freq_actual, which_comp), ...
+        plot(carrier_frex,amplitude_raw(:,subi), ...
+            'Color',cmap(1,:),'LineWidth',1.8);
+        xlabel('Carrier frequency (Hz)','FontSize',13,'FontWeight','bold');
+        ylabel('First-harmonic amplitude (a.u.)', ...
+            'FontSize',13,'FontWeight','bold');
+        title(sprintf('Power modulation - Participant #%d',subi), ...
             'FontSize',14,'FontWeight','bold');
         set(gca,'FontSize',12,'LineWidth',1.2,'Box','off');
-        grid on; grid minor;
-
+        grid on
+        grid minor
     end
 end
 
 end
 
 
-%% Helper Function: Parse Name-Value Pairs
-function opts = parse_name_value_pairs(opts, varargin)
-% Simple name–value parser used to handle optional arguments.
-%
-% Example:
-%   opts = struct('mni', [], 'frex2model', [], 'which_comp', 1, 'plot_all', false);
-%   opts = parse_name_value_pairs(opts, 'mni', MNIcoords, 'plot_all', true);
-%
-% All field names are case-insensitive.
+%% Helper function: Plot spatial patterns
+function plot_spatial_patterns(FREQ,MNI,which_comp,idx_lfo,idx_carriers,PAC_avg,frex,nsubs)
 
-if mod(length(varargin), 2) ~= 0
+if ~isfield(FREQ,'pats') || isempty(FREQ.pats)
+    warning('MNI coordinates were provided but FREQ.pats is unavailable. Skipping spatial plots.');
+    return
+end
+
+pats = FREQ.pats;
+if ~isnumeric(pats) || ~isreal(pats) || any(isinf(pats(:))) || ...
+        ndims(pats) < 3 || ndims(pats) > 4 || ...
+        size(pats,2) < which_comp || size(pats,3) ~= numel(frex) || ...
+        size(pats,4) ~= nsubs
+    warning('FREQ.pats has incompatible dimensions. Skipping spatial plots.');
+    return
+end
+
+nvoxs = size(pats,1);
+if size(MNI,1) ~= nvoxs
+    error('MNI must contain one row per voxel in FREQ.pats.');
+end
+
+valid_mni = all(isfinite(MNI),2);
+if ~any(valid_mni)
+    error('MNI contains no valid coordinates.');
+end
+
+lfo_pat = reshape(pats(:,which_comp,idx_lfo,:),nvoxs,nsubs);
+lfo_pat = mean(lfo_pat,2,'omitnan');
+
+carrier_power = mean(PAC_avg,2,'omitnan');
+if ~any(isfinite(carrier_power))
+    warning('PAC estimates are unavailable. Skipping spatial plots.');
+    return
+end
+[~,idx_peak_local] = max(carrier_power);
+idx_peak_frex = idx_carriers(idx_peak_local);
+peak_pat = reshape(pats(:,which_comp,idx_peak_frex,:),nvoxs,nsubs);
+peak_pat = mean(peak_pat,2,'omitnan');
+
+lfo_vis = normalize_pattern(lfo_pat);
+peak_vis = normalize_pattern(peak_pat);
+
+figure('Name','FREQNESS CrossCoupling: Spatial Patterns','Color','w');
+subplot(1,2,1); hold on
+scatter3(MNI(valid_mni,1),MNI(valid_mni,2),MNI(valid_mni,3), ...
+    20,lfo_vis(valid_mni),'filled');
+title(sprintf('LFO network (%.3g Hz, component %d)', ...
+    frex(idx_lfo),which_comp));
+axis equal
+grid on
+view(135,30)
+colorbar
+xlabel('MNI X'); ylabel('MNI Y'); zlabel('MNI Z');
+
+subplot(1,2,2); hold on
+scatter3(MNI(valid_mni,1),MNI(valid_mni,2),MNI(valid_mni,3), ...
+    20,peak_vis(valid_mni),'filled');
+title(sprintf('Peak carrier (%.3g Hz, component %d)', ...
+    frex(idx_peak_frex),which_comp));
+axis equal
+grid on
+view(135,30)
+colorbar
+xlabel('MNI X'); ylabel('MNI Y'); zlabel('MNI Z');
+
+end
+
+
+%% Helper function: Normalize spatial pattern
+function pattern = normalize_pattern(pattern)
+
+pattern = abs(pattern);
+valid_pattern = isfinite(pattern);
+
+if any(valid_pattern)
+    max_pattern = max(pattern(valid_pattern));
+    if max_pattern > 0
+        pattern(valid_pattern) = pattern(valid_pattern)/max_pattern;
+    else
+        pattern(valid_pattern) = 0;
+    end
+end
+
+end
+
+
+%% Helper function: Parse name-value pairs
+function opts = parse_name_value_pairs(opts,varargin)
+
+if mod(length(varargin),2) ~= 0
     error('Arguments must be given as name-value pairs.');
 end
 
 for i = 1:2:length(varargin)
-    name = lower(varargin{i});
-    if isfield(opts, name)
+    if ~(ischar(varargin{i}) || (isstring(varargin{i}) && isscalar(varargin{i})))
+        error('Optional argument names must be text.');
+    end
+    name = lower(char(varargin{i}));
+    if isfield(opts,name)
         opts.(name) = varargin{i+1};
     else
-        error(['Unrecognized argument: ', name]);
+        error(['Unrecognized argument: ' name]);
     end
 end
+
 end

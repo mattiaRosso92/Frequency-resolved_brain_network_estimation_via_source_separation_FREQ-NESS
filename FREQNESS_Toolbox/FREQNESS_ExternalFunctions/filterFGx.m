@@ -23,23 +23,34 @@ function [filtdat,empVals,fx] = filterFGx(data,srate,f,fwhm,showplot)
 
 %% input check
 
-if size(data,1)>size(data,2)
-%     help filterFGx
-%     error('Check data size')
-end
-
-if (f-fwhm)<0
-%     help filterFGx
-%     error('increase frequency or decrease FWHM')
-end
-
-if nargin<4
+if nargin < 4
     help filterFGx
     error('Not enough inputs')
 end
 
-if fwhm<=0
-    error('FWHM must be greater than 0')
+if ~isnumeric(data) || ~isreal(data) || isempty(data) || ndims(data) > 2 || ...
+        any(~isfinite(data(:)))
+    error('data must be a non-empty real numeric matrix containing finite values.')
+end
+
+if size(data,1) > size(data,2)
+    error('data must be arranged as channels-by-time, with time along the second dimension.')
+end
+
+if size(data,2) < 2
+    error('data must contain at least two time samples.')
+end
+
+if ~isnumeric(srate) || ~isscalar(srate) || ~isfinite(srate) || srate <= 0
+    error('srate must be one positive finite scalar.')
+end
+
+if ~isnumeric(f) || ~isscalar(f) || ~isfinite(f) || f <= 0 || f >= srate/2
+    error('f must be one positive finite scalar below the Nyquist frequency.')
+end
+
+if ~isnumeric(fwhm) || ~isscalar(fwhm) || ~isfinite(fwhm) || fwhm <= 0
+    error('fwhm must be one positive finite scalar.')
 end
 
 if nargin<5
@@ -49,7 +60,8 @@ end
 %% compute filter
 
 % frequencies
-hz = linspace(0,srate,size(data,2));
+ntime = size(data,2);
+hz = linspace(0,srate,ntime);
 
 % create Gaussian
 s  = fwhm*(2*pi-1)/(4*pi); % normalized width
@@ -63,18 +75,24 @@ filtdat = 2*real( ifft( bsxfun(@times,fft(data,[],2),fx) ,[],2) );
 
 %% compute empirical frequency and standard deviation
 
-idx = dsearchn(hz',f);
+[~,idx] = min(abs(hz-f));
 empVals(1) = hz(idx);
 
 % find values closest to .5 after MINUS before the peak
-empVals(2) = hz(idx-1+dsearchn(fx(idx:end)',.5)) - hz(dsearchn(fx(1:idx)',.5));
+[~,idx_half_low] = min(abs(fx(1:idx)-.5));
+[~,idx_half_high_rel] = min(abs(fx(idx:end)-.5));
+idx_half_high = idx-1+idx_half_high_rel;
+empVals(2) = hz(idx_half_high)-hz(idx_half_low);
 
 % also temporal FWHM
-tmp = abs(hilbert(real(fftshift(ifft(fx)))));
+tmp = abs(FREQNESS_AnalyticSignal(real(fftshift(ifft(fx)))));
 tmp = tmp./max(tmp);
-tx = (0:length(data)-1)/srate;
+tx = (0:ntime-1)/srate;
 [~,idxt] = max(tmp);
-empVals(3) = (tx(idxt-1+dsearchn(tmp(idxt:end)',.5)) - tx(dsearchn(tmp(1:idxt)',.5)))*1000;
+[~,idxt_half_low] = min(abs(tmp(1:idxt)-.5));
+[~,idxt_half_high_rel] = min(abs(tmp(idxt:end)-.5));
+idxt_half_high = idxt-1+idxt_half_high_rel;
+empVals(3) = (tx(idxt_half_high)-tx(idxt_half_low))*1000;
 
 %% inspect the Gaussian (turned off by default)
 
@@ -84,13 +102,13 @@ if showplot
     plot(hz,fx,'k', 'LineWidth' , 1.3)
     hold on
     set(gca,'xlim',[max(f-10,0) f+10]);
-    legend({'Filter kernel','High-pass cut-off'})
-    title(['Empirical fitler: ' num2str(empVals(1)) ', ' num2str(empVals(2)) ' Hz' ])
+    legend({'Filter kernel'})
+    title(['Empirical filter: ' num2str(empVals(1)) ', ' num2str(empVals(2)) ' Hz' ])
     xlabel('Frequency (Hz)'), ylabel('Filter gain')
 %     
 %     subplot(212)
 %     tmp1 = real(fftshift(ifft(fx))); tmp1 = tmp1./max(tmp1);
-%     tmp2 = abs(hilbert(tmp1));
+%     tmp2 = abs(FREQNESS_AnalyticSignal(tmp1));
 %     plot(tx,tmp1, tx,tmp2), zoom on
 %     xlabel('Time (s)'), ylabel('Amplitude gain')
 end

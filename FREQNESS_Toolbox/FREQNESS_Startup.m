@@ -46,6 +46,10 @@ fprintf('Base directory: %s\n\n', path_home);
 % Find folders inside FREQNESS_Data
 folder_data = dir(fullfile(path_home, 'FREQNESS_Data'));
 folder_data = folder_data([folder_data.isdir] & ~ismember({folder_data.name},{'.','..'}));
+if ~isempty(folder_data)
+    [~,folder_order] = sort(lower({folder_data.name}));
+    folder_data = folder_data(folder_order);
+end
 
 % Prepare container for group / condition data
 nfolds  = numel(folder_data);
@@ -59,6 +63,10 @@ for foldi = 1:nfolds
 
     % List .mat files (one per participant)
     files_mat = dir(fullfile(this_folder, '*.mat'));
+    if ~isempty(files_mat)
+        [~,file_order] = sort(lower({files_mat.name}));
+        files_mat = files_mat(file_order);
+    end
     nsubs(foldi) = numel(files_mat);
     % Check whether the files are missing
     if nsubs(foldi) == 0
@@ -76,6 +84,12 @@ for foldi = 1:nfolds
                 error('File %s must contain exactly one data matrix.', files_mat(subi).name);
             end
             this_data = S.(fn{1});   % assign voxels-by-time data matrix
+
+            if ~isnumeric(this_data) || ~isreal(this_data) || isempty(this_data) || ...
+                    ~ismatrix(this_data) || any(~isfinite(this_data(:)))
+                error(['File %s must contain one non-empty real numeric ' ...
+                    'voxels-by-time matrix with finite values.'],files_mat(subi).name);
+            end
 
             % On first subject, initialize 3D array
             if subi == 1
@@ -110,6 +124,10 @@ MNI = [];
 % Find .mat file containing the MNI coordinates
 folder_mni = fullfile(path_home, 'FREQNESS_MNI_Coordinates');
 files_mni  = dir(fullfile(folder_mni, '*.mat'));
+if ~isempty(files_mni)
+    [~,mni_file_order] = sort(lower({files_mni.name}));
+    files_mni = files_mni(mni_file_order);
+end
 
 % Proceed only if exactly one file is found
 if numel(files_mni) == 1
@@ -121,8 +139,12 @@ if numel(files_mni) == 1
     if numel(fn) == 1
         temp_mni = S.(fn{1});
 
-        % Must have 3 columns (XYZ coordinates)
-        if size(temp_mni,2) == 3
+        % Must contain a real numeric XYZ coordinate matrix
+        if ~isnumeric(temp_mni) || ~isreal(temp_mni) || isempty(temp_mni) || ...
+                any(isinf(temp_mni(:)))
+            warning(['MNI file %s ignored: coordinates must be provided as ' ...
+                'a real numeric matrix without infinite values.'],files_mni(1).name);
+        elseif size(temp_mni,2) == 3
             MNI = temp_mni;
         elseif size(temp_mni,1) == 3 && size(temp_mni,2) ~= 3
             MNI = temp_mni'; % transpose if has coordinates along the rows
@@ -138,6 +160,24 @@ if numel(files_mni) == 1
 elseif numel(files_mni) > 1
     warning('Multiple MNI .mat files found. None loaded.');
 
+end
+
+% Ensure that the coordinate grid matches every non-empty dataset
+if ~isempty(MNI)
+    data_nvoxs = [];
+    for foldi = 1:nfolds
+        if ~isempty(allData{foldi})
+            data_nvoxs(end+1) = size(allData{foldi},1); %#ok<AGROW>
+        end
+    end
+
+    if ~isempty(data_nvoxs) && any(data_nvoxs ~= size(MNI,1))
+        warning(['MNI coordinates ignored: the coordinate file contains %d rows, ' ...
+            'but the loaded datasets contain %s voxels. Replace the coordinate ' ...
+            'file with one matching the voxel order and source space of your data.'], ...
+            size(MNI,1),mat2str(unique(data_nvoxs)));
+        MNI = [];
+    end
 end
 
 
