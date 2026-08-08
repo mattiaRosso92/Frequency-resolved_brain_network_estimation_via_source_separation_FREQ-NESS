@@ -106,6 +106,12 @@
 %    The cleaned data can then be re-estimated to inspect the residual
 %    frequency-resolved network landscape.
 %
+%  - FREQNESS_InducedResponses(FREQ, events, epoch_window, baseline_window, ...)
+%    Computes event-related induced oscillatory responses from the broadband
+%    component time series. Because event samples and epoch definitions are
+%    experiment-specific, this analysis is called separately after the core
+%    pipeline; a template is provided at the end of this script.
+%
 % ------------------------------------------------------------------------
 %  AUTHORS:
 %  Mattia Rosso & Leonardo Bonetti
@@ -132,6 +138,17 @@ clc
 %
 %  Edit this section before running the pipeline
 % ========================================================================
+
+% Select the optional analyses to run. Core FREQNESS_NetworkEstimation is
+% always run because its output is required by every subsequent function.
+run_visualizer        = true;
+run_entropy_landscape = true;
+run_exponential_dk    = true;
+run_freq_gradients    = true;
+run_comp_gradients    = true;
+run_cross_coupling    = true;
+run_backprojection    = true;
+run_network_removal   = true;
 
 % ------------------------------------------------------------------------
 % 1) FREQNESS_NetworkEstimation
@@ -270,14 +287,16 @@ for condi = 1:nconds
 
     % Plot network landscape and, when MNI coordinates are available,
     % spatial activation patterns and optional NIFTI images
-    if isempty(MNI)
-        warning(['MNI coordinates are unavailable or do not match the data. ' ...
-            'Only the network landscape will be visualized.']);
-        FREQNESS_Visualizer(FREQ{condi},Landscape,[], ...
-            'plot_all',plot_all,'save_nifti',false)
-    else
-        FREQNESS_Visualizer(FREQ{condi},Landscape,Patterns, ...
-            'plot_all',plot_all,'save_nifti',save_nifti)
+    if run_visualizer
+        if isempty(MNI)
+            warning(['MNI coordinates are unavailable or do not match the data. ' ...
+                'Only the network landscape will be visualized.']);
+            FREQNESS_Visualizer(FREQ{condi},Landscape,[], ...
+                'plot_all',plot_all,'save_nifti',false)
+        else
+            FREQNESS_Visualizer(FREQ{condi},Landscape,Patterns, ...
+                'plot_all',plot_all,'save_nifti',save_nifti)
+        end
     end
 
     % NOTE: computation and storage of NIFTI files supported only for 8mm MNI space
@@ -287,23 +306,27 @@ for condi = 1:nconds
     % ========================================================================
 
     % Compute entropy-based indices of the eigenspectrum
-    [h2{condi}, ed{condi}] = FREQNESS_EntropyLandscape(FREQ{condi});
+    if run_entropy_landscape
+        [h2{condi}, ed{condi}] = FREQNESS_EntropyLandscape(FREQ{condi});
+    end
 
 
     %% ========================================================================
     % 4) FREQNESS EXPONENTIAL DECAY (Eigenvalue decay across frequency)
     % ========================================================================
 
-    [decayCoeff{condi}, goodFit_exp{condi}] = FREQNESS_ExponentialDK(FREQ{condi}, ...
-        'which_comp', expdk_which_comp, ...
-        'range2fit',  expdk_range2fit,...
-        'plot_all',plot_all);
+    if run_exponential_dk
+        [decayCoeff{condi}, goodFit_exp{condi}] = FREQNESS_ExponentialDK(FREQ{condi}, ...
+            'which_comp', expdk_which_comp, ...
+            'range2fit',  expdk_range2fit,...
+            'plot_all',plot_all);
+    end
 
     %% ========================================================================
     % 5) FREQNESS FREQUENCY GRADIENTS (Spatial gradients across frequencies)
     % ========================================================================
 
-    if ~isempty(MNI) % run only if coordinates are provided
+    if run_freq_gradients && ~isempty(MNI) % run only if requested and coordinates are provided
 
         [gradCoeff_f{condi}, goodFit_f{condi}] = FREQNESS_FreqGradients(FREQ{condi}, MNI, ...
             'frex2model', freqgrad_frex2model, ...
@@ -315,7 +338,7 @@ for condi = 1:nconds
     % 6) FREQNESS COMPONENT GRADIENTS (Spatial gradients across components)
     % ========================================================================
 
-    if ~isempty(MNI) % run only if coordinates are provided
+    if run_comp_gradients && ~isempty(MNI) % run only if requested and coordinates are provided
 
         [gradCoeff_c{condi}, goodFit_c{condi}] = FREQNESS_CompGradients(FREQ{condi}, MNI, ...
             'freq2model',  compgrad_freq2model, ...
@@ -328,42 +351,48 @@ for condi = 1:nconds
     % 7) FREQNESS CROSS FREQUENCY COUPLING (Phase-amplitude coupling)
     % ========================================================================
 
-    CFC{condi} = FREQNESS_CrossCoupling(FREQ{condi}, lfo_freq, 'mni', MNI);
+    if run_cross_coupling
+        CFC{condi} = FREQNESS_CrossCoupling(FREQ{condi}, lfo_freq, 'mni', MNI);
+    end
 
     %% ========================================================================
     % 8) FREQNESS BACKPROJECTION
     % ========================================================================
 
-    backProj{condi} = FREQNESS_BackProjection(FREQ{condi}, ...
-        backproj_freq2project, ...
-        'comps2project',backproj_comps2project);
+    if run_backprojection
+        backProj{condi} = FREQNESS_BackProjection(FREQ{condi}, ...
+            backproj_freq2project, ...
+            'comps2project',backproj_comps2project);
+    end
 
     %% ========================================================================
     % 9) FREQNESS NETWORK REMOVAL
     % ========================================================================
 
-    % Match the exact data segment analyzed by FREQNESS_NetworkEstimation.
-    data2remove = allData{condi}(:,1:size(FREQ{condi}.ts,2),:);
-    [dataClean{condi}, removedActivity{condi}] = FREQNESS_NetworkRemoval( ...
-        FREQ{condi}, data2remove, netrem_freq2remove, ...
-        'comps2remove',netrem_comps2remove);
+    if run_network_removal
+        % Match the exact data segment analyzed by FREQNESS_NetworkEstimation.
+        data2remove = allData{condi}(:,1:size(FREQ{condi}.ts,2),:);
+        [dataClean{condi}, removedActivity{condi}] = FREQNESS_NetworkRemoval( ...
+            FREQ{condi}, data2remove, netrem_freq2remove, ...
+            'comps2remove',netrem_comps2remove);
 
-    % Re-estimation belongs to the pipeline rather than NetworkRemoval:
-    % dataClean remains available for any subsequent analysis chosen by users.
-    if netrem_plot_landscape
-        FREQ_clean{condi} = FREQNESS_NetworkEstimation(dataClean{condi},frex,srate, ...
-            'duration',network_duration, ...
-            'fwidth',network_fwidth, ...
-            'filter',network_filter, ...
-            'regularisation',network_regularisation, ...
-            'ncomps',network_ncomps, ...
-            'bad_segments',network_bad_segments, ...
-            'rescale',network_rescale);
-        Landscape_clean = [];
-        Landscape_clean.frex = frex;
-        Landscape_clean.ncomps = netrem_landscape_ncomps;
-        FREQNESS_Visualizer(FREQ_clean{condi},Landscape_clean,[], ...
-            'plot_all',plot_all)
+        % Re-estimation belongs to the pipeline rather than NetworkRemoval:
+        % dataClean remains available for any subsequent analysis chosen by users.
+        if netrem_plot_landscape
+            FREQ_clean{condi} = FREQNESS_NetworkEstimation(dataClean{condi},frex,srate, ...
+                'duration',network_duration, ...
+                'fwidth',network_fwidth, ...
+                'filter',network_filter, ...
+                'regularisation',network_regularisation, ...
+                'ncomps',network_ncomps, ...
+                'bad_segments',network_bad_segments, ...
+                'rescale',network_rescale);
+            Landscape_clean = [];
+            Landscape_clean.frex = frex;
+            Landscape_clean.ncomps = netrem_landscape_ncomps;
+            FREQNESS_Visualizer(FREQ_clean{condi},Landscape_clean,[], ...
+                'plot_all',plot_all)
+        end
     end
 
 end
@@ -382,9 +411,9 @@ end
 % based on your study design.
 %
 % Please check the FREQNESS GitHub repository for new releases.
-% Future updates will include statistical analysis tools,
-% cross-frequency coupling between brain networks,
-% brain network-induced responses, and more.
+% Event-related induced responses are available through
+% FREQNESS_InducedResponses. They are not run automatically because event
+% samples, epoch windows, and baseline windows depend on the experiment.
 % https://github.com/mattiaRosso92/Frequency-resolved_brain_network_estimation_via_source_separation_FREQ-NESS.git
 %
 % Feel free to reach out to us if you need guidance or consultation.
@@ -397,5 +426,17 @@ end
 %  FREQ-NESS Reveals the Dynamic Reconfiguration of Frequency-Resolved Brain Networks During Auditory Stimulation.
 %  Adv. Sci. 2025, 2413195.
 %  https://doi.org/10.1002/advs.202413195
+
+%% ========================================================================
+%  OPTIONAL TEMPLATE: EVENT-RELATED INDUCED RESPONSES
+% ========================================================================
+%
+% Define events separately for each participant and condition, then call:
+%
+% events = {...};             % one vector of event samples per participant
+% epoch_window = [-0.1 3.4]; % seconds relative to event onset
+% baseline_window = [-0.1 0];
+% IND = FREQNESS_InducedResponses(FREQ{condi},events,epoch_window, ...
+%     baseline_window,'which_comp',1,'plot_avg',true);
 
 %%

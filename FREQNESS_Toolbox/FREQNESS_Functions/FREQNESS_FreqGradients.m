@@ -55,6 +55,9 @@ function [gradCoeff, goodFit] = FREQNESS_FreqGradients(FREQ, MNI, varargin)
 %                 When no input is given, the function will default to the
 %                 1st component.
 %
+%  - threshold_sd : number of standard deviations above the mean used to
+%                 retain pattern coefficients. Default: 1.
+%
 %  - plot_all   : logical flag (true/false). When true, the function
 %                 produces additional figures for each individual
 %                 participant, plotting their spatial activation patterns
@@ -93,12 +96,13 @@ function [gradCoeff, goodFit] = FREQNESS_FreqGradients(FREQ, MNI, varargin)
 %% Map inputs from FREQ 
 
 % Handle optional arguments (name-value pairs)
-opts = struct('frex2model', [], 'comp2model', [], 'plot_all', false); % default values (plot_all added)
+opts = struct('frex2model', [], 'comp2model', [], 'threshold_sd', 1, 'plot_all', false);
 opts = parse_name_value_pairs(opts, varargin{:});
 
 frex2model = opts.frex2model;
 comp2model = opts.comp2model;
 plot_all   = opts.plot_all;   % local flag to control individual-subject plotting
+threshold_sd = opts.threshold_sd;
 
 % Check main structure
 if ~isstruct(FREQ)
@@ -109,11 +113,19 @@ end
 if ~isfield(FREQ,'pats') || isempty(FREQ.pats)
     error('FREQ.pats is missing or empty.');
 end
+if ~isnumeric(FREQ.pats) || ~isreal(FREQ.pats) || any(~isfinite(FREQ.pats(:)))
+    error('FREQ.pats must be a real numeric array containing finite values.');
+end
 [nvoxs, nComp, nfrex, nsubs] = size(FREQ.pats);
 
 % Check MNI coordinates
-if size(MNI,1) ~= nvoxs || size(MNI,2) ~= 3
+if ~isnumeric(MNI) || ~isreal(MNI) || any(~isfinite(MNI(:))) || ...
+        size(MNI,1) ~= nvoxs || size(MNI,2) ~= 3
     error('The MNI matrix must be [nVox x 3] and match the first dimension of FREQ.pats.');
+end
+if ~isnumeric(threshold_sd) || ~isscalar(threshold_sd) || ...
+        ~isfinite(threshold_sd) || threshold_sd < 0
+    error('threshold_sd must be one non-negative finite scalar.');
 end
 
 % Assign frequencies
@@ -136,10 +148,9 @@ end
 if isempty(comp2model)
     disp('Component not specified. Defaulting to analyzing the 1st component.');
     which_comp = 1;
-elseif ~isscalar(comp2model) || comp2model < 1 || comp2model > nComp
-    warning(['Input variable "comp2model" must be a scalar between 1 and ', num2str(nComp), ...
-             '. Defaulting to analyzing the 1st component.']);
-    which_comp = 1;
+elseif ~isnumeric(comp2model) || ~isscalar(comp2model) || ~isfinite(comp2model) || ...
+        comp2model ~= round(comp2model) || comp2model < 1 || comp2model > nComp
+    error('comp2model must be an integer between 1 and %d.',nComp);
 else
     which_comp = comp2model;
 end
@@ -152,16 +163,17 @@ if isempty(frex2model)
     % default: use all frequencies
     idx_range2model = 1:nfrex;
 else
-    if numel(frex2model) ~= 2
+    if ~isnumeric(frex2model) || numel(frex2model) ~= 2 || any(~isfinite(frex2model))
         error(['The variable frex2model must be a 2-element vector containing the boundaries ' ...
                'of the frequency range to model as a gradient. E.g., [8 12] will model all ' ...
                'frequencies ranging from 8 to 12 Hz in FREQ.frex.']);
     end
 
+    frex2model = sort(frex2model(:),'ascend');
     % Find closest 1st and last frequencies
     [~, idx_first] = min(abs(frex - frex2model(1)));
     [~, idx_last]  = min(abs(frex - frex2model(2)));
-    idx_range2model  = idx_first:idx_last;
+    idx_range2model  = min(idx_first,idx_last):max(idx_first,idx_last);
 
     % Warn if requested boundaries are not exact matches
     tol = 1e-3; % Hz (or "index units" if frex are indices)
@@ -173,7 +185,7 @@ end
  
 % Display for the user
 fprintf('\nFREQNESS Frequency Gradients: modelling spatial gradients from %.1f to %.1f Hz for component %d across %d participants.\n', ...
-    frex2model(1), frex2model(end), which_comp, nsubs);
+    frex(idx_range2model(1)),frex(idx_range2model(end)),which_comp,nsubs);
 
 %% Process spatial activation patters
 
@@ -186,9 +198,14 @@ for subi = 1:nsubs
         % Assign
         this_pat = patterns(:,frexi,subi);
         % Normalize 0-1
-        this_pat = this_pat / max(this_pat);
+        max_pat = max(this_pat);
+        if max_pat > 0
+            this_pat = this_pat/max_pat;
+        else
+            this_pat(:) = 0;
+        end
         % Threshold
-        thresh = mean(this_pat) + std(this_pat);
+        thresh = mean(this_pat) + threshold_sd*std(this_pat);
         this_pat(this_pat<thresh) = nan;
         % Re-assign
         patterns(:,frexi,subi) = this_pat;
@@ -230,17 +247,22 @@ coordlabs = {'X-coordinates';'Y-coordinates';'Z-coordinates'};
 % The following operations are for visualization only; modelling will be
 % carried out on the original variables
 shuffler = .15;   % jitter for spatial coordinates (horizontal)
+jitter_idx = (1:size(cat_x,1))';
+jitter_x = shuffler*sin(jitter_idx*sqrt(2));
+jitter_y = shuffler*sin(jitter_idx*sqrt(3));
+jitter_z = shuffler*sin(jitter_idx*sqrt(5));
 [pats2plot,x2plot,y2plot,z2plot,size2plot] = deal(nan(size(cat_pats)));
 for frexi = 1:nfrex
 
     % Adding frequency offsets for visual readability
     pats2plot(:,frexi) = frexi + (cat_pats(:,frexi)./cat_pats(:,frexi) - 1) ;  % with frequency offsets
-    x2plot(:,frexi) = cat_x(:,frexi) + shuffler * randn(size(cat_x,1),1);
-    y2plot(:,frexi) = cat_y(:,frexi) + shuffler * randn(size(cat_y,1),1);
-    z2plot(:,frexi) = cat_z(:,frexi) + shuffler * randn(size(cat_z,1),1);
+    x2plot(:,frexi) = cat_x(:,frexi) + jitter_x;
+    y2plot(:,frexi) = cat_y(:,frexi) + jitter_y;
+    z2plot(:,frexi) = cat_z(:,frexi) + jitter_z;
 
     % Marker size: voxel amplitudes from cat_pats (after thresholding)
     size2plot(:,frexi) = 50*cat_pats(:,frexi);
+    size2plot(size2plot(:,frexi)<=0,frexi) = nan;
     
 end
 
@@ -277,7 +299,7 @@ set(gca, 'YTick', 1:nfrex, 'YTickLabel', compose('%.4g Hz', frex));
 xlabel(coordlabs{3}, 'FontSize', 18)
 ylabel('Frequency', 'FontSize', 18)
 title('Z gradient', 'FontSize', 14)
-sgtitle(['Spatial gradient across frequencies - Component #' num2str(comp2model) ' - Group level'],'FontSize', 18)
+sgtitle(['Spatial gradient across frequencies - Component #' num2str(which_comp) ' - Group level'],'FontSize', 18)
 
 
 
@@ -304,28 +326,6 @@ sgtitle(['Spatial gradient across frequencies - Component #' num2str(comp2model)
 %      existing scatterplots, and add dashed y-lines marking the modelled
 %      frequency range.
 % -------------------------------------------------------------------------
-
-% Make sure we have a frequency vector in Hz for mapping frex2model
-if exist('frex','var') ~= 1 || isempty(frex)
-    % If FREQ.frex is missing, we cannot interpret frex2model in Hz
-    if nargin >= 3 && ~isempty(frex2model)
-        error('frex2model was provided in Hz, but FREQ.frex is missing.');
-    else
-        frex = (1:nfrex)'; % fall back to indices
-    end
-end
-
-% Determine frequency indices to model
-if nargin < 3 || isempty(frex2model)
-    idx_range2model = 1:nfrex;
-else
-    if numel(frex2model) ~= 2
-        error('frex2model must be a 1x2 vector [fmin fmax].');
-    end
-    [~, idx_low]  = min(abs(frex - frex2model(1)));
-    [~, idx_high] = min(abs(frex - frex2model(2)));
-    idx_range2model = idx_low:idx_high;
-end
 
 % -------------------------------------------------------------------------
 % Prepare outputs (subject-wise)
@@ -368,7 +368,7 @@ for dim = 1:3  % 1 = X, 2 = Y, 3 = Z (group-level modelling)
     end
     
     nDat = numel(freqIdxVec);
-    if nDat < 3
+    if nDat < 3 || numel(unique(coordVec)) < 3 || numel(unique(freqIdxVec)) < 2
         % Not enough data to fit a quadratic model reliably
         continue
     end
@@ -395,8 +395,8 @@ for dim = 1:3  % 1 = X, 2 = Y, 3 = Z (group-level modelling)
     % ----- Model selection via BIC (group-level, for visualization only) -----
     k_lin   = 2;  % parameters: slope + intercept
     k_quad  = 3;  % parameters: quad + slope + intercept
-    bic_lin  = nDat*log(sse_lin/nDat)  + k_lin*log(nDat);
-    bic_quad = nDat*log(sse_quad/nDat) + k_quad*log(nDat);
+    bic_lin  = nDat*log(max(sse_lin,eps)/nDat)  + k_lin*log(nDat);
+    bic_quad = nDat*log(max(sse_quad,eps)/nDat) + k_quad*log(nDat);
     
     if bic_quad < bic_lin
         % Quadratic wins
@@ -470,7 +470,8 @@ for subi = 1:nsubs
         end
         
         nDat_sub = numel(freqIdxVec_sub);
-        if nDat_sub < 3
+        if nDat_sub < 3 || numel(unique(coordVec_sub)) < 3 || ...
+                numel(unique(freqIdxVec_sub)) < 2
             % Not enough data to fit a quadratic model reliably
             continue
         end
@@ -497,8 +498,8 @@ for subi = 1:nsubs
         % ----- Model selection via BIC (subject-wise) -----
         k_lin_sub   = 2;
         k_quad_sub  = 3;
-        bic_lin_sub  = nDat_sub*log(sse_lin_sub/nDat_sub)  + k_lin_sub*log(nDat_sub);
-        bic_quad_sub = nDat_sub*log(sse_quad_sub/nDat_sub) + k_quad_sub*log(nDat_sub);
+        bic_lin_sub  = nDat_sub*log(max(sse_lin_sub,eps)/nDat_sub)  + k_lin_sub*log(nDat_sub);
+        bic_quad_sub = nDat_sub*log(max(sse_quad_sub,eps)/nDat_sub) + k_quad_sub*log(nDat_sub);
         
         if bic_quad_sub < bic_lin_sub
             % Quadratic wins
@@ -547,6 +548,7 @@ if plot_all
             y2plot_sub(:,frexi)    = sub_y(:,frexi);
             z2plot_sub(:,frexi)    = sub_z(:,frexi);
             size2plot_sub(:,frexi) = 50 * this_pats(:,frexi);
+            size2plot_sub(size2plot_sub(:,frexi)<=0,frexi) = nan;
         end
         
         % ----- Subject-specific polynomial curves for plotting, from stored coeffs -----
@@ -658,7 +660,7 @@ if plot_all
         xlabel(coordlabs{3}, 'FontSize', 18)
         ylabel('Frequency', 'FontSize', 18)
         title('Z gradient' , 'FontSize', 14)
-        sgtitle(['Spatial gradient across frequencies - Component #' num2str(comp2model) ' - Subject #' num2str(subi)],'FontSize', 18)
+        sgtitle(['Spatial gradient across frequencies - Component #' num2str(which_comp) ' - Subject #' num2str(subi)],'FontSize', 18)
 
         
     end

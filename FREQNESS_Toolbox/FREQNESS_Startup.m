@@ -46,6 +46,10 @@ fprintf('Base directory: %s\n\n', path_home);
 % Find folders inside FREQNESS_Data
 folder_data = dir(fullfile(path_home, 'FREQNESS_Data'));
 folder_data = folder_data([folder_data.isdir] & ~ismember({folder_data.name},{'.','..'}));
+if ~isempty(folder_data)
+    [~,folder_order] = sort(lower({folder_data.name}));
+    folder_data = folder_data(folder_order);
+end
 
 % Prepare container for group / condition data
 nfolds  = numel(folder_data);
@@ -59,6 +63,10 @@ for foldi = 1:nfolds
 
     % List .mat files (one per participant)
     files_mat = dir(fullfile(this_folder, '*.mat'));
+    if ~isempty(files_mat)
+        [~,file_order] = sort(lower({files_mat.name}));
+        files_mat = files_mat(file_order);
+    end
     nsubs(foldi) = numel(files_mat);
     % Check whether the files are missing
     if nsubs(foldi) == 0
@@ -76,6 +84,12 @@ for foldi = 1:nfolds
                 error('File %s must contain exactly one data matrix.', files_mat(subi).name);
             end
             this_data = S.(fn{1});   % assign voxels-by-time data matrix
+
+            if ~isnumeric(this_data) || ~isreal(this_data) || isempty(this_data) || ...
+                    ~ismatrix(this_data) || any(~isfinite(this_data(:)))
+                error(['File %s must contain one non-empty real numeric ' ...
+                    'voxels-by-time matrix with finite values.'],files_mat(subi).name);
+            end
 
             % On first subject, initialize 3D array
             if subi == 1
@@ -110,6 +124,10 @@ MNI = [];
 % Find .mat file containing the MNI coordinates
 folder_mni = fullfile(path_home, 'FREQNESS_MNI_Coordinates');
 files_mni  = dir(fullfile(folder_mni, '*.mat'));
+if ~isempty(files_mni)
+    [~,mni_file_order] = sort(lower({files_mni.name}));
+    files_mni = files_mni(mni_file_order);
+end
 
 % Proceed only if exactly one file is found
 if numel(files_mni) == 1

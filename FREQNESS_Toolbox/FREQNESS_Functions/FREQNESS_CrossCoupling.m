@@ -233,7 +233,7 @@ lfo_phase_all = zeros(npnts,nsubs);
 for subi = 1:nsubs
     lfo_ts = squeeze(ts(which_comp,:,idx_lfo,subi));
     lfo_ts = filterFGx(lfo_ts,FREQ.srate,lfo_freq_actual,fwhm(idx_lfo),0);
-    lfo_phase_all(:,subi) = angle(hilbert(lfo_ts'));
+    lfo_phase_all(:,subi) = angle(FREQNESS_AnalyticSignal(lfo_ts'));
 end
 
 phase_edges = linspace(-pi,pi,nbins+1);
@@ -250,7 +250,7 @@ for carri = 1:ncars
     for subi = 1:nsubs
         carr_ts = squeeze(ts(which_comp,:,idx_freq,subi));
         carr_ts = filterFGx(carr_ts,FREQ.srate,frex(idx_freq),fwhm(idx_freq),0);
-        carr_pow = abs(hilbert(carr_ts')).^2;
+        carr_pow = abs(FREQNESS_AnalyticSignal(carr_ts')).^2;
         phase = lfo_phase_all(:,subi);
 
         for bini = 1:nbins

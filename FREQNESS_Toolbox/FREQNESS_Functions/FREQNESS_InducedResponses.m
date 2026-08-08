@@ -221,6 +221,9 @@ end
 if any(~isfinite(frex)) || any(frex <= 0)
     error('FREQ.frex must contain positive finite frequencies.');
 end
+if any(frex >= srate/2)
+    error('All frequencies in FREQ.frex must be below the Nyquist frequency (%.3f Hz).',srate/2);
+end
 
 if any(~isfinite(fwhm)) || any(fwhm <= 0)
     error('FREQ.fwhm must contain positive finite filter widths.');
@@ -303,31 +306,28 @@ for subi = 1:nsubs
     fprintf('FREQNESS InducedResponses: participant #%d (%d trials).\n', ...
         subi,ntrials(subi));
 
-    for compi = 1:ncomps
+    for frexi = 1:nfrex
 
-        for frexi = 1:nfrex
+        idx_freq = idx_frex2model(frexi);
 
-            idx_freq = idx_frex2model(frexi);
+        % Filter all requested components together at the current network
+        % frequency. filterFGx expects signals-by-time input.
+        this_ts = reshape(ts(which_comp,:,idx_freq,subi),ncomps,ntime_cont);
 
-            % Broadband component time series for the GED network estimated
-            % at the current frequency
-            this_ts = reshape(ts(which_comp(compi),:,idx_freq,subi),1,ntime_cont);
+        if any(~isfinite(this_ts(:)))
+            error(['FREQ.ts contains non-finite values for participant ' ...
+                '#%d at frequency %.3f Hz.'],subi,frex(idx_freq));
+        end
 
-            if any(~isfinite(this_ts))
-                error(['FREQ.ts contains non-finite values for participant ' ...
-                    '#%d, component #%d, frequency %.3f Hz.'], ...
-                    subi,which_comp(compi),frex(idx_freq));
-            end
+        filt_ts = filterFGx(this_ts,srate,frex(idx_freq),fwhm(idx_freq),0);
+        power_ts = abs(FREQNESS_AnalyticSignal(filt_ts.')).^2;
+        power_ts = power_ts.';
 
-            % Matched-frequency Gaussian filtering, followed by Hilbert power
-            filt_ts = filterFGx(this_ts,srate,frex(idx_freq),fwhm(idx_freq),0);
-            power_ts = abs(hilbert(filt_ts.')).^2;
-            power_ts = reshape(power_ts,1,ntime_cont);
-
+        for compi = 1:ncomps
             for triali = 1:ntrials(subi)
 
                 idx_epoch = events_valid{subi}(triali) + epoch_offsets;
-                this_power = power_ts(idx_epoch);
+                this_power = power_ts(compi,idx_epoch);
                 baseline_power = mean(this_power(baseline_idx),'omitnan');
 
                 if ~isfinite(baseline_power) || baseline_power <= 0
@@ -343,7 +343,6 @@ for subi = 1:nsubs
                     10*log10(this_power./baseline_power);
 
             end
-
         end
 
     end
@@ -413,15 +412,17 @@ if plot_avg
 
         figure('Name','FREQNESS InducedResponses','Color','w'); clf
 
-        imagesc(time,1:nfrex,squeeze(avg_power(compi,:,:))');
+        this_power = squeeze(avg_power(compi,:,:))';
+        imagesc(time,frex2model_actual,this_power);
         axis xy
-        colormap(parula(256))
+        colormap(FREQNESS_diverging_colormap(256))
+        set_symmetric_color_limits(this_power)
+        xline(0,'k--','LineWidth',1)
         cbar = colorbar;
         ylabel(cbar,'Power change (dB)')
         xlabel('Time (s)')
         ylabel('Frequency (Hz)')
         title(sprintf('Induced responses - component #%d',which_comp(compi)))
-        set_frequency_ticks(frex2model_actual);
 
     end
 
@@ -436,16 +437,18 @@ if plot_all
 
             figure('Name','FREQNESS InducedResponses: participant','Color','w'); clf
 
-            imagesc(time,1:nfrex,squeeze(power_avg(compi,:,:,subi))');
+            this_power = squeeze(power_avg(compi,:,:,subi))';
+            imagesc(time,frex2model_actual,this_power);
             axis xy
-            colormap(parula(256))
+            colormap(FREQNESS_diverging_colormap(256))
+            set_symmetric_color_limits(this_power)
+            xline(0,'k--','LineWidth',1)
             cbar = colorbar;
             ylabel(cbar,'Power change (dB)')
             xlabel('Time (s)')
             ylabel('Frequency (Hz)')
             title(sprintf('Participant #%d - component #%d', ...
                 subi,which_comp(compi)))
-            set_frequency_ticks(frex2model_actual);
 
         end
     end
@@ -572,17 +575,22 @@ frex2model_actual = frex(idx_frex2model);
 end
 
 
-%% Helper Function: Set Frequency-Axis Ticks
-function set_frequency_ticks(frex)
+%% Helper Function: Set Symmetric Color Limits
+function set_symmetric_color_limits(data)
+max_abs = max(abs(data(:)),[],'omitnan');
+if isfinite(max_abs) && max_abs > 0
+    clim([-max_abs max_abs])
+end
+end
 
-nfrex = numel(frex);
-nticks = min(nfrex,12);
-idx_ticks = unique(round(linspace(1,nfrex,nticks)));
 
-yticks(idx_ticks)
-yticklabels(arrayfun(@(x) sprintf('%.2f',x), ...
-    frex(idx_ticks),'UniformOutput',false))
-
+%% Helper Function: Diverging Color Map
+function cmap = FREQNESS_diverging_colormap(ncolors)
+nlow = floor(ncolors/2);
+nhigh = ncolors-nlow;
+blue = [linspace(0,1,nlow)' linspace(.35,1,nlow)' ones(nlow,1)];
+red = [ones(nhigh,1) linspace(1,.2,nhigh)' linspace(1,.2,nhigh)'];
+cmap = [blue; red];
 end
 
 

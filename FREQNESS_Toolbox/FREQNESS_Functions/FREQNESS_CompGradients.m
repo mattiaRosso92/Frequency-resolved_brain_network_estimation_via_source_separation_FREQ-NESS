@@ -57,6 +57,9 @@ function [gradCoeff, goodFit] = FREQNESS_CompGradients(FREQ, MNI, varargin)
 %                  When no input is given, the function will fit to ALL
 %                  components in the second dimension of FREQ.pats.
 %
+%  - threshold_sd : number of standard deviations above the mean used to
+%                  retain pattern coefficients. Default: 2.
+%
 %  - plot_all    : logical flag (true/false). When true, the function
 %                  produces additional figures for each individual
 %                  participant, plotting their spatial activation patterns
@@ -97,12 +100,13 @@ function [gradCoeff, goodFit] = FREQNESS_CompGradients(FREQ, MNI, varargin)
 %% Map inputs from FREQ 
 
 % Handle optional arguments (name-value pairs)
-opts = struct('freq2model', [], 'comps2model', [], 'plot_all', false); % plot_all added
+opts = struct('freq2model', [], 'comps2model', [], 'threshold_sd', 2, 'plot_all', false);
 opts = parse_name_value_pairs(opts, varargin{:});
 
 freq2model  = opts.freq2model;
 comps2model = opts.comps2model;
 plot_all    = opts.plot_all;   % local flag to control individual-subject plotting
+threshold_sd = opts.threshold_sd;
 
 % Check main structure
 if ~isstruct(FREQ)
@@ -113,11 +117,19 @@ end
 if ~isfield(FREQ,'pats') || isempty(FREQ.pats)
     error('FREQ.pats is missing or empty.');
 end
+if ~isnumeric(FREQ.pats) || ~isreal(FREQ.pats) || any(~isfinite(FREQ.pats(:)))
+    error('FREQ.pats must be a real numeric array containing finite values.');
+end
 [nvoxs, nComp, nfrex, nsubs] = size(FREQ.pats);
 
 % Check MNI coordinates
-if size(MNI,1) ~= nvoxs || size(MNI,2) ~= 3
+if ~isnumeric(MNI) || ~isreal(MNI) || any(~isfinite(MNI(:))) || ...
+        size(MNI,1) ~= nvoxs || size(MNI,2) ~= 3
     error('The MNI matrix must be [nVox x 3] and match the first dimension of FREQ.pats.');
+end
+if ~isnumeric(threshold_sd) || ~isscalar(threshold_sd) || ...
+        ~isfinite(threshold_sd) || threshold_sd < 0
+    error('threshold_sd must be one non-negative finite scalar.');
 end
 
 % Assign frequencies (if present)
@@ -155,12 +167,15 @@ if isempty(freq2model)
     if isvector(evals_first_comp)
         evals_mean = abs(evals_first_comp(:));
     else
-        evals_mean = mean(abs(evals_first_comp),2);
+        evals_mean = mean(abs(evals_first_comp),2,'omitnan');
     end
     if numel(evals_mean) ~= nfrex
         error('Inconsistent dimensions between FREQ.evals and FREQ.pats (nfrex).');
     end
-    [~, which_frex] = max(evals_mean);
+    if all(~isfinite(evals_mean))
+        error('FREQ.evals does not contain finite values for automatic frequency selection.');
+    end
+    [~, which_frex] = max(evals_mean,[],'omitnan');
 else
     if isscalar(freq2model)
         % If we have proper Hz values (FREQ.frex), treat freq2model as Hz
@@ -172,7 +187,8 @@ else
             end
         else
             % Interpret as index
-            if freq2model < 1 || freq2model > nfrex
+            if ~isfinite(freq2model) || freq2model ~= round(freq2model) || ...
+                    freq2model < 1 || freq2model > nfrex
                 error(['When FREQ.frex is missing, freq2model is interpreted as an index, ' ...
                        'which must be between 1 and ', num2str(nfrex), '.']);
             end
@@ -188,7 +204,8 @@ if isempty(comps2model)
     disp('Component range not specified. Defaulting to all components.');
     idx_comps2model = 1:nComp;
 else
-    if numel(comps2model) ~= 2
+    if ~isnumeric(comps2model) || numel(comps2model) ~= 2 || ...
+            any(~isfinite(comps2model)) || any(comps2model ~= round(comps2model))
         error(['The variable comps2model must be a 2-element vector containing the boundaries ' ...
                'of the component range to model as a gradient. E.g., [1 5] will model all ' ...
                'components ranging from 1 to 5 in FREQ.pats.']);
@@ -234,7 +251,7 @@ for subi = 1:nsubs
             this_pat(:) = 0;
         end
         % Threshold
-        thresh = mean(this_pat) + 2*std(this_pat);
+        thresh = mean(this_pat) + threshold_sd*std(this_pat);
         this_pat(this_pat<thresh) = nan;
         % Re-assign
         patterns(:,compi,subi) = this_pat;
@@ -277,17 +294,22 @@ coordlabs = {'X-coordinates';'Y-coordinates';'Z-coordinates'};
 % The following operations are for visualization only; modelling will be
 % carried out on the original variables
 shuffler = .15;   % jitter for spatial coordinates (horizontal)
+jitter_idx = (1:size(cat_x,1))';
+jitter_x = shuffler*sin(jitter_idx*sqrt(2));
+jitter_y = shuffler*sin(jitter_idx*sqrt(3));
+jitter_z = shuffler*sin(jitter_idx*sqrt(5));
 [pats2plot,x2plot,y2plot,z2plot,size2plot] = deal(nan(size(cat_pats)));
 for compi = 1:nComp
 
     % Adding component offsets for visual readability
     pats2plot(:,compi) = compi + (cat_pats(:,compi)./cat_pats(:,compi) - 1);  % with component offsets
-    x2plot(:,compi)    = cat_x(:,compi) + shuffler * randn(size(cat_x,1),1);;
-    y2plot(:,compi)    = cat_y(:,compi) + shuffler * randn(size(cat_y,1),1);;
-    z2plot(:,compi)    = cat_z(:,compi) + shuffler * randn(size(cat_z,1),1);;
+    x2plot(:,compi)    = cat_x(:,compi) + jitter_x;
+    y2plot(:,compi)    = cat_y(:,compi) + jitter_y;
+    z2plot(:,compi)    = cat_z(:,compi) + jitter_z;
 
     % Marker size: voxel amplitudes from cat_pats (after thresholding)
     size2plot(:,compi) = 50*cat_pats(:,compi);
+    size2plot(size2plot(:,compi)<=0,compi) = nan;
 
 end
 
@@ -402,7 +424,7 @@ for dim = 1:3  % 1 = X, 2 = Y, 3 = Z (group-level modelling)
     end
     
     nDat = numel(compIdxVec);
-    if nDat < 3
+    if nDat < 3 || numel(unique(coordVec)) < 3 || numel(unique(compIdxVec)) < 2
         % Not enough data to fit a quadratic model reliably
         continue
     end
@@ -429,8 +451,8 @@ for dim = 1:3  % 1 = X, 2 = Y, 3 = Z (group-level modelling)
     % ----- Model selection via BIC (group-level, for visualization only) -----
     k_lin   = 2;  % parameters: slope + intercept
     k_quad  = 3;  % parameters: quad + slope + intercept
-    bic_lin  = nDat*log(sse_lin/nDat)  + k_lin*log(nDat);
-    bic_quad = nDat*log(sse_quad/nDat) + k_quad*log(nDat);
+    bic_lin  = nDat*log(max(sse_lin,eps)/nDat)  + k_lin*log(nDat);
+    bic_quad = nDat*log(max(sse_quad,eps)/nDat) + k_quad*log(nDat);
     
     if bic_quad < bic_lin
         % Quadratic wins
@@ -502,7 +524,8 @@ for subi = 1:nsubs
         end
         
         nDat_sub = numel(compIdxVec_sub);
-        if nDat_sub < 3
+        if nDat_sub < 3 || numel(unique(coordVec_sub)) < 3 || ...
+                numel(unique(compIdxVec_sub)) < 2
             % Not enough data to fit a quadratic model reliably
             continue
         end
@@ -529,8 +552,8 @@ for subi = 1:nsubs
         % ----- Model selection via BIC (subject-wise) -----
         k_lin_sub   = 2;
         k_quad_sub  = 3;
-        bic_lin_sub  = nDat_sub*log(sse_lin_sub/nDat_sub)  + k_lin_sub*log(nDat_sub);
-        bic_quad_sub = nDat_sub*log(sse_quad_sub/nDat_sub) + k_quad_sub*log(nDat_sub);
+        bic_lin_sub  = nDat_sub*log(max(sse_lin_sub,eps)/nDat_sub)  + k_lin_sub*log(nDat_sub);
+        bic_quad_sub = nDat_sub*log(max(sse_quad_sub,eps)/nDat_sub) + k_quad_sub*log(nDat_sub);
         
         if bic_quad_sub < bic_lin_sub
             % Quadratic wins
@@ -575,6 +598,7 @@ if plot_all
             y2plot_sub(:,compi)    = sub_y(:,compi);
             z2plot_sub(:,compi)    = sub_z(:,compi);
             size2plot_sub(:,compi) = 50 * this_pats(:,compi);
+            size2plot_sub(size2plot_sub(:,compi)<=0,compi) = nan;
         end
         
         % ----- Subject-specific polynomial curves for plotting, from stored coeffs -----
