@@ -56,12 +56,17 @@ function [FREQ] = FREQNESS_NetworkEstimation(data, frex, srate, varargin)
 % ------------------------------------------------------------------------
 %  OUTPUT ARGUMENTS:
 % ------------------------------------------------------------------------
-%  - FREQ       : Structure containing eigenvalues, eigenvectors, spatial
-%                 activation patterns, network time series, and additional 
-%                 variables which will be used by second-order functions in
-%                 the toolbox.
-%                 Info on the specific fields is found in the comments where
-%                 the respective variables are assigned to GED.
+%  - FREQ       : Structure containing:
+%      - FREQ.evals : Complete normalized eigenspectrum
+%                     [nChannelsOrVoxels x nFrex x nSubs]. This always
+%                     contains all eigenvalues, independently of ncomps.
+%      - FREQ.evecs : Retained eigenvectors
+%                     [nChannelsOrVoxels x ncomps x nFrex x nSubs].
+%      - FREQ.pats  : Retained spatial activation patterns, with the same
+%                     component dimensions as FREQ.evecs.
+%      - FREQ.ts    : Retained component time series
+%                     [ncomps x nTime x nFrex x nSubs].
+%                    Additional fields support second-order functions.
 %
 % ------------------------------------------------------------------------
 %  AUTHORS:
@@ -295,7 +300,7 @@ end
 FREQ = [];
 
 % Initialize GED outputs
-GEDevals = zeros(ncomps, nfrex, nsubs);
+GEDevals = zeros(size(data,1), nfrex, nsubs);
 [GEDevecs, GEDpats] = deal(zeros(size(data,1), ncomps, nfrex, nsubs));
 GEDts = zeros(ncomps, pnts2keep, nfrex, nsubs);
 
@@ -343,7 +348,7 @@ for subi = 1:nsubs
         evals = evals.*100./sum(evals); % normalize eigenvalues to percent variance explained
         % Assign temporary variables to output
         GEDevecs(:,:,frexi,subi) = evecs(:,1:ncomps);
-        GEDevals(:,frexi,subi) = evals(1:ncomps);
+        GEDevals(:,frexi,subi) = evals;
 
         % Brain networks' spatial activation patterns and time series
         for compi = 1:ncomps
@@ -363,7 +368,7 @@ for subi = 1:nsubs
 end
 
 % Assign outputs to structure
-FREQ.evals = GEDevals;    % eigenvalues
+FREQ.evals = GEDevals;    % complete normalized eigenspectrum
 FREQ.evecs = GEDevecs;    % eigenvectors
 FREQ.pats  = GEDpats;     % spatial activation patterns
 FREQ.ts    = GEDts;       % time series

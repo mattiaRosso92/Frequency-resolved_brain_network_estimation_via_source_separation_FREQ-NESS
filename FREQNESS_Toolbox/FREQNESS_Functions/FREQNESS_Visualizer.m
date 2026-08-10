@@ -35,7 +35,8 @@ function FREQNESS_Visualizer(FREQ,Landscape,Patterns,varargin)
 %  INPUT ARGUMENTS:
 % ------------------------------------------------------------------------
 %  - FREQ              : Structure outputted by FREQNESS_NetworkEstimation.
-%      - FREQ.evals    : Normalized eigenvalues (variance explained in % points).
+%      - FREQ.evals    : Complete normalized eigenspectrum (variance
+%                        explained in percentage points).
 %      - FREQ.pats     : Spatial activation patterns.
 %      - FREQ.frex     : Vector of frequencies analyzed.
 %
@@ -129,7 +130,7 @@ end
 if ~isnumeric(FREQ.evals) || ~isreal(FREQ.evals) || ...
         any(~isfinite(FREQ.evals(:))) || ndims(FREQ.evals) > 3
     error(['FREQ.evals must be a real finite numeric array in ' ...
-        '[nComp x nFrex x (nSubs)] format.']);
+        '[nEigenvalues x nFrex x (nSubs)] format.']);
 end
 
 frex = FREQ.frex(:)';
@@ -257,7 +258,7 @@ if ~isfield(FREQ,'pats') || isempty(FREQ.pats) || ...
         '[nVoxels x nComp x nFrex x (nSubs)] format.']);
 end
 
-if size(FREQ.pats,2) ~= size(FREQ.evals,1) || ...
+if size(FREQ.pats,2) > size(FREQ.evals,1) || ...
         size(FREQ.pats,3) ~= numel(frex) || size(FREQ.pats,4) ~= nsubs
     error('FREQ.evals and FREQ.pats have incompatible dimensions.');
 end

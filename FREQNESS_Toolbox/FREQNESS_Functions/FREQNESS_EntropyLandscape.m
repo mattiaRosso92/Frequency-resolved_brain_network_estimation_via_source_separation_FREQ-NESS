@@ -26,7 +26,8 @@ function [H2,ED] = FREQNESS_EntropyLandscape(FREQ,varargin)
 %  INPUT ARGUMENTS:
 % ------------------------------------------------------------------------
 %  - FREQ : structure with fields
-%           • FREQ.evals -> eigenvalue array [nComp x nFrex x (nSubs)]
+%           • FREQ.evals -> complete eigenvalue array
+%                          [nEigenvalues x nFrex x (nSubs)]
 %           • FREQ.frex  -> frequency vector [nFrex x 1] (optional)
 %
 %  - Optional name-value pair:
@@ -89,7 +90,8 @@ if ~isnumeric(eigenspectrum) || ~isreal(eigenspectrum) || ...
         ndims(eigenspectrum) > 3 || any(isinf(eigenspectrum(:))) || ...
         any(eigenspectrum(:) < 0)
     error(['FREQ.evals must be a real numeric array of non-negative, ' ...
-        'non-infinite eigenvalues in [nComp x nFrex x (nSubs)] format.']);
+        'non-infinite eigenvalues in ' ...
+        '[nEigenvalues x nFrex x (nSubs)] format.']);
 end
 
 if isvector(eigenspectrum)

@@ -33,7 +33,8 @@ function [decayCoeff, goodFit] = FREQNESS_ExponentialDK(FREQ, varargin)
 % ------------------------------------------------------------------------
 %
 %  - FREQ : structure with fields
-%           • FREQ.evals -> eigenvalue array [nComp x nFrex x (nSubs)]
+%           • FREQ.evals -> complete eigenvalue array
+%                          [nEigenvalues x nFrex x (nSubs)]
 %           • FREQ.frex  -> frequency vector [nFrex x 1] (optional but
 %                            used for the x-axis in the visualization)
 %
@@ -118,23 +119,24 @@ if isfield(FREQ,'frex') && ~isempty(FREQ.frex)
     frex = FREQ.frex(:);
 end
 
-%% Normalize input shape to [nComp x nFrex x nSubs]
+%% Normalize input shape to [nEigenvalues x nFrex x nSubs]
 
 if isvector(eigenspectrum)
-    eigenspectrum = eigenspectrum(:);               % [nComp x 1]
+    eigenspectrum = eigenspectrum(:);               % [nEigenvalues x 1]
 end
 
 % Get the number of dimensions in the input
 nd = ndims(eigenspectrum);
 if nd == 2
-    % [nComp x nFrex] -> [nComp x nFrex x 1]
+    % [nEigenvalues x nFrex] -> [nEigenvalues x nFrex x 1]
     eigenspectrum = reshape(eigenspectrum, size(eigenspectrum,1), size(eigenspectrum,2), 1);
 elseif nd > 3
-    error('eigenspectrum must be 1D, 2D, or 3D (nComp x nFrex x nSubs).');
+    error(['eigenspectrum must be 1D, 2D, or 3D ' ...
+        '(nEigenvalues x nFrex x nSubs).']);
 end
 
 % Define Ns
-ncomps = size(eigenspectrum,1);
+neigenvalues = size(eigenspectrum,1);
 nfrex  = size(eigenspectrum,2);
 nsubs  = size(eigenspectrum,3);
 
@@ -147,8 +149,8 @@ if isempty(which_comp)
     disp('Component not specified. Defaulting to analyzing the 1st component.');
     which_comp = 1;
 elseif ~isnumeric(which_comp) || ~isscalar(which_comp) || ~isfinite(which_comp) || ...
-        which_comp ~= round(which_comp) || which_comp < 1 || which_comp > ncomps
-    error('which_comp must be an integer between 1 and %d.',ncomps);
+        which_comp ~= round(which_comp) || which_comp < 1 || which_comp > neigenvalues
+    error('which_comp must be an integer between 1 and %d.',neigenvalues);
 end
 
 % Extract eigenspectrum for the selected component: [nFrex x nSubs]
