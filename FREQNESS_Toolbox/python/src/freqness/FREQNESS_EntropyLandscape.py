@@ -53,7 +53,7 @@ def _eigenspectrum_array(FREQ: Any) -> FloatArray:
     elif values.ndim != 3:
         raise ValueError(
             "FREQ.evals must be 1D, 2D, or 3D "
-            "(components, frequencies[, participants])"
+            "(eigenvalues, frequencies[, participants])"
         )
     if min(values.shape) == 0:
         raise ValueError("FREQ.evals is empty")
@@ -175,10 +175,11 @@ def FREQNESS_EntropyLandscape(
     """Compute quadratic Rényi entropy and effective dimensionality.
 
     The numerical outputs mirror the MATLAB function. ``FREQ.evals`` may be
-    shaped as ``(components,)``, ``(components, frequencies)``, or
-    ``(components, frequencies, participants)``. The visualization deliberately
-    includes only quadratic Rényi entropy (H2); effective dimensionality (ED)
-    is returned but is not plotted.
+    shaped as ``(eigenvalues,)``, ``(eigenvalues, frequencies)``, or
+    ``(eigenvalues, frequencies, participants)``. NetworkEstimation supplies
+    the complete eigenspectrum independently of ``ncomps``. The visualization
+    deliberately includes only quadratic Rényi entropy (H2); effective
+    dimensionality (ED) is returned but is not plotted.
 
     Parameters
     ----------

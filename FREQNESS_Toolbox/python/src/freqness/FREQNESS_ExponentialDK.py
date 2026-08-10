@@ -62,7 +62,7 @@ def _eigenspectrum_array(FREQ: Any) -> FloatArray:
     elif values.ndim != 3:
         raise ValueError(
             "FREQ.evals must be 1D, 2D, or 3D "
-            "(components, frequencies[, participants])"
+            "(eigenvalues, frequencies[, participants])"
         )
     if min(values.shape) == 0:
         raise ValueError("FREQ.evals is empty")
@@ -345,8 +345,8 @@ def FREQNESS_ExponentialDK(
             raise TypeError(f"{name} must be a boolean")
 
     values = _eigenspectrum_array(FREQ)
-    ncomponents, nfrequencies, nsubjects = values.shape
-    component_index = _component_index(which_comp, ncomponents)
+    neigenvalues, nfrequencies, nsubjects = values.shape
+    component_index = _component_index(which_comp, neigenvalues)
     x_axis, xlabel, has_frequencies = _frequency_axis(FREQ, nfrequencies)
     fit_indices = _fit_indices(x_axis, has_frequencies, range2fit)
     component_spectrum = values[component_index, :, :]

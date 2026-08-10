@@ -97,7 +97,11 @@ normalized activation magnitude controls marker size. Pass
 
 `FREQNESS_EntropyLandscape` computes and returns both quadratic Rényi entropy
 (`H2`) and effective dimensionality (`ED`) to preserve MATLAB numerical
-compatibility. Its figures intentionally show only `H2`.
+compatibility. `FREQ.evals` always contains the complete normalized
+eigenspectrum, independently of the number of eigenvectors, patterns, and time
+series retained through `ncomps`. Entropy therefore uses every eigenvalue while
+component-dependent outputs remain memory-limited. Its figures intentionally
+show only `H2`.
 
 `FREQNESS_ExponentialDK` fits `A * exp(-lambda * frequency)` to one component
 using MATLAB-compatible one-based component numbering. It returns one decay
