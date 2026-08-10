@@ -160,7 +160,7 @@ if isempty(freq2model)
     if size(evals,2) ~= nfrex
         error('The 2nd dimension of FREQ.evals must match the 3rd dimension of FREQ.pats (nfrex).');
     end
-    % Assume FREQ.evals is [nComp x nFrex x (nSubs)].
+    % Assume FREQ.evals is [nEigenvalues x nFrex x (nSubs)].
     % Extract eigenvalues for the first component.
     evals_first_comp = squeeze(evals(1,:,:)); % [nFrex x nSubs] or [nFrex x 1]
     % Average across participants if present.
