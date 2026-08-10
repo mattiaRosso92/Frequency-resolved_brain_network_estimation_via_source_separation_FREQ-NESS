@@ -114,6 +114,26 @@ def test_visualizer_supports_landscape_only_without_mni_or_nifti():
     assert result.group_patterns is None
 
 
+def test_visualizer_accepts_full_eigenspectrum_with_retained_patterns():
+    FREQ, Landscape, Patterns = _example_inputs(nsubs=2)
+    extra_eigenvalue = np.full((1, FREQ.frex.size, 2), 5.0)
+    FREQ.evals = np.concatenate([FREQ.evals, extra_eigenvalue], axis=0)
+    Landscape["ncomps"] = 3
+
+    result = FREQNESS_Visualizer(
+        FREQ,
+        Landscape,
+        Patterns,
+        save_nifti=False,
+        show=False,
+    )
+
+    legend = result.landscape_figures[0].axes[0].get_legend()
+    assert legend is not None
+    assert len(legend.get_texts()) == 3
+    assert result.normalized_patterns.shape == (6, 2, 2, 2)
+
+
 def test_visualizer_plot_all_and_frequency_panels_include_each_subject():
     FREQ, Landscape, Patterns = _example_inputs(nsubs=2)
 

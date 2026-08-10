@@ -124,7 +124,8 @@ def _canonical_inputs(
         eigenvalues = eigenvalues[:, :, np.newaxis]
     if eigenvalues.ndim != 3:
         raise ValueError(
-            "FREQ.evals must have shape (components, frequencies[, participants])"
+            "FREQ.evals must have shape "
+            "(eigenvalues, frequencies[, participants])"
         )
     patterns = np.asarray(_field(FREQ, "pats"), dtype=float)
     if patterns.ndim == 3:
@@ -137,8 +138,11 @@ def _canonical_inputs(
 
     if eigenvalues.shape[1] != frequencies.size or patterns.shape[2] != frequencies.size:
         raise ValueError("FREQ frequency dimensions do not match FREQ.frex")
-    if eigenvalues.shape[0] != patterns.shape[1]:
-        raise ValueError("FREQ.evals and FREQ.pats have different component counts")
+    if patterns.shape[1] > eigenvalues.shape[0]:
+        raise ValueError(
+            "FREQ.pats contains more retained components than FREQ.evals "
+            "contains eigenvalues"
+        )
     if eigenvalues.shape[2] != patterns.shape[3]:
         raise ValueError("FREQ.evals and FREQ.pats have different participant counts")
 
@@ -198,7 +202,8 @@ def _canonical_landscape_inputs(
         eigenvalues = eigenvalues[:, :, np.newaxis]
     if eigenvalues.ndim != 3:
         raise ValueError(
-            "FREQ.evals must have shape (components, frequencies[, participants])"
+            "FREQ.evals must have shape "
+            "(eigenvalues, frequencies[, participants])"
         )
     if eigenvalues.shape[1] != frequencies.size:
         raise ValueError("FREQ.evals frequency dimension does not match FREQ.frex")
@@ -670,9 +675,11 @@ def FREQNESS_Visualizer(
     ``FREQ`` may be a :class:`~freqness.FREQNESSResult`, a mapping, or an
     object exposing ``evals``, ``pats``, and ``frex`` attributes. ``Landscape``
     and ``Patterns`` accept MATLAB-like mappings or objects with the same field
-    names. Pass ``Patterns=None`` to produce only the network landscape, with
-    no MNI requirement or NIfTI output. Pattern colour represents the requested
-    frequency; marker size represents normalized activation magnitude.
+    names. ``evals`` may contain the complete eigenspectrum while ``pats``
+    contains only retained components. Pass ``Patterns=None`` to produce only
+    the network landscape, with no MNI requirement or NIfTI output. Pattern
+    colour represents the requested frequency; marker size represents
+    normalized activation magnitude.
 
     Parameters
     ----------

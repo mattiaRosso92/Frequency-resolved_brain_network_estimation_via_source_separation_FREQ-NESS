@@ -37,7 +37,10 @@ class FREQNESSResult:
     """Outputs of :func:`FREQNESS_NetworkEstimation`.
 
     Array dimensions intentionally mirror the MATLAB implementation. The final
-    subject dimension is retained for single-participant inputs.
+    subject dimension is retained for single-participant inputs. ``evals``
+    contains the complete normalized eigenspectrum with shape ``(variables,
+    frequencies, participants)``, independently of the number of retained
+    components. ``evecs``, ``pats``, and ``ts`` remain limited by ``ncomps``.
     """
 
     evals: FloatArray
@@ -229,7 +232,9 @@ def FREQNESS_NetworkEstimation(
     Parameters follow the MATLAB function of the same name. ``bad_segments``
     deliberately uses MATLAB-compatible one-based sample indices. Low-amplitude
     data are never rescaled interactively; pass ``rescale=True`` to apply the
-    MATLAB function's automatic scale factor after its warning condition.
+    MATLAB function's automatic scale factor after its warning condition. The
+    returned ``evals`` always contains the complete normalized eigenspectrum;
+    ``ncomps`` controls only retained eigenvectors, patterns, and time series.
     """
     if not np.isscalar(srate) or not np.isfinite(srate) or srate <= 0:
         raise ValueError("srate must be a positive finite scalar")
@@ -259,7 +264,9 @@ def FREQNESS_NetworkEstimation(
     scale_factors = _prepare_scale_factors(subject_data, bool(rescale))
 
     n_frequencies = frequencies.size
-    eigenvalues = np.zeros((ncomps, n_frequencies, n_subjects), dtype=float)
+    eigenvalues = np.zeros(
+        (n_variables, n_frequencies, n_subjects), dtype=float
+    )
     eigenvectors = np.zeros(
         (n_variables, ncomps, n_frequencies, n_subjects), dtype=float
     )
@@ -311,7 +318,7 @@ def FREQNESS_NetworkEstimation(
             all_values = all_values * 100.0 / value_sum
 
             retained_vectors = all_vectors[:, :ncomps]
-            eigenvalues[:, frequency_index, subject] = all_values[:ncomps]
+            eigenvalues[:, frequency_index, subject] = all_values
             eigenvectors[:, :, frequency_index, subject] = retained_vectors
             time_series[:, :, frequency_index, subject] = (
                 retained_vectors.T @ broadband

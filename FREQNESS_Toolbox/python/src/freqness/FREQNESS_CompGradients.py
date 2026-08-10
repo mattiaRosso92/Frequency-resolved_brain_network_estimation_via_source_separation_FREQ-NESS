@@ -56,7 +56,7 @@ def _automatic_frequency(FREQ: Any, nfrequencies: int) -> int:
         eigenvalues = eigenvalues[..., np.newaxis]
     elif eigenvalues.ndim != 3:
         raise ValueError(
-            "FREQ.evals must have shape (components, frequencies" 
+            "FREQ.evals must have shape (eigenvalues, frequencies"
             "[, participants])"
         )
     if eigenvalues.shape[1] != nfrequencies:
