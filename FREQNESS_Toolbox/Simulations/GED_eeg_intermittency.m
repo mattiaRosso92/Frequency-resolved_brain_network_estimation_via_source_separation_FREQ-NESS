@@ -45,7 +45,7 @@ sourcephase = 0;
 
 % Network-estimation parameters
 ncomps = 10;
-fwhm = .5;
+fwhm = 2;
 regularisation = .01;
 
 % Noise
@@ -210,18 +210,16 @@ targetED = ED(targetfrexi,1);
 
 % Correlation with ground-truth spatial pattern and source time series
 FREQcorr_pattern = abs(corr(targetpat,fwd_weights));
-FREQcorr_ts = abs(corr(targetts',sources'));
+FREQcorr_ts_signed = corr(targetts',sources');
+FREQcorr_ts = abs(FREQcorr_ts_signed);
 
-% Calculate ground-truth and estimated activation time series
-filtSource = filterFGx(sources,FREQ.srate,targetfrex,FREQ.fwhm(targetfrexi),0);
-filtFREQts = filterFGx(targetts,FREQ.srate,targetfrex,FREQ.fwhm(targetfrexi),0);
-sourceActivation = abs(hilbert(filtSource));
-FREQactivation = abs(hilbert(filtFREQts));
-FREQcorr_activation = abs(corr(FREQactivation',sourceActivation'));
-
-% Normalize activation time series for visualization
-sourceActivation = sourceActivation ./ max(sourceActivation);
-FREQactivation = FREQactivation ./ max(FREQactivation);
+% Resolve the arbitrary GED sign and normalize raw time series for visualization
+FREQsign = sign(FREQcorr_ts_signed);
+if FREQsign == 0
+    FREQsign = 1;
+end
+sourceTS = sources ./ max(abs(sources));
+FREQts = FREQsign * targetts ./ max(abs(targetts));
 
 
 %% Visualize target-frequency FREQ-NESS results
@@ -229,19 +227,19 @@ FREQactivation = FREQactivation ./ max(FREQactivation);
 figure(4), clf
 
 % Ground-truth activation pattern
-subplot(2,3,1)
+subplot(3,3,1)
 topoplotIndie(fwd_weights,EEG.chanlocs,'numcontour',0,'electrodes','off');
 title('Ground-truth source pattern')
 
 % First FREQ-NESS activation pattern
-subplot(2,3,2)
+subplot(3,3,2)
 topoplotIndie(targetpat,EEG.chanlocs,'numcontour',0,'electrodes','off');
 title({'FREQ-NESS component #1 pattern', ...
        ['Ground-truth r = ' num2str(FREQcorr_pattern,2)]})
 colormap jet
 
 % Target-frequency eigenspectrum
-subplot(2,3,3)
+subplot(3,3,3)
 bar(1:ncomps,targetevals(1:ncomps),'FaceColor',[.2 .4 .8])
 xlabel('Component')
 ylabel('Explained variance (%)')
@@ -249,18 +247,23 @@ title({['Effective dimensionality = ' num2str(targetED,3)], ...
        ['Hypothesized N = ' num2str(nactivations)]})
 axis square
 
-% Ground-truth and estimated activation time series
-subplot(2,3,[4 5 6])
-stairs(tvec,sourceenv,'k--','LineWidth',1.2)
+% Ground-truth activation gate
+subplot(3,3,[4 5 6])
+stairs(tvec,sourceenv,'k','LineWidth',1.5)
+ylabel('Gate')
+ylim([0 1.1])
+title('Ground-truth activation gate')
+
+% Injected dipole oscillation and raw FREQ-NESS component time series
+subplot(3,3,[7 8 9])
+plot(tvec,sourceTS,'r','LineWidth',1.2)
 hold on
-plot(tvec,sourceActivation,'r','LineWidth',1.7)
-plot(tvec,FREQactivation,'b','LineWidth',1.7)
+plot(tvec,FREQts,'b','LineWidth',1)
 xlabel('Time (s)')
 ylabel('Normalized amplitude')
-ylim([0 1.1])
-legend('Ground-truth gate','Filtered ground truth', ...
-       ['FREQ-NESS component #1: r = ' num2str(FREQcorr_activation,2)])
-title('Intermittent source and estimated component activation time series')
+ylim([-1.1 1.1])
+title({'Injected dipole oscillation (red) and raw FREQ.ts (blue)', ...
+       ['Component #1 time-series correlation: r = ' num2str(FREQcorr_ts,2)]})
 
 sgtitle(['FREQ-NESS intermittency test at ' num2str(FREQ.frex(targetfrexi)) ' Hz'])
 
@@ -271,5 +274,4 @@ fprintf('\nFREQ-NESS intermittency assessment at %.1f Hz\n',FREQ.frex(targetfrex
 fprintf('Number of ground-truth activations: %d\n',nactivations);
 fprintf('Target-frequency effective dimensionality: %.3f\n',targetED);
 fprintf('Component #1 pattern correlation: %.3f\n',FREQcorr_pattern);
-fprintf('Component #1 source time-series correlation: %.3f\n',FREQcorr_ts);
-fprintf('Component #1 activation correlation: %.3f\n\n',FREQcorr_activation);
+fprintf('Raw FREQ.ts source time-series correlation: %.3f\n\n',FREQcorr_ts);
