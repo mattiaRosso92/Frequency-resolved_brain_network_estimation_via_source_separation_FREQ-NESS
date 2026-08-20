@@ -30,15 +30,32 @@ frex = targetfrex-frexrange:1:targetfrex+frexrange;
 nactivations = 5;
 activationduration = 1.5; % duration of each activation, in seconds
 silenceduration = 1;      % duration of each intervening silence, in seconds
+flag_intermittencies = true; % true: silent intervals; false: continuous switching
 naway = 1;                % neighbor-rank spacing from the reference source
 nparamsteps = 15;         % number of distances in the parametric experiment
 
 % Time vector
 srate = EEG.srate;
-Tsim = nactivations*activationduration + ...
-       (nactivations-1)*silenceduration;
+matchedTsim = nactivations*activationduration + ...
+              (nactivations-1)*silenceduration;
+
+if flag_intermittencies
+    conditionactivationduration = activationduration;
+    intervalduration = silenceduration;
+else
+    conditionactivationduration = matchedTsim/nactivations;
+    intervalduration = 0;
+end
+
+Tsim = matchedTsim;
 npnts = Tsim * srate;
 tvec = 0:1/srate:Tsim-1/srate;
+
+if flag_intermittencies
+    conditionlabel = 'Intermittent';
+else
+    conditionlabel = 'Continuous duration-matched';
+end
 
 % Source parameters
 nsources = nactivations;
@@ -53,6 +70,8 @@ regularisation = .01;
 % Noise
 snr = 20;
 noiseamp = sourceamp/snr;
+maxTsim = matchedTsim;
+maxnpnts = maxTsim * srate;
 
 % Initialize sensor space
 nchans = length(EEG.chanlocs);
@@ -69,11 +88,12 @@ offvis = 3*sourceamp * (1:nchans)';
 sourceenv = zeros(nsources,npnts);
 activationbounds = zeros(nactivations,2);
 
-% Generate equal-duration activations separated by shorter silent periods
+% Generate equal-duration activations with optional silent intervals
 for activi = 1:nactivations
 
-    activationstart = (activi-1)*(activationduration+silenceduration);
-    activationend = activationstart + activationduration;
+    activationstart = (activi-1) * ...
+        (conditionactivationduration+intervalduration);
+    activationend = activationstart + conditionactivationduration;
     activationbounds(activi,:) = [activationstart activationend];
 
     activationidx = tvec >= activationstart & tvec < activationend;
@@ -107,8 +127,9 @@ selecteddistance = 1000*dipdistance(mydips); % distance from reference, in mm
 % Assign source signal to dipole
 dipsData = sources;
 
-% White noise added independently to each channel after dipole selection
-wnoise = noiseamp * 2*(rand(size(eegData))-.5);
+% Generate shared noise for intermittent and continuous comparisons
+wnoisebase = noiseamp * 2*(rand(nchans,maxnpnts)-.5);
+wnoise = wnoisebase(:,1:npnts);
 
 
 %% Sensor data
@@ -157,7 +178,8 @@ plot(tvec,-sourceamp*combinedEnvelope,'k--','LineWidth',1.2)
 xlabel('Time (s)')
 ylabel('Amplitude (a.u.)')
 legend('Source signal','Activation envelope')
-title(['Ground truth: ' num2str(nactivations) ' intermittent activations'])
+title(['Ground truth: ' num2str(nactivations) ' ' ...
+       lower(conditionlabel) ' source epochs'])
 
 % Dipole projection map
 subplot(2,4,[5 6])
@@ -175,7 +197,7 @@ yticks(offvis(1:4:nchans))
 yticklabels(chanlabels(1:4:nchans))
 title('Data in sensor space')
 
-sgtitle('Ground-truth intermittency manipulation')
+sgtitle(['Ground-truth ' lower(conditionlabel) ' source switching'])
 
 
 %% -------------------------- %%
@@ -287,7 +309,8 @@ ylim([-1.1 1.1])
 title({'Injected dipole oscillation (red) and raw FREQ.ts (blue)', ...
        ['Component #1 time-series correlation: r = ' num2str(FREQcorr_ts,2)]})
 
-sgtitle(['FREQ-NESS intermittency test at ' num2str(FREQ.frex(targetfrexi)) ' Hz'])
+sgtitle(['FREQ-NESS ' lower(conditionlabel) ' source-switching test at ' ...
+         num2str(FREQ.frex(targetfrexi)) ' Hz'])
 
 
 %% Parametric source-distance experiment
@@ -296,55 +319,97 @@ sgtitle(['FREQ-NESS intermittency test at ' num2str(FREQ.frex(targetfrexi)) ' Hz
 maxnaway = floor((ndips-1)/(nactivations-1));
 nawayrange = [0 unique(round(logspace(0,log10(maxnaway),nparamsteps)))];
 
-paramED = zeros(size(nawayrange));
+comparisonintermittencies = [true false];
+comparisonlabels = {'Intermittent','Continuous duration-matched'};
+nconditions = length(comparisonintermittencies);
+
+paramED = zeros(length(nawayrange),nconditions);
 paramdistance = zeros(size(nawayrange));
 parammaxdistance = zeros(size(nawayrange));
 parammydips = zeros(nactivations,length(nawayrange));
 paramsourcepats = zeros(nchans,nactivations,length(nawayrange));
-paramFREQpats = zeros(nchans,ncomps,length(nawayrange));
+paramFREQpats = zeros(nchans,ncomps,length(nawayrange),nconditions);
 
-for nawayi = 1:length(nawayrange)
+for conditioni = 1:nconditions
 
-    this_naway = nawayrange(nawayi);
-    this_neighboridx = 1 + (0:nactivations-1)*this_naway;
-    this_mydips = diporder(this_neighboridx);
+    % Generate the same source sequence with or without silent intervals
+    if comparisonintermittencies(conditioni)
+        this_activationduration = activationduration;
+        this_intervalduration = silenceduration;
+    else
+        this_activationduration = matchedTsim/nactivations;
+        this_intervalduration = 0;
+    end
 
-    % Project the same intermittent source sequence through the new dipoles
-    this_gain = squeeze(-lf.Gain(:,1,this_mydips));
-    this_fwd_weights = this_gain ./ max(abs(this_gain),[],1);
-    this_eegData = wnoise + this_fwd_weights * dipsData;
+    this_Tsim = matchedTsim;
+    this_npnts = this_Tsim * srate;
+    this_tvec = 0:1/srate:this_Tsim-1/srate;
+    this_sourceenv = zeros(nsources,this_npnts);
 
-    % Estimate FREQ-NESS and compute effective dimensionality
-    this_FREQ = FREQNESS_NetworkEstimation(this_eegData,frex,srate, ...
-                                           'duration',Tsim, ...
-                                           'fwidth',fwhm, ...
-                                           'filter','linear', ...
-                                           'regularisation',regularisation, ...
-                                           'ncomps',ncomps);
-    [~,this_ED] = FREQNESS_EntropyLandscape(this_FREQ);
-    close(gcf)
+    for activi = 1:nactivations
+        this_activationstart = (activi-1) * ...
+            (this_activationduration+this_intervalduration);
+        this_activationend = this_activationstart + ...
+                             this_activationduration;
+        this_activationidx = this_tvec >= this_activationstart & ...
+                             this_tvec < this_activationend;
+        this_sourceenv(activi,this_activationidx) = 1;
+    end
 
-    % Store target-frequency ED and physical source distances
-    this_distance = 1000*dipdistance(this_mydips); % mm from reference
-    paramED(nawayi) = this_ED(targetfrexi,1);
-    paramdistance(nawayi) = mean(this_distance(2:end));
-    parammaxdistance(nawayi) = max(this_distance);
-    parammydips(:,nawayi) = this_mydips;
-    paramsourcepats(:,:,nawayi) = this_fwd_weights;
+    this_sourceoscillation = sin(2*pi*this_tvec*targetfrex + sourcephase);
+    this_sources = sourceamp * this_sourceenv .* this_sourceoscillation;
+    this_wnoise = wnoisebase(:,1:this_npnts);
 
-    % Normalize target-frequency FREQ.pats for topographic comparison
-    this_FREQpats = squeeze(this_FREQ.pats(:,:,targetfrexi,1));
-    paramFREQpats(:,:,nawayi) = this_FREQpats ./ ...
-        max(abs(this_FREQpats),[],1);
+    for nawayi = 1:length(nawayrange)
+
+        this_naway = nawayrange(nawayi);
+        this_neighboridx = 1 + (0:nactivations-1)*this_naway;
+        this_mydips = diporder(this_neighboridx);
+
+        % Project the source sequence through the selected dipoles
+        this_gain = squeeze(-lf.Gain(:,1,this_mydips));
+        this_fwd_weights = this_gain ./ max(abs(this_gain),[],1);
+        this_eegData = this_wnoise + this_fwd_weights * this_sources;
+
+        % Estimate FREQ-NESS and compute effective dimensionality
+        this_FREQ = FREQNESS_NetworkEstimation(this_eegData,frex,srate, ...
+                                               'duration',this_Tsim, ...
+                                               'fwidth',fwhm, ...
+                                               'filter','linear', ...
+                                               'regularisation',regularisation, ...
+                                               'ncomps',ncomps);
+        [~,this_ED] = FREQNESS_EntropyLandscape(this_FREQ);
+        close(gcf)
+
+        % Store target-frequency ED and physical source distances
+        this_distance = 1000*dipdistance(this_mydips); % mm from reference
+        paramED(nawayi,conditioni) = this_ED(targetfrexi,1);
+        paramdistance(nawayi) = mean(this_distance(2:end));
+        parammaxdistance(nawayi) = max(this_distance);
+        parammydips(:,nawayi) = this_mydips;
+        paramsourcepats(:,:,nawayi) = this_fwd_weights;
+
+        % Normalize target-frequency FREQ.pats for topographic comparison
+        this_FREQpats = squeeze(this_FREQ.pats(:,:,targetfrexi,1));
+        paramFREQpats(:,:,nawayi,conditioni) = this_FREQpats ./ ...
+            max(abs(this_FREQpats),[],1);
+
+    end
 
 end
 
 figure(5), clf
+conditioncolors = [.2 .1 .6; .1 .55 .25];
+conditionstyles = {'-','--'};
 
 subplot(1,2,1)
-plot(1:length(nawayrange),paramED,'o-','Color',[.2 .1 .6], ...
-     'MarkerFaceColor',[.2 .1 .6],'LineWidth',1.7)
 hold on
+for conditioni = 1:nconditions
+    plot(1:length(nawayrange),paramED(:,conditioni),'o', ...
+         'Color',conditioncolors(conditioni,:), ...
+         'MarkerFaceColor',conditioncolors(conditioni,:), ...
+         'LineStyle',conditionstyles{conditioni},'LineWidth',1.7)
+end
 yline(nactivations,'r--',['N = ' num2str(nactivations)])
 xlim([1 length(nawayrange)])
 xticks(1:length(nawayrange))
@@ -352,22 +417,28 @@ xticklabels(string(nawayrange))
 xtickangle(45)
 xlabel('Neighbor-rank spacing from reference source')
 ylabel('Effective dimensionality at target frequency')
-title('ED by neighbor-count distance')
+title({'ED by neighbor-count distance', ...
+       'Intermittent: purple; continuous: green dashed'})
 grid on
 grid minor
 
 subplot(1,2,2)
-plot(paramdistance,paramED,'o-','Color',[.2 .1 .6], ...
-     'MarkerFaceColor',[.2 .1 .6],'LineWidth',1.7)
 hold on
+for conditioni = 1:nconditions
+    plot(paramdistance,paramED(:,conditioni),'o', ...
+         'Color',conditioncolors(conditioni,:), ...
+         'MarkerFaceColor',conditioncolors(conditioni,:), ...
+         'LineStyle',conditionstyles{conditioni},'LineWidth',1.7)
+end
 yline(nactivations,'r--',['N = ' num2str(nactivations)])
 xlabel('Mean distance from reference source (mm)')
 ylabel('Effective dimensionality at target frequency')
-title('ED by physical source distance')
+title({'ED by physical source distance', ...
+       'Intermittent: purple; continuous: green dashed'})
 grid on
 grid minor
 
-sgtitle(['Parametric source-distance experiment at ' ...
+sgtitle(['Intermittent versus duration-matched continuous experiment at ' ...
          num2str(FREQ.frex(targetfrexi)) ' Hz'])
 
 
@@ -391,7 +462,8 @@ for nawayi = 1:length(nawayrange)
         end
         if sourcei == 1
             text(-.7,0,{['naway = ' num2str(nawayrange(nawayi))], ...
-                        ['ED = ' num2str(paramED(nawayi),3)]}, ...
+                        ['ED int. = ' num2str(paramED(nawayi,1),3)], ...
+                        ['ED cont. = ' num2str(paramED(nawayi,2),3)]}, ...
                  'HorizontalAlignment','right','FontSize',7, ...
                  'Clipping','off')
         end
@@ -403,42 +475,88 @@ colormap jet
 sgtitle('Ground-truth spatial patterns across source distances')
 
 % Target-frequency FREQ-NESS spatial activation patterns
-figure(7), clf
 npatstoplot = min(nsources,ncomps);
-set(gcf,'Position',[50 50 1000 1800])
 
-for nawayi = 1:length(nawayrange)
-    for compi = 1:npatstoplot
+for conditioni = 1:nconditions
 
-        subplot(length(nawayrange),npatstoplot, ...
-                (nawayi-1)*npatstoplot+compi)
-        topoplotIndie(paramFREQpats(:,compi,nawayi),EEG.chanlocs, ...
-                      'numcontour',0,'electrodes','off');
-        caxis([-1 1])
+    figure(6+conditioni), clf
+    set(gcf,'Units','pixels','Position',[50 50 1000 1800])
 
-        if nawayi == 1
-            title(['FREQ.pats #' num2str(compi)])
+    for nawayi = 1:length(nawayrange)
+        for compi = 1:npatstoplot
+
+            subplot(length(nawayrange),npatstoplot, ...
+                    (nawayi-1)*npatstoplot+compi)
+            topoplotIndie(paramFREQpats(:,compi,nawayi,conditioni), ...
+                          EEG.chanlocs,'numcontour',0,'electrodes','off');
+            caxis([-1 1])
+
+            if nawayi == 1
+                title(['FREQ.pats #' num2str(compi)])
+            end
+            if compi == 1
+                text(-.7,0,{['naway = ' num2str(nawayrange(nawayi))], ...
+                            ['ED = ' num2str(paramED(nawayi,conditioni),3)]}, ...
+                     'HorizontalAlignment','right','FontSize',7, ...
+                     'Clipping','off')
+            end
+
         end
-        if compi == 1
-            text(-.7,0,{['naway = ' num2str(nawayrange(nawayi))], ...
-                        ['ED = ' num2str(paramED(nawayi),3)]}, ...
-                 'HorizontalAlignment','right','FontSize',7, ...
-                 'Clipping','off')
-        end
-
     end
+
+    colormap jet
+    sgtitle([comparisonlabels{conditioni} ...
+             ' target-frequency FREQ.pats across source distances at ' ...
+             num2str(FREQ.frex(targetfrexi)) ' Hz'])
+    drawnow
+
 end
 
 
-colormap jet
-sgtitle(['Target-frequency FREQ.pats across source distances at ' ...
-         num2str(FREQ.frex(targetfrexi)) ' Hz'])
+%% Visualize 3D source locations across source distances
+
+for nawayi = 1:length(nawayrange)
+
+    figure(8+nawayi), clf
+    set(gcf,'Units','pixels','Position',[50 50 800 650])
+    hold on
+
+    this_mydips = parammydips(:,nawayi);
+    this_emptyidx = ~ismember(1:ndips,this_mydips);
+
+    % Plot the complete dipole grid and all five sources in one 3D scatter
+    scatter3(lf.GridLoc(this_emptyidx,1),lf.GridLoc(this_emptyidx,2), ...
+             lf.GridLoc(this_emptyidx,3),10,figemptycolor,'filled', ...
+             'MarkerEdgeColor',[.35 .35 .35])
+    scatter3(lf.GridLoc(this_mydips(2:end),1), ...
+             lf.GridLoc(this_mydips(2:end),2), ...
+             lf.GridLoc(this_mydips(2:end),3),100,'b','filled')
+    scatter3(lf.GridLoc(this_mydips(1),1), ...
+             lf.GridLoc(this_mydips(1),2), ...
+             lf.GridLoc(this_mydips(1),3),130,'r','filled')
+
+    axis equal
+    axis tight
+    grid on
+    view(-70,20)
+    xlabel('X'), ylabel('Y'), zlabel('Z')
+    title({['naway = ' num2str(nawayrange(nawayi)) ...
+            ', mean distance = ' num2str(paramdistance(nawayi),3) ' mm'], ...
+           ['ED intermittent = ' num2str(paramED(nawayi,1),3) ...
+            ', ED continuous = ' num2str(paramED(nawayi,2),3)], ...
+           'Reference source: red; subsequent sources: blue'})
+    drawnow
+
+end
 
 
 %% Report assessment
 
-fprintf('\nFREQ-NESS intermittency assessment at %.1f Hz\n',FREQ.frex(targetfrexi));
+fprintf('\nFREQ-NESS %s assessment at %.1f Hz\n', ...
+        lower(conditionlabel),FREQ.frex(targetfrexi));
 fprintf('Number of ground-truth activations: %d\n',nactivations);
+fprintf('Total duration: %.2f s\n',Tsim);
+fprintf('Source-epoch duration: %.2f s\n',conditionactivationduration);
 fprintf('Neighbor-rank spacing: %d\n',naway);
 fprintf('Mean source distance from reference: %.2f mm\n', ...
         mean(selecteddistance(2:end)));
