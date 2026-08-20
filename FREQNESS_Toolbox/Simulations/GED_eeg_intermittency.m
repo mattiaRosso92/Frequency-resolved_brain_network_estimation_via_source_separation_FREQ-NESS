@@ -29,7 +29,7 @@ frex = targetfrex-frexrange:1:targetfrex+frexrange;
 % Intermittency manipulation
 nactivations = 5;
 activationduration = 1.5; % duration of each activation, in seconds
-silenceduration = .5;     % duration of each intervening silence, in seconds
+silenceduration = 1;      % duration of each intervening silence, in seconds
 
 % Time vector
 srate = EEG.srate;
@@ -83,10 +83,6 @@ end
 sourcecarrier = sin(2*pi*tvec*targetfrex + sourcephase);
 sources = sourceamp * sourceenv .* sourcecarrier;
 
-% White noise added independently to each channel
-wnoise = noiseamp * 2*(rand(size(eegData))-.5);
-
-
 %% Dipole injection (ground-truth)
 
 ndips = size(lf.Gain,3);
@@ -94,6 +90,9 @@ mydips = ceil(ndips*rand(nsources,1));
 
 % Assign source signal to dipole
 dipsData = sources;
+
+% White noise added independently to each channel after dipole selection
+wnoise = noiseamp * 2*(rand(size(eegData))-.5);
 
 
 %% Sensor data
