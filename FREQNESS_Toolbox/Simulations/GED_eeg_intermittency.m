@@ -294,12 +294,14 @@ sgtitle(['FREQ-NESS intermittency test at ' num2str(FREQ.frex(targetfrexi)) ' Hz
 
 % Sample the complete feasible neighbor-count range logarithmically
 maxnaway = floor((ndips-1)/(nactivations-1));
-nawayrange = unique(round(logspace(0,log10(maxnaway),nparamsteps)));
+nawayrange = [0 unique(round(logspace(0,log10(maxnaway),nparamsteps)))];
 
 paramED = zeros(size(nawayrange));
 paramdistance = zeros(size(nawayrange));
 parammaxdistance = zeros(size(nawayrange));
 parammydips = zeros(nactivations,length(nawayrange));
+paramsourcepats = zeros(nchans,nactivations,length(nawayrange));
+paramFREQpats = zeros(nchans,ncomps,length(nawayrange));
 
 for nawayi = 1:length(nawayrange)
 
@@ -328,16 +330,26 @@ for nawayi = 1:length(nawayrange)
     paramdistance(nawayi) = mean(this_distance(2:end));
     parammaxdistance(nawayi) = max(this_distance);
     parammydips(:,nawayi) = this_mydips;
+    paramsourcepats(:,:,nawayi) = this_fwd_weights;
+
+    % Normalize target-frequency FREQ.pats for topographic comparison
+    this_FREQpats = squeeze(this_FREQ.pats(:,:,targetfrexi,1));
+    paramFREQpats(:,:,nawayi) = this_FREQpats ./ ...
+        max(abs(this_FREQpats),[],1);
 
 end
 
 figure(5), clf
 
 subplot(1,2,1)
-semilogx(nawayrange,paramED,'o-','Color',[.2 .1 .6], ...
-         'MarkerFaceColor',[.2 .1 .6],'LineWidth',1.7)
+plot(1:length(nawayrange),paramED,'o-','Color',[.2 .1 .6], ...
+     'MarkerFaceColor',[.2 .1 .6],'LineWidth',1.7)
 hold on
 yline(nactivations,'r--',['N = ' num2str(nactivations)])
+xlim([1 length(nawayrange)])
+xticks(1:length(nawayrange))
+xticklabels(string(nawayrange))
+xtickangle(45)
 xlabel('Neighbor-rank spacing from reference source')
 ylabel('Effective dimensionality at target frequency')
 title('ED by neighbor-count distance')
@@ -356,6 +368,70 @@ grid on
 grid minor
 
 sgtitle(['Parametric source-distance experiment at ' ...
+         num2str(FREQ.frex(targetfrexi)) ' Hz'])
+
+
+%% Visualize spatial patterns across source distances
+
+% Ground-truth source projection patterns
+figure(6), clf
+set(gcf,'Position',[50 50 1000 1800])
+
+for nawayi = 1:length(nawayrange)
+    for sourcei = 1:nactivations
+
+        subplot(length(nawayrange),nactivations, ...
+                (nawayi-1)*nactivations+sourcei)
+        topoplotIndie(paramsourcepats(:,sourcei,nawayi),EEG.chanlocs, ...
+                      'numcontour',0,'electrodes','off');
+        caxis([-1 1])
+
+        if nawayi == 1
+            title(['Source #' num2str(sourcei)])
+        end
+        if sourcei == 1
+            text(-.7,0,{['naway = ' num2str(nawayrange(nawayi))], ...
+                        ['ED = ' num2str(paramED(nawayi),3)]}, ...
+                 'HorizontalAlignment','right','FontSize',7, ...
+                 'Clipping','off')
+        end
+
+    end
+end
+
+colormap jet
+sgtitle('Ground-truth spatial patterns across source distances')
+
+% Target-frequency FREQ-NESS spatial activation patterns
+figure(7), clf
+npatstoplot = min(nsources,ncomps);
+set(gcf,'Position',[50 50 1000 1800])
+
+for nawayi = 1:length(nawayrange)
+    for compi = 1:npatstoplot
+
+        subplot(length(nawayrange),npatstoplot, ...
+                (nawayi-1)*npatstoplot+compi)
+        topoplotIndie(paramFREQpats(:,compi,nawayi),EEG.chanlocs, ...
+                      'numcontour',0,'electrodes','off');
+        caxis([-1 1])
+
+        if nawayi == 1
+            title(['FREQ.pats #' num2str(compi)])
+        end
+        if compi == 1
+            text(-.7,0,{['naway = ' num2str(nawayrange(nawayi))], ...
+                        ['ED = ' num2str(paramED(nawayi),3)]}, ...
+                 'HorizontalAlignment','right','FontSize',7, ...
+                 'Clipping','off')
+        end
+
+    end
+end
+
+
+colormap jet
+sgtitle(['Target-frequency FREQ.pats across source distances at ' ...
          num2str(FREQ.frex(targetfrexi)) ' Hz'])
 
 
