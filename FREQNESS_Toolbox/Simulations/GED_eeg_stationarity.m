@@ -2,6 +2,7 @@ clc, clear, close all
 
 % Import structures, dipole forward model and simulation dependencies
 path_simulations = fileparts(mfilename('fullpath'));
+path_toolbox = fileparts(path_simulations);
 path_dependencies = fullfile(path_simulations,'Simulation_dependencies');
 
 if ~isfolder(path_dependencies)
@@ -10,6 +11,8 @@ if ~isfolder(path_dependencies)
 end
 
 addpath(path_dependencies);
+addpath(fullfile(path_toolbox,'FREQNESS_Functions'));
+addpath(fullfile(path_toolbox,'FREQNESS_ExternalFunctions'));
 load(fullfile(path_dependencies,'emptyEEG.mat'),'EEG','lf');
 
 % Reproducible simulation
@@ -18,8 +21,10 @@ rng(1)
 
 %% Simulation settings
 
-% Target frequency
-stimfrex = 10;
+% Target frequency and sampled frequency range
+targetfrex = 10;
+frexrange = 5;
+frex = targetfrex-frexrange:1:targetfrex+frexrange;
 
 % Time vector
 srate = EEG.srate;
@@ -35,6 +40,11 @@ transitionguard = .5; % seconds excluded around the switch for assessment
 nsources = 2;
 sourceamp = 10*ones(nsources,1);
 sourcephase = zeros(nsources,1);
+
+% Network-estimation parameters
+ncomps = 10;
+fwhm = .5;
+regularisation = .01;
 
 % Noise
 snr = 5;
@@ -60,7 +70,7 @@ sourceenv(2,tvec >= switchtime) = 1; % source B: second half
 sources = zeros(nsources,npnts);
 for sourcei = 1:nsources
 
-    sourcecarrier = sin(2*pi*tvec*stimfrex + sourcephase(sourcei));
+    sourcecarrier = sin(2*pi*tvec*targetfrex + sourcephase(sourcei));
     sources(sourcei,:) = sourceamp(sourcei) * sourceenv(sourcei,:) .* sourcecarrier;
 
 end
@@ -176,136 +186,89 @@ title('Data in sensor space')
 sgtitle('Ground-truth stationarity manipulation')
 
 
-%% ------------------- %%
-%          GED          %
-%   -----------------   %%
+%% -------------------------- %%
+%          FREQ-NESS          %
+%   ------------------------   %%
 
-% Initialization
-ncomps = 2;
-[GEDmap,GEDts] = deal(zeros(ncomps,nchans),zeros(ncomps,npnts));
+% Estimate the frequency-resolved network landscape
+FREQ = FREQNESS_NetworkEstimation(eegData,frex,srate, ...
+                                  'duration',Tsim, ...
+                                  'fwidth',fwhm, ...
+                                  'filter','linear', ...
+                                  'regularisation',regularisation, ...
+                                  'ncomps',ncomps);
 
-% Assign and filter data
-fwhm = .5;
-broadData = eegData;
-narrowData = filterFGx(eegData,srate,stimfrex,fwhm,0);
+% Identify the target-frequency output
+[~,targetfrexi] = min(abs(FREQ.frex-targetfrex));
 
-% Compute covariance matrices over the entire simulation
-covS = cov(narrowData');
-covR = cov(broadData');
-
-% Visualize covariance matrices
-figure(2), clf
-
-subplot(2,3,[1 2])
-plot(tvec,repmat(offvis,1,npnts)' + broadData')
-xline(switchtime,'k--')
-xlabel('Time (s)')
-ylabel('Amplitude (a.u.)')
-title('Broadband sensor data')
-subplot(2,3,[4 5])
-plot(tvec,repmat(offvis,1,npnts)' + narrowData')
-xline(switchtime,'k--')
-xlabel('Time (s)')
-ylabel('Amplitude (a.u.)')
-title('Narrowband sensor data')
-subplot(2,3,3)
-imagesc(covR), axis square
-title('Covariance R (Broadband)')
-subplot(2,3,6)
-imagesc(covS), axis square
-title('Covariance S (Narrowband)')
-sgtitle('GED covariance separation')
-
-% GED
-[evecs,evals] = eig(covS,covR);
-[evals,sidx] = sort(diag(evals),'descend');
-evecs = evecs(:,sidx);
-
-% Compute filter forward models and component time series
-for compi = 1:ncomps
-
-    GEDmap(compi,:) = evecs(:,compi)'*covS;
-    [~,idxmax] = max(abs(GEDmap(compi,:)));
-    compsign = sign(GEDmap(compi,idxmax));
-    if compsign == 0
-        compsign = 1;
-    end
-    GEDmap(compi,:) = GEDmap(compi,:)*compsign;
-    GEDts(compi,:) = compsign*evecs(:,compi)'*eegData;
-
-end
+% Visualize the top ten components in the network landscape
+Landscape.frex = FREQ.frex;
+Landscape.ncomps = ncomps;
+FREQNESS_Visualizer(FREQ,Landscape,[],'save_nifti',false);
 
 
 %% --------------------------- %%
 %          ASSESSMENT          %
 %   -------------------------   %%
 
-% Match GED components to ground truth for assessment and visualization
-corrmatrix = abs(corr(GEDts',sources'));
+% Extract the first two components at the target frequency from FREQ
+targetPats = squeeze(FREQ.pats(:,1:2,targetfrexi,1));
+targetTs = squeeze(FREQ.ts(1:2,:,targetfrexi,1));
+
+% Match the two target-frequency components to ground truth for assessment
+corrmatrix = abs(corr(targetTs',sources'));
+comporder = 1:2;
 if sum(diag(corrmatrix)) < sum(diag(fliplr(corrmatrix)))
-
-    GEDmap = GEDmap([2 1],:);
-    GEDts = GEDts([2 1],:);
-    evecs(:,1:2) = evecs(:,[2 1]);
-
+    comporder = [2 1];
 end
 
-% Match signs to corresponding ground-truth source signals
-for compi = 1:ncomps
-
-    compsign = sign(corr(GEDts(compi,:)',sources(compi,:)'));
-    if compsign == 0
-        compsign = 1;
-    end
-    GEDmap(compi,:) = GEDmap(compi,:)*compsign;
-    GEDts(compi,:) = GEDts(compi,:)*compsign;
-
-end
+matchedPats = targetPats(:,comporder);
+matchedTs = targetTs(comporder,:);
 
 % Correlation with ground truth: source time series and activation envelope
-GEDcorr_ts = diag(abs(corr(GEDts',sources')));
+FREQcorr_ts = diag(abs(corr(matchedTs',sources')));
 
-filtSources = filterFGx(sources,srate,stimfrex,fwhm,0);
-filtGEDts = filterFGx(GEDts,srate,stimfrex,fwhm,0);
-[sourceActivation,GEDactivation] = deal(zeros(nsources,npnts));
+filtSources = filterFGx(sources,FREQ.srate,targetfrex,FREQ.fwhm(targetfrexi),0);
+filtFREQts = filterFGx(matchedTs,FREQ.srate,targetfrex,FREQ.fwhm(targetfrexi),0);
+[sourceActivation,FREQactivation] = deal(zeros(nsources,npnts));
 
 for sourcei = 1:nsources
 
     sourceActivation(sourcei,:) = abs(hilbert(filtSources(sourcei,:)));
-    GEDactivation(sourcei,:) = abs(hilbert(filtGEDts(sourcei,:)));
+    FREQactivation(sourcei,:) = abs(hilbert(filtFREQts(sourcei,:)));
 
 end
 
-GEDcorr_activation = diag(abs(corr(GEDactivation',sourceActivation')));
+FREQcorr_activation = diag(abs(corr(FREQactivation',sourceActivation')));
 
 % Normalize activation time series for visualization
 sourceActivation = sourceActivation ./ max(sourceActivation,[],2);
-GEDactivation = GEDactivation ./ max(GEDactivation,[],2);
+FREQactivation = FREQactivation ./ max(FREQactivation,[],2);
 
 % Assess component activity away from filtering transients
 firsthalfidx = tvec >= transitionguard & tvec < switchtime-transitionguard;
 secondhalfidx = tvec >= switchtime+transitionguard & tvec < Tsim-transitionguard;
 
-GEDactivity = [ mean(GEDactivation(1,firsthalfidx)) mean(GEDactivation(1,secondhalfidx));
-                mean(GEDactivation(2,firsthalfidx)) mean(GEDactivation(2,secondhalfidx)) ];
+FREQactivity = [ mean(FREQactivation(1,firsthalfidx)) mean(FREQactivation(1,secondhalfidx));
+                 mean(FREQactivation(2,firsthalfidx)) mean(FREQactivation(2,secondhalfidx)) ];
 
-GEDselectivity = [ GEDactivity(1,1)/sum(GEDactivity(1,:));
-                   GEDactivity(2,2)/sum(GEDactivity(2,:)) ];
+FREQselectivity = [ FREQactivity(1,1)/sum(FREQactivity(1,:));
+                    FREQactivity(2,2)/sum(FREQactivity(2,:)) ];
 
 
-%% Visualize GED results
+%% Visualize target-frequency FREQ-NESS results
 
 figure(3), clf
 
-% GED activation patterns
+% FREQ-NESS activation patterns
 subplot(3,2,1)
-topoplotIndie(GEDmap(1,:),EEG.chanlocs,'numcontour',0,'electrodes','off');
-title({'GED component #1 map', ...
-       ['Source A map r = ' num2str(abs(corr(GEDmap(1,:)',fwd_weights(:,1))),2)]})
+topoplotIndie(matchedPats(:,1),EEG.chanlocs,'numcontour',0,'electrodes','off');
+title({'FREQ-NESS component matched to source A', ...
+       ['Pattern r = ' num2str(abs(corr(matchedPats(:,1),fwd_weights(:,1))),2)]})
 subplot(3,2,2)
-topoplotIndie(GEDmap(2,:),EEG.chanlocs,'numcontour',0,'electrodes','off');
-title({'GED component #2 map', ...
-       ['Source B map r = ' num2str(abs(corr(GEDmap(2,:)',fwd_weights(:,2))),2)]})
+topoplotIndie(matchedPats(:,2),EEG.chanlocs,'numcontour',0,'electrodes','off');
+title({'FREQ-NESS component matched to source B', ...
+       ['Pattern r = ' num2str(abs(corr(matchedPats(:,2),fwd_weights(:,2))),2)]})
 colormap jet
 
 % Ground-truth source activation time series
@@ -320,30 +283,34 @@ ylabel('Normalized amplitude')
 legend('Source A','Source B')
 title('Ground-truth source activation time series')
 
-% Estimated GED component activation time series
+% Estimated FREQ-NESS component activation time series
 subplot(3,2,[5 6])
-plot(tvec,GEDactivation(1,:),'r','LineWidth',1.7)
+plot(tvec,FREQactivation(1,:),'r','LineWidth',1.7)
 hold on
-plot(tvec,GEDactivation(2,:),'b','LineWidth',1.7)
+plot(tvec,FREQactivation(2,:),'b','LineWidth',1.7)
 xline(switchtime,'k--','Switch')
 ylim([0 1.1])
 xlabel('Time (s)')
 ylabel('Normalized amplitude')
-legend(['GED #1: r = ' num2str(GEDcorr_activation(1),2) ...
-        ', selectivity = ' num2str(GEDselectivity(1),2)], ...
-       ['GED #2: r = ' num2str(GEDcorr_activation(2),2) ...
-        ', selectivity = ' num2str(GEDselectivity(2),2)])
-title('Estimated GED component activation time series')
+legend(['Component #' num2str(comporder(1)) ': r = ' ...
+        num2str(FREQcorr_activation(1),2) ', selectivity = ' ...
+        num2str(FREQselectivity(1),2)], ...
+       ['Component #' num2str(comporder(2)) ': r = ' ...
+        num2str(FREQcorr_activation(2),2) ', selectivity = ' ...
+        num2str(FREQselectivity(2),2)])
+title('Estimated FREQ-NESS component activation time series')
 
-sgtitle('GED test of spatial stationarity')
+sgtitle(['FREQ-NESS stationarity test at ' num2str(FREQ.frex(targetfrexi)) ' Hz'])
 
 
 %% Report assessment
 
-fprintf('\nGED stationarity assessment\n');
+fprintf('\nFREQ-NESS stationarity assessment at %.1f Hz\n',FREQ.frex(targetfrexi));
 fprintf('Source projection correlation: %.3f\n', ...
         abs(corr(fwd_weights(:,1),fwd_weights(:,2))));
-fprintf('Component #1 / Source A time-series correlation: %.3f\n',GEDcorr_ts(1));
-fprintf('Component #2 / Source B time-series correlation: %.3f\n',GEDcorr_ts(2));
-fprintf('Component #1 first-half selectivity: %.3f\n',GEDselectivity(1));
-fprintf('Component #2 second-half selectivity: %.3f\n\n',GEDselectivity(2));
+fprintf('Component #%d / Source A time-series correlation: %.3f\n', ...
+        comporder(1),FREQcorr_ts(1));
+fprintf('Component #%d / Source B time-series correlation: %.3f\n', ...
+        comporder(2),FREQcorr_ts(2));
+fprintf('Source A component first-half selectivity: %.3f\n',FREQselectivity(1));
+fprintf('Source B component second-half selectivity: %.3f\n\n',FREQselectivity(2));
