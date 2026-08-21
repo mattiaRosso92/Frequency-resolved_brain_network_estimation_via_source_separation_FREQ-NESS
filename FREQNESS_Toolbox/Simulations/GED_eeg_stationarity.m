@@ -34,7 +34,7 @@ tvec = 0:1/srate:Tsim-1/srate;
 
 % Stationarity manipulation
 switchtime = Tsim/2;
-silenceduration = 1; % duration of the interval where both sources are silent
+silenceduration = 0; % duration of the interval where both sources are silent
 silencestart = switchtime-silenceduration/2;
 silenceend = switchtime+silenceduration/2;
 transitionguard = .5; % seconds excluded around activation boundaries
@@ -160,8 +160,12 @@ for sourcei = 1:nsources
          'color',figcolors(sourcei),'LineWidth',figlinesize(sourcei))
 
 end
-xline(silencestart,'k:','Silence starts')
-xline(silenceend,'k--','Source B starts')
+if silenceduration > 0
+    xline(silencestart,'k:','Silence starts')
+    xline(silenceend,'k--','Source B starts')
+else
+    xline(switchtime,'k--','Switch')
+end
 yticks([])
 xlabel('Time (s)')
 ylabel('Amplitude (a.u.)')
@@ -182,8 +186,12 @@ colormap jet
 % Data in EEG sensor space
 subplot(2,4,[7 8])
 plot(tvec,repmat(offvis,1,npnts)' + eegData')
-xline(silencestart,'k:')
-xline(silenceend,'k--')
+if silenceduration > 0
+    xline(silencestart,'k:')
+    xline(silenceend,'k--')
+else
+    xline(switchtime,'k--')
+end
 xlabel('Time (s)')
 ylabel('Amplitude (a.u.)')
 yticks(offvis(1:4:nchans))
@@ -258,8 +266,12 @@ FREQactivity = [ sqrt(mean(FREQts(1,firsthalfidx).^2)) ...
 FREQselectivity = [ FREQactivity(1,1)/sum(FREQactivity(1,:));
                     FREQactivity(2,2)/sum(FREQactivity(2,:)) ];
 
-% Raw component RMS energy during the silent interval
-FREQsilence = sqrt(mean(FREQts(:,silenceidx).^2,2));
+% Raw component RMS energy during the silent interval, when present
+if any(silenceidx)
+    FREQsilence = sqrt(mean(FREQts(:,silenceidx).^2,2));
+else
+    FREQsilence = nan(nsources,1);
+end
 
 
 %% Visualize target-frequency FREQ-NESS results
@@ -282,8 +294,12 @@ subplot(4,2,[3 4])
 stairs(tvec,sourceenv(1,:),'r','LineWidth',1.5)
 hold on
 stairs(tvec,sourceenv(2,:),'b','LineWidth',1.5)
-xline(silencestart,'k:','Silence starts')
-xline(silenceend,'k--','Source B starts')
+if silenceduration > 0
+    xline(silencestart,'k:','Silence starts')
+    xline(silenceend,'k--','Source B starts')
+else
+    xline(switchtime,'k--','Switch')
+end
 ylim([0 1.1])
 ylabel('Gate')
 title({'Ground-truth source activation gates', ...
@@ -294,8 +310,12 @@ subplot(4,2,[5 6])
 plot(tvec,sourceTS(1,:),'k--','LineWidth',1.2)
 hold on
 plot(tvec,FREQts(1,:),'r','LineWidth',1)
-xline(silencestart,'k:','Silence starts')
-xline(silenceend,'k--','Source B starts')
+if silenceduration > 0
+    xline(silencestart,'k:','Silence starts')
+    xline(silenceend,'k--','Source B starts')
+else
+    xline(switchtime,'k--','Switch')
+end
 ylim([-1.1 1.1])
 ylabel('Normalized amplitude')
 title({'Source A injected oscillation (black) and raw FREQ.ts (red)', ...
@@ -308,8 +328,12 @@ subplot(4,2,[7 8])
 plot(tvec,sourceTS(2,:),'k--','LineWidth',1.2)
 hold on
 plot(tvec,FREQts(2,:),'b','LineWidth',1)
-xline(silencestart,'k:','Silence starts')
-xline(silenceend,'k--','Source B starts')
+if silenceduration > 0
+    xline(silencestart,'k:','Silence starts')
+    xline(silenceend,'k--','Source B starts')
+else
+    xline(switchtime,'k--','Switch')
+end
 ylim([-1.1 1.1])
 xlabel('Time (s)')
 ylabel('Normalized amplitude')
@@ -318,9 +342,14 @@ title({'Source B injected oscillation (black) and raw FREQ.ts (blue)', ...
         num2str(FREQcorr_ts(2),2) ', selectivity = ' ...
         num2str(FREQselectivity(2),2)]})
 
-sgtitle(['FREQ-NESS stationarity test with ' num2str(silenceduration) ...
-         '-s silence and ' num2str(rad2deg(phasedifference)) ...
-         '-deg phase offset at ' num2str(FREQ.frex(targetfrexi)) ' Hz'])
+if silenceduration > 0
+    transitionlabel = [num2str(silenceduration) '-s silence'];
+else
+    transitionlabel = 'immediate transition';
+end
+sgtitle(['FREQ-NESS stationarity test with ' transitionlabel ' and ' ...
+         num2str(rad2deg(phasedifference)) '-deg phase offset at ' ...
+         num2str(FREQ.frex(targetfrexi)) ' Hz'])
 
 
 %% Report assessment
@@ -335,5 +364,9 @@ fprintf('Component #%d / Source B time-series correlation: %.3f\n', ...
         comporder(2),FREQcorr_ts(2));
 fprintf('Source A component first-half selectivity: %.3f\n',FREQselectivity(1));
 fprintf('Source B component second-half selectivity: %.3f\n',FREQselectivity(2));
-fprintf('Component #1 silent-interval RMS: %.3f\n',FREQsilence(1));
-fprintf('Component #2 silent-interval RMS: %.3f\n\n',FREQsilence(2));
+if silenceduration > 0
+    fprintf('Component #1 silent-interval RMS: %.3f\n',FREQsilence(1));
+    fprintf('Component #2 silent-interval RMS: %.3f\n\n',FREQsilence(2));
+else
+    fprintf('Transition interval: immediate (no silent samples)\n\n');
+end
