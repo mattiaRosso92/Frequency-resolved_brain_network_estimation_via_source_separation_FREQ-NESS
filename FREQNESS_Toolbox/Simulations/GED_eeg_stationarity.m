@@ -380,6 +380,9 @@ nphaseoffsets = length(phaseoffsets);
     deal(nan(nphaseoffsets,nsources));
 paramEvals = nan(nphaseoffsets,nsources);
 paramSubspaceAngles = nan(nphaseoffsets,nsources);
+paramCompOrder = nan(nphaseoffsets,nsources);
+paramFREQts = nan(nphaseoffsets,nsources,npnts);
+paramSourceTs = nan(nphaseoffsets,nsources,npnts);
 
 for phasei = 1:nphaseoffsets
 
@@ -415,6 +418,7 @@ for phasei = 1:nphaseoffsets
             sum(diag(fliplr(this_corrmatrix)))
         this_comporder = [2 1];
     end
+    paramCompOrder(phasei,:) = this_comporder;
 
     this_matchedPats = this_targetPats(:,this_comporder);
     this_matchedTs = this_targetTs(this_comporder,:);
@@ -428,6 +432,11 @@ for phasei = 1:nphaseoffsets
     this_FREQtsmax = max(abs(this_FREQts),[],2);
     this_FREQtsmax(this_FREQtsmax == 0) = 1;
     this_FREQts = this_FREQts ./ this_FREQtsmax;
+    paramFREQts(phasei,:,:) = this_FREQts;
+
+    this_sourceTSmax = max(abs(this_sources),[],2);
+    this_sourceTSmax(this_sourceTSmax == 0) = 1;
+    paramSourceTs(phasei,:,:) = this_sources ./ this_sourceTSmax;
 
     this_activity = [sqrt(mean(this_FREQts(1,firsthalfidx).^2)) ...
                      sqrt(mean(this_FREQts(1,secondhalfidx).^2));
@@ -521,6 +530,59 @@ xlim([0 330])
 
 sgtitle(['Parametric FREQ-NESS stationarity test at ' ...
          num2str(FREQ.frex(targetfrexi)) ' Hz'])
+
+
+%% Visualize raw FREQ.ts for every tested phase offset
+
+figure(5), clf
+set(gcf,'Position',[50 50 1600 1200])
+phaseplots = tiledlayout(4,3,'TileSpacing','compact','Padding','compact');
+componentoffset = [0; 2.5];
+
+for phasei = 1:nphaseoffsets
+
+    nexttile
+    hold on
+    this_sourceTS = squeeze(paramSourceTs(phasei,:,:));
+    this_FREQts = squeeze(paramFREQts(phasei,:,:));
+
+    sourcehandle = plot(tvec,this_sourceTS(1,:)+componentoffset(1), ...
+                        'k--','LineWidth',.8);
+    plot(tvec,this_sourceTS(2,:)+componentoffset(2), ...
+         'k--','LineWidth',.8)
+    freqAhandle = plot(tvec,this_FREQts(1,:)+componentoffset(1), ...
+                       'r','LineWidth',.8);
+    freqBhandle = plot(tvec,this_FREQts(2,:)+componentoffset(2), ...
+                       'b','LineWidth',.8);
+    xline(switchtime,'k:')
+
+    xlim([0 Tsim])
+    ylim([-1.2 3.7])
+    yticks(componentoffset)
+    yticklabels({'Source A';'Source B'})
+    title({[num2str(phaseoffsetdegrees(phasei)) '-deg offset'], ...
+           ['FREQ components ' num2str(paramCompOrder(phasei,1)) ...
+            '/' num2str(paramCompOrder(phasei,2)) ...
+            ', selectivity ' ...
+            num2str(paramSelectivity(phasei,1),'%.2f') ...
+            '/' num2str(paramSelectivity(phasei,2),'%.2f')]})
+
+    if phasei > nphaseoffsets-3
+        xlabel('Time (s)')
+    end
+
+    if phasei == 1
+        legend([sourcehandle freqAhandle freqBhandle], ...
+               {'Injected sources','Matched FREQ.ts A', ...
+                'Matched FREQ.ts B'},'Location','best')
+    end
+
+end
+
+
+title(phaseplots,{['Raw FREQ.ts across source-B phase offsets at ' ...
+                   num2str(FREQ.frex(targetfrexi)) ' Hz'], ...
+                  'Black dashed: injected oscillations; vertical line: switch'})
 
 
 %% Report parametric phase-offset experiment
