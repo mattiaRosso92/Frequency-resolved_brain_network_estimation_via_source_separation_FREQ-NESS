@@ -273,6 +273,16 @@ targetPats = squeeze(FREQ.pats(:,1:ncomps,targetfrexi,1));
 targetTs = squeeze(FREQ.ts(1:ncomps,:,targetfrexi,1));
 targetED = ED(targetfrexi,1);
 
+% Relate each component pattern to the forward model at every wave phase
+componentSourceCorrelationSigned = corr(targetPats,fwd_weights);
+componentSourceCorrelation = abs(componentSourceCorrelationSigned);
+[component2CorrelationSorted,component2SourceOrder] = ...
+    sort(componentSourceCorrelation(2,:),'descend');
+component2PhaseSorted = sourcephase(component2SourceOrder);
+[component2PeakCorrelation,component2PeakSource] = ...
+    max(componentSourceCorrelation(2,:));
+component2PeakPhase = sourcephase(component2PeakSource);
+
 % Quantify phase coupling within the leading GED component pair
 targetTs_filtered = filterFGx(targetTs(1:2,:),srate,targetfrex,fwhm,0);
 targetTs_analytic = FREQNESS_AnalyticSignal(targetTs_filtered');
@@ -413,6 +423,72 @@ title({'Exploratory source match of FREQ-NESS patterns', ...
         num2str(componentordercorr,'%.2f')]})
 
 
+%% Relate the leading component patterns to travelling-wave phase
+
+sourcephasedeg = rad2deg(sourcephase);
+firsthalfidx = sourcephase <= pi;
+
+figure(8), clf
+set(gcf,'Position',[100 100 1500 500])
+
+% Inspect both leading components over the complete simulated wave
+subplot(1,3,1)
+hold on
+plot(sourcephasedeg,componentSourceCorrelation(1,:),'-o', ...
+     'Color',componentcolors(1,:),'LineWidth',1.5, ...
+     'MarkerFaceColor',componentcolors(1,:))
+plot(sourcephasedeg,componentSourceCorrelation(2,:),'-o', ...
+     'Color',componentcolors(2,:),'LineWidth',1.5, ...
+     'MarkerFaceColor',componentcolors(2,:))
+xline(90,'k--','90 deg')
+xline(180,'k:','180 deg')
+xlabel('Ground-truth source phase (deg)')
+ylabel('|Spatial correlation|')
+xticks(sourcephasedeg)
+xtickangle(45)
+ylim([0 1])
+grid on
+legend({'Component #1','Component #2'},'Location','best')
+title('Forward-pattern match across the full wave')
+
+% Focus on the hypothesized critical phase range from zero to pi
+subplot(1,3,2)
+hold on
+plot(sourcephasedeg(firsthalfidx), ...
+     componentSourceCorrelation(2,firsthalfidx),'-o', ...
+     'Color',componentcolors(2,:),'LineWidth',2, ...
+     'MarkerFaceColor',componentcolors(2,:))
+xline(90,'k--','90 deg')
+plot(rad2deg(component2PeakPhase),component2PeakCorrelation,'pk', ...
+     'MarkerFaceColor','y','MarkerSize',12)
+xlabel('Ground-truth source phase (deg)')
+ylabel('|Spatial correlation|')
+xticks(sourcephasedeg(firsthalfidx))
+xlim([sourcephasedeg(1) 180])
+ylim([0 1])
+grid on
+title({['Component #2 over 0-' char(960)], ...
+       ['Full-wave peak: ' ...
+        num2str(rad2deg(component2PeakPhase),'%.0f') ...
+        ' deg, |r| = ' num2str(component2PeakCorrelation,'%.2f')]})
+
+% Rank the phase-associated forward patterns without imposing phase order
+subplot(1,3,3)
+rankhandle = bar(component2CorrelationSorted,'FaceColor','flat');
+rankhandle.CData = wavecolors(component2SourceOrder,:);
+xlabel('Descending correlation rank')
+ylabel('|Spatial correlation|')
+xticks(1:nsources)
+xticklabels(compose('%g deg',rad2deg(component2PhaseSorted)))
+xtickangle(45)
+ylim([0 1])
+grid on
+title('Component #2 phase ranking')
+
+sgtitle(['Phase association of FREQ-NESS patterns at ' ...
+         num2str(FREQ.frex(targetfrexi)) ' Hz'])
+
+
 %% FREQ-NESS component gradients in EEG sensor space
 
 % Reconstruct approximate 3D sensor coordinates from EEGLAB polar values
@@ -444,6 +520,12 @@ fprintf('Component #2-#1 phase difference: %.3f degrees (PLV %.4f)\n', ...
         rad2deg(componentmeanphase),componentphasePLV);
 fprintf('True/estimated two-pattern subspace angles: %.3f and %.3f degrees\n', ...
         wavesubspaceangles(1),wavesubspaceangles(2));
+fprintf('Component #2 strongest source-phase match: %.1f degrees (|r| %.3f)\n', ...
+        rad2deg(component2PeakPhase),component2PeakCorrelation);
+fprintf('Component #2 descending phase matches (deg): %s\n', ...
+        mat2str(rad2deg(component2PhaseSorted)',3));
+fprintf('Component #2 descending correlations: %s\n', ...
+        mat2str(component2CorrelationSorted,3));
 fprintf('Component-order/direction Spearman rho: %.3f\n', ...
         componentordercorr);
 fprintf('Sensor-gradient best R^2 [X Y Z]: [%.3f %.3f %.3f]\n\n', ...
