@@ -42,7 +42,8 @@ transitionguard = .5; % seconds excluded around activation boundaries
 % Source parameters
 nsources = 2;
 sourceamp = 10*ones(nsources,1);
-sourcephase = zeros(nsources,1);
+phasedifference = pi/2; % source B phase offset relative to source A
+sourcephase = [0; phasedifference];
 
 % Network-estimation parameters
 ncomps = 10;
@@ -318,12 +319,14 @@ title({'Source B injected oscillation (black) and raw FREQ.ts (blue)', ...
         num2str(FREQselectivity(2),2)]})
 
 sgtitle(['FREQ-NESS stationarity test with ' num2str(silenceduration) ...
-         '-s silence at ' num2str(FREQ.frex(targetfrexi)) ' Hz'])
+         '-s silence and ' num2str(rad2deg(phasedifference)) ...
+         '-deg phase offset at ' num2str(FREQ.frex(targetfrexi)) ' Hz'])
 
 
 %% Report assessment
 
 fprintf('\nFREQ-NESS stationarity assessment at %.1f Hz\n',FREQ.frex(targetfrexi));
+fprintf('Source B phase offset: %.1f degrees\n',rad2deg(phasedifference));
 fprintf('Source projection correlation: %.3f\n', ...
         abs(corr(fwd_weights(:,1),fwd_weights(:,2))));
 fprintf('Component #%d / Source A time-series correlation: %.3f\n', ...
