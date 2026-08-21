@@ -21,8 +21,10 @@ rng(1)
 
 %% Simulation settings
 
-% Target frequency
+% Target frequency and sampled frequency range
 targetfrex = 10;
+frexrange = 5;
+frex = targetfrex-frexrange:1:targetfrex+frexrange;
 
 % Time vector
 srate = EEG.srate;
@@ -38,6 +40,15 @@ phaseincrement = pi/6; % phase delay between contiguous sources
 sourcephase = (0:nsources-1)' * phaseincrement;
 nneighborcandidates = 6; % local neighbors considered at each path step
 npathattempts = 500;
+
+% Network-estimation parameters
+ncomps = 10;
+fwhm = 2;
+regularisation = .01;
+
+% Component-gradient parameters
+gradientcomps = [1 5];
+gradientthreshold = 2;
 
 % Noise
 snr = 20;
@@ -237,3 +248,203 @@ fprintf('Random direction: [%.3f %.3f %.3f]\n',wavedirection);
 fprintf('Path length: %.1f mm\n',pathdistance(end));
 fprintf('Dipole step distance: median %.1f mm, range %.1f-%.1f mm\n\n', ...
         median(pathsteps),min(pathsteps),max(pathsteps));
+
+
+%% -------------------------- %%
+%          FREQ-NESS          %
+%   ------------------------   %%
+
+% Estimate the frequency-resolved network landscape
+FREQ = FREQNESS_NetworkEstimation(eegData,frex,srate, ...
+                                  'duration',Tsim, ...
+                                  'fwidth',fwhm, ...
+                                  'filter','linear', ...
+                                  'regularisation',regularisation, ...
+                                  'ncomps',ncomps);
+
+% Compute quadratic entropy and effective dimensionality
+[H2,ED] = FREQNESS_EntropyLandscape(FREQ);
+fig_entropy = gcf;
+
+% Identify the target-frequency output
+[~,targetfrexi] = min(abs(FREQ.frex-targetfrex));
+targetevals = squeeze(FREQ.evals(:,targetfrexi,1));
+targetPats = squeeze(FREQ.pats(:,1:ncomps,targetfrexi,1));
+targetTs = squeeze(FREQ.ts(1:ncomps,:,targetfrexi,1));
+targetED = ED(targetfrexi,1);
+
+% Quantify phase coupling within the leading GED component pair
+targetTs_filtered = filterFGx(targetTs(1:2,:),srate,targetfrex,fwhm,0);
+targetTs_analytic = FREQNESS_AnalyticSignal(targetTs_filtered');
+componentphasedifference = angle(targetTs_analytic(:,2) .* ...
+                                 conj(targetTs_analytic(:,1)));
+componentmeanphase = angle(mean(exp(1i*componentphasedifference)));
+componentphasePLV = abs(mean(exp(1i*componentphasedifference)));
+
+% Compare the leading GED pair with the true sensor-space wave subspace
+groundtruthWaveBasis = [fwd_weights*cos(sourcephase), ...
+                        fwd_weights*sin(sourcephase)];
+subspacesingularvalues = svd(orth(groundtruthWaveBasis)' * ...
+                             orth(targetPats(:,1:2)));
+subspacesingularvalues = min(max(subspacesingularvalues,-1),1);
+wavesubspaceangles = acosd(subspacesingularvalues);
+
+
+%% Visualize FREQ-NESS network landscape
+
+figure(4), clf
+set(gcf,'Position',[100 100 1200 500])
+
+subplot(1,2,1)
+hold on
+componentcolors = turbo(ncomps);
+for compi = 1:ncomps
+
+    plot(FREQ.frex,squeeze(FREQ.evals(compi,:,1)), ...
+         'Color',componentcolors(compi,:),'LineWidth',1.2)
+
+end
+xline(targetfrex,'k--','Target frequency')
+xlabel('Frequency (Hz)')
+ylabel('Explained variance (%)')
+title(['Top ' num2str(ncomps) ' FREQ-NESS eigenvalues'])
+grid on
+
+subplot(1,2,2)
+plot(FREQ.frex,ED(:,1),'k','LineWidth',2)
+hold on
+plot(FREQ.frex(targetfrexi),targetED,'or','MarkerFaceColor','r', ...
+     'MarkerSize',8)
+xline(targetfrex,'k--','Target frequency')
+xlabel('Frequency (Hz)')
+ylabel('Effective dimensionality (ED)')
+title(['ED at target frequency = ' num2str(targetED,'%.2f')])
+grid on
+
+sgtitle('FREQ-NESS travelling-wave network landscape')
+
+
+%% Visualize target-frequency component patterns
+
+figure(5), clf
+set(gcf,'Position',[100 100 1300 650])
+
+for compi = 1:ncomps
+
+    subplot(2,ceil(ncomps/2),compi)
+    topoplotIndie(targetPats(:,compi),EEG.chanlocs, ...
+                  'numcontour',0,'electrodes','off','shading','interp');
+    title({['Component #' num2str(compi)], ...
+           [num2str(targetevals(compi),'%.2f') '% variance']})
+
+end
+colormap jet
+sgtitle(['FREQ-NESS patterns at ' num2str(FREQ.frex(targetfrexi)) ' Hz'])
+
+
+%% Visualize raw target-frequency component time series
+
+figure(6), clf
+set(gcf,'Position',[100 100 1300 700])
+
+% Normalize only for stacked visualization; FREQ.ts remains unchanged
+targetTsmax = max(abs(targetTs),[],2);
+targetTsmax(targetTsmax == 0) = 1;
+targetTs_plot = targetTs ./ targetTsmax;
+componentoffvis = 2.5*(0:ncomps-1)';
+hold on
+for compi = 1:ncomps
+
+    plot(tvec(plotidx),targetTs_plot(compi,plotidx) + ...
+         componentoffvis(compi),'Color',componentcolors(compi,:), ...
+         'LineWidth',1.1)
+
+end
+xlabel('Time (s)')
+ylabel('Component and eigenvalue order')
+yticks(componentoffvis)
+yticklabels(compose('Component %d',1:ncomps))
+title({['Raw FREQ.ts at ' num2str(FREQ.frex(targetfrexi)) ' Hz'], ...
+       ['Components 1-2: phase difference = ' ...
+        num2str(rad2deg(componentmeanphase),'%.1f') ...
+        ' deg, PLV = ' num2str(componentphasePLV,'%.4f')]})
+
+
+%% Match component patterns to the dipole forward model
+
+% Use the known forward model to obtain an exploratory source-space match
+allfwd = squeeze(-lf.Gain(:,1,:));
+allfwdmax = max(abs(allfwd),[],1);
+allfwdmax(allfwdmax == 0) = 1;
+allfwd = allfwd ./ allfwdmax;
+
+componentdipcorr = abs(corr(allfwd,targetPats));
+[componentdipcorr,componentdips] = max(componentdipcorr,[],1);
+componentprojection = ...
+    (dipcoords(componentdips,:)-dipcoords(mydips(1),:))*wavedirection';
+componentordercorr = corr((1:ncomps)',componentprojection,'Type','Spearman');
+
+figure(7), clf
+set(gcf,'Position',[100 100 950 800])
+hold on
+scatter3(dipcoords(figemptyidx,1),dipcoords(figemptyidx,2), ...
+         dipcoords(figemptyidx,3),8,figemptycolor,'filled', ...
+         'MarkerEdgeColor',[.75 .75 .75])
+plot3(dipcoords(mydips,1),dipcoords(mydips,2), ...
+      dipcoords(mydips,3),'k-','LineWidth',1.2)
+sourcehandle = scatter3(dipcoords(mydips,1),dipcoords(mydips,2), ...
+                        dipcoords(mydips,3),65,'ok','LineWidth',1.2);
+componenthandle = scatter3(dipcoords(componentdips,1), ...
+                           dipcoords(componentdips,2), ...
+                           dipcoords(componentdips,3),130,1:ncomps, ...
+                           'd','filled','MarkerEdgeColor','k');
+xlabel('X (mm)'), ylabel('Y (mm)'), zlabel('Z (mm)')
+grid on
+axis equal
+view(45,20)
+colormap(turbo)
+componentbar = colorbar;
+componentbar.Label.String = 'GED component index';
+legend([sourcehandle componenthandle], ...
+       {'Ground-truth wave path','Best-matching dipoles'}, ...
+       'Location','best')
+title({'Exploratory source match of FREQ-NESS patterns', ...
+       ['Component-order/direction rho = ' ...
+        num2str(componentordercorr,'%.2f')]})
+
+
+%% FREQ-NESS component gradients in EEG sensor space
+
+% Reconstruct approximate 3D sensor coordinates from EEGLAB polar values
+channeltheta = deg2rad([EEG.chanlocs.theta]');
+channelcolatitude = pi*[EEG.chanlocs.radius]';
+channelcoords = [sin(channelcolatitude).*cos(channeltheta), ...
+                 sin(channelcolatitude).*sin(channeltheta), ...
+                 cos(channelcolatitude)];
+
+[gradCoeff_components,goodFit_components] = ...
+    FREQNESS_CompGradients(FREQ,channelcoords, ...
+                           'freq2model',targetfrex, ...
+                           'comps2model',gradientcomps, ...
+                           'threshold_sd',gradientthreshold, ...
+                           'plot_all',false);
+fig_componentsgradient = gcf;
+sgtitle(['Sensor-space FREQ-NESS component gradients at ' ...
+         num2str(FREQ.frex(targetfrexi)) ' Hz'])
+
+
+%% Report FREQ-NESS assessment
+
+fprintf('\nFREQ-NESS travelling-wave assessment at %.1f Hz\n', ...
+        FREQ.frex(targetfrexi));
+fprintf('Effective dimensionality: %.3f\n',targetED);
+fprintf('Top two eigenvalues: %.3f%% and %.3f%%\n', ...
+        targetevals(1),targetevals(2));
+fprintf('Component #2-#1 phase difference: %.3f degrees (PLV %.4f)\n', ...
+        rad2deg(componentmeanphase),componentphasePLV);
+fprintf('True/estimated two-pattern subspace angles: %.3f and %.3f degrees\n', ...
+        wavesubspaceangles(1),wavesubspaceangles(2));
+fprintf('Component-order/direction Spearman rho: %.3f\n', ...
+        componentordercorr);
+fprintf('Sensor-gradient best R^2 [X Y Z]: [%.3f %.3f %.3f]\n\n', ...
+        goodFit_components.R2_best(:,1));
