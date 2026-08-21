@@ -44,6 +44,7 @@ nsources = 2;
 sourceamp = 10*ones(nsources,1);
 phasedifference = pi/2; % source B phase offset relative to source A
 sourcephase = [0; phasedifference];
+phaseoffsets = 0:pi/6:2*pi-pi/6; % source-B offsets from 0 to 330 degrees
 
 % Network-estimation parameters
 ncomps = 10;
@@ -370,3 +371,167 @@ if silenceduration > 0
 else
     fprintf('Transition interval: immediate (no silent samples)\n\n');
 end
+
+
+%% Parametric phase-offset experiment
+
+nphaseoffsets = length(phaseoffsets);
+[paramTimeCorrelation,paramSelectivity,paramPatternCorrelation] = ...
+    deal(nan(nphaseoffsets,nsources));
+paramEvals = nan(nphaseoffsets,nsources);
+paramSubspaceAngles = nan(nphaseoffsets,nsources);
+
+for phasei = 1:nphaseoffsets
+
+    % Change only the phase of source B
+    this_sourcephase = [0; phaseoffsets(phasei)];
+    this_sources = zeros(nsources,npnts);
+    for sourcei = 1:nsources
+
+        this_sourceoscillation = ...
+            sin(2*pi*tvec*targetfrex + this_sourcephase(sourcei));
+        this_sources(sourcei,:) = sourceamp(sourcei) * ...
+            sourceenv(sourcei,:) .* this_sourceoscillation;
+
+    end
+
+    % Reuse the same dipoles and sensor noise at every phase offset
+    this_eegData = wnoise + fwd_weights * this_sources;
+
+    this_FREQ = FREQNESS_NetworkEstimation(this_eegData,frex,srate, ...
+                                           'duration',Tsim, ...
+                                           'fwidth',fwhm, ...
+                                           'filter','linear', ...
+                                           'regularisation',regularisation, ...
+                                           'ncomps',ncomps);
+
+    this_targetPats = squeeze(this_FREQ.pats(:,1:2,targetfrexi,1));
+    this_targetTs = squeeze(this_FREQ.ts(1:2,:,targetfrexi,1));
+
+    % Match components to the two source signals independently per run
+    this_corrmatrix = abs(corr(this_targetTs',this_sources'));
+    this_comporder = 1:2;
+    if sum(diag(this_corrmatrix)) < ...
+            sum(diag(fliplr(this_corrmatrix)))
+        this_comporder = [2 1];
+    end
+
+    this_matchedPats = this_targetPats(:,this_comporder);
+    this_matchedTs = this_targetTs(this_comporder,:);
+    this_corrsigned = diag(corr(this_matchedTs',this_sources'));
+    paramTimeCorrelation(phasei,:) = abs(this_corrsigned)';
+
+    % Resolve component signs and compute epoch selectivity
+    this_sign = sign(this_corrsigned);
+    this_sign(this_sign == 0) = 1;
+    this_FREQts = this_sign .* this_matchedTs;
+    this_FREQtsmax = max(abs(this_FREQts),[],2);
+    this_FREQtsmax(this_FREQtsmax == 0) = 1;
+    this_FREQts = this_FREQts ./ this_FREQtsmax;
+
+    this_activity = [sqrt(mean(this_FREQts(1,firsthalfidx).^2)) ...
+                     sqrt(mean(this_FREQts(1,secondhalfidx).^2));
+                     sqrt(mean(this_FREQts(2,firsthalfidx).^2)) ...
+                     sqrt(mean(this_FREQts(2,secondhalfidx).^2))];
+    paramSelectivity(phasei,:) = ...
+        [this_activity(1,1)/sum(this_activity(1,:)) ...
+         this_activity(2,2)/sum(this_activity(2,:))];
+
+    % Spatial-pattern and two-dimensional subspace recovery
+    paramPatternCorrelation(phasei,:) = ...
+        abs(diag(corr(this_matchedPats,fwd_weights)))';
+    this_subspacesingular = ...
+        svd(orth(fwd_weights)'*orth(this_targetPats));
+    this_subspacesingular = min(max(this_subspacesingular,-1),1);
+    paramSubspaceAngles(phasei,:) = acosd(this_subspacesingular)';
+
+    paramEvals(phasei,:) = ...
+        squeeze(this_FREQ.evals(1:2,targetfrexi,1))';
+
+end
+
+
+%% Visualize phase-dependent component separation
+
+phaseoffsetdegrees = rad2deg(phaseoffsets);
+
+figure(4), clf
+set(gcf,'Position',[100 100 1200 800])
+
+subplot(2,2,1)
+plot(phaseoffsetdegrees,paramTimeCorrelation(:,1),'-or', ...
+     'LineWidth',1.5,'MarkerFaceColor','r')
+hold on
+plot(phaseoffsetdegrees,paramTimeCorrelation(:,2),'-ob', ...
+     'LineWidth',1.5,'MarkerFaceColor','b')
+ylabel('Absolute time-series correlation')
+title('Temporal source recovery')
+ylim([0 1.05])
+legend('Source A','Source B','Location','best')
+grid on
+xticks(0:30:330)
+xlim([0 330])
+
+subplot(2,2,2)
+plot(phaseoffsetdegrees,paramSelectivity(:,1),'-or', ...
+     'LineWidth',1.5,'MarkerFaceColor','r')
+hold on
+plot(phaseoffsetdegrees,paramSelectivity(:,2),'-ob', ...
+     'LineWidth',1.5,'MarkerFaceColor','b')
+ylabel('Epoch selectivity')
+title('Temporal separation')
+ylim([0 1.05])
+grid on
+xticks(0:30:330)
+xlim([0 330])
+
+subplot(2,2,3)
+plot(phaseoffsetdegrees,paramPatternCorrelation(:,1),'-or', ...
+     'LineWidth',1.5,'MarkerFaceColor','r')
+hold on
+plot(phaseoffsetdegrees,paramPatternCorrelation(:,2),'-ob', ...
+     'LineWidth',1.5,'MarkerFaceColor','b')
+xlabel('Source B phase offset (degrees)')
+ylabel('Absolute pattern correlation')
+title('Spatial source recovery')
+ylim([0 1.05])
+grid on
+xticks(0:30:330)
+xlim([0 330])
+
+subplot(2,2,4)
+paramEvalDifference = paramEvals(:,1)-paramEvals(:,2);
+evalhandle = plot(phaseoffsetdegrees,paramEvalDifference,'-om', ...
+                  'LineWidth',1.5,'MarkerFaceColor','m');
+hold on
+subspaceangle = max(paramSubspaceAngles,[],2);
+subspacehandle = plot(phaseoffsetdegrees,subspaceangle,'-ok', ...
+                      'LineWidth',1.5,'MarkerFaceColor','k');
+ylabel('Metric value')
+ylim([0 1.1*max(paramEvalDifference)])
+xlabel('Source B phase offset (degrees)')
+title('Eigenvalue split and joint-subspace recovery')
+legend([evalhandle subspacehandle], ...
+       {'Eigenvalue difference (percentage points)', ...
+        'Maximum subspace angle (degrees)'}, ...
+       'Location','best')
+grid on
+xticks(0:30:330)
+xlim([0 330])
+
+sgtitle(['Parametric FREQ-NESS stationarity test at ' ...
+         num2str(FREQ.frex(targetfrexi)) ' Hz'])
+
+
+%% Report parametric phase-offset experiment
+
+[~,bestphasei] = max(mean(paramSelectivity,2));
+[~,worstphasei] = min(mean(paramSelectivity,2));
+
+fprintf('Parametric source-B phase-offset experiment\n');
+fprintf('Best mean selectivity: %.3f at %.1f degrees\n', ...
+        mean(paramSelectivity(bestphasei,:)), ...
+        phaseoffsetdegrees(bestphasei));
+fprintf('Lowest mean selectivity: %.3f at %.1f degrees\n\n', ...
+        mean(paramSelectivity(worstphasei,:)), ...
+        phaseoffsetdegrees(worstphasei));
