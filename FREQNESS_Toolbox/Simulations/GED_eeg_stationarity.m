@@ -70,8 +70,9 @@ sourceenv(2,tvec >= switchtime) = 1; % source B: second half
 sources = zeros(nsources,npnts);
 for sourcei = 1:nsources
 
-    sourcecarrier = sin(2*pi*tvec*targetfrex + sourcephase(sourcei));
-    sources(sourcei,:) = sourceamp(sourcei) * sourceenv(sourcei,:) .* sourcecarrier;
+    sourceoscillation = sin(2*pi*tvec*targetfrex + sourcephase(sourcei));
+    sources(sourcei,:) = sourceamp(sourcei) * sourceenv(sourcei,:) .* ...
+                         sourceoscillation;
 
 end
 
@@ -225,32 +226,25 @@ end
 matchedPats = targetPats(:,comporder);
 matchedTs = targetTs(comporder,:);
 
-% Correlation with ground truth: source time series and activation envelope
-FREQcorr_ts = diag(abs(corr(matchedTs',sources')));
+% Correlation with the raw ground-truth source time series
+FREQcorr_ts_signed = diag(corr(matchedTs',sources'));
+FREQcorr_ts = abs(FREQcorr_ts_signed);
 
-filtSources = filterFGx(sources,FREQ.srate,targetfrex,FREQ.fwhm(targetfrexi),0);
-filtFREQts = filterFGx(matchedTs,FREQ.srate,targetfrex,FREQ.fwhm(targetfrexi),0);
-[sourceActivation,FREQactivation] = deal(zeros(nsources,npnts));
-
-for sourcei = 1:nsources
-
-    sourceActivation(sourcei,:) = abs(hilbert(filtSources(sourcei,:)));
-    FREQactivation(sourcei,:) = abs(hilbert(filtFREQts(sourcei,:)));
-
-end
-
-FREQcorr_activation = diag(abs(corr(FREQactivation',sourceActivation')));
-
-% Normalize activation time series for visualization
-sourceActivation = sourceActivation ./ max(sourceActivation,[],2);
-FREQactivation = FREQactivation ./ max(FREQactivation,[],2);
+% Resolve arbitrary GED signs and normalize raw time series for visualization
+FREQsign = sign(FREQcorr_ts_signed);
+FREQsign(FREQsign == 0) = 1;
+sourceTS = sources ./ max(abs(sources),[],2);
+FREQts = FREQsign .* matchedTs;
+FREQts = FREQts ./ max(abs(FREQts),[],2);
 
 % Assess component activity away from filtering transients
 firsthalfidx = tvec >= transitionguard & tvec < switchtime-transitionguard;
 secondhalfidx = tvec >= switchtime+transitionguard & tvec < Tsim-transitionguard;
 
-FREQactivity = [ mean(FREQactivation(1,firsthalfidx)) mean(FREQactivation(1,secondhalfidx));
-                 mean(FREQactivation(2,firsthalfidx)) mean(FREQactivation(2,secondhalfidx)) ];
+FREQactivity = [ sqrt(mean(FREQts(1,firsthalfidx).^2)) ...
+                 sqrt(mean(FREQts(1,secondhalfidx).^2));
+                 sqrt(mean(FREQts(2,firsthalfidx).^2)) ...
+                 sqrt(mean(FREQts(2,secondhalfidx).^2)) ];
 
 FREQselectivity = [ FREQactivity(1,1)/sum(FREQactivity(1,:));
                     FREQactivity(2,2)/sum(FREQactivity(2,:)) ];
@@ -261,44 +255,53 @@ FREQselectivity = [ FREQactivity(1,1)/sum(FREQactivity(1,:));
 figure(3), clf
 
 % FREQ-NESS activation patterns
-subplot(3,2,1)
+subplot(4,2,1)
 topoplotIndie(matchedPats(:,1),EEG.chanlocs,'numcontour',0,'electrodes','off');
 title({'FREQ-NESS component matched to source A', ...
        ['Pattern r = ' num2str(abs(corr(matchedPats(:,1),fwd_weights(:,1))),2)]})
-subplot(3,2,2)
+subplot(4,2,2)
 topoplotIndie(matchedPats(:,2),EEG.chanlocs,'numcontour',0,'electrodes','off');
 title({'FREQ-NESS component matched to source B', ...
        ['Pattern r = ' num2str(abs(corr(matchedPats(:,2),fwd_weights(:,2))),2)]})
 colormap jet
 
-% Ground-truth source activation time series
-subplot(3,2,[3 4])
-plot(tvec,sourceActivation(1,:),'r','LineWidth',1.7)
+% Ground-truth source activation gates
+subplot(4,2,[3 4])
+stairs(tvec,sourceenv(1,:),'r','LineWidth',1.5)
 hold on
-plot(tvec,sourceActivation(2,:),'b','LineWidth',1.7)
+stairs(tvec,sourceenv(2,:),'b','LineWidth',1.5)
 xline(switchtime,'k--','Switch')
 ylim([0 1.1])
-xlabel('Time (s)')
-ylabel('Normalized amplitude')
-legend('Source A','Source B')
-title('Ground-truth source activation time series')
+ylabel('Gate')
+title({'Ground-truth source activation gates', ...
+       'Source A: red; source B: blue'})
 
-% Estimated FREQ-NESS component activation time series
-subplot(3,2,[5 6])
-plot(tvec,FREQactivation(1,:),'r','LineWidth',1.7)
+% Source A injected oscillation and raw FREQ-NESS component time series
+subplot(4,2,[5 6])
+plot(tvec,sourceTS(1,:),'k--','LineWidth',1.2)
 hold on
-plot(tvec,FREQactivation(2,:),'b','LineWidth',1.7)
+plot(tvec,FREQts(1,:),'r','LineWidth',1)
 xline(switchtime,'k--','Switch')
-ylim([0 1.1])
+ylim([-1.1 1.1])
+ylabel('Normalized amplitude')
+title({'Source A injected oscillation (black) and raw FREQ.ts (red)', ...
+       ['Component #' num2str(comporder(1)) ': r = ' ...
+        num2str(FREQcorr_ts(1),2) ', selectivity = ' ...
+        num2str(FREQselectivity(1),2)]})
+
+% Source B injected oscillation and raw FREQ-NESS component time series
+subplot(4,2,[7 8])
+plot(tvec,sourceTS(2,:),'k--','LineWidth',1.2)
+hold on
+plot(tvec,FREQts(2,:),'b','LineWidth',1)
+xline(switchtime,'k--','Switch')
+ylim([-1.1 1.1])
 xlabel('Time (s)')
 ylabel('Normalized amplitude')
-legend(['Component #' num2str(comporder(1)) ': r = ' ...
-        num2str(FREQcorr_activation(1),2) ', selectivity = ' ...
-        num2str(FREQselectivity(1),2)], ...
+title({'Source B injected oscillation (black) and raw FREQ.ts (blue)', ...
        ['Component #' num2str(comporder(2)) ': r = ' ...
-        num2str(FREQcorr_activation(2),2) ', selectivity = ' ...
-        num2str(FREQselectivity(2),2)])
-title('Estimated FREQ-NESS component activation time series')
+        num2str(FREQcorr_ts(2),2) ', selectivity = ' ...
+        num2str(FREQselectivity(2),2)]})
 
 sgtitle(['FREQ-NESS stationarity test at ' num2str(FREQ.frex(targetfrexi)) ' Hz'])
 
