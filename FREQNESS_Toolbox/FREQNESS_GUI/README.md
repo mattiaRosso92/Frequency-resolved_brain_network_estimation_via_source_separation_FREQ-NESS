@@ -31,7 +31,9 @@ the current GUI session.
 2. **Core network estimation**
    - Mandatory inputs: frequency range, frequency step, and sampling rate.
    - The two-ended slider snaps to the selected step. Exact endpoint fields and
-     an aligned FWHM plot show the vector that will be sent to the backend.
+     an aligned frequency-domain filter-bank plot show the Gaussian filters
+     that will be sent to the backend. Curves progress from light to dark as
+     centre frequency increases.
    - Optional inputs mirror `FREQNESS_NetworkEstimation`.
    - Participants are processed independently and persisted immediately.
 

@@ -150,6 +150,28 @@ verifyEqual(testCase,freqnessgui.computeFWHM( ...
     frequencies,1:numel(frequencies),'linear'),1:numel(frequencies));
 end
 
+function testFilterResponsesMatchFilterFGxGaussian(testCase)
+frequencies = [5 10];
+fwhm = [1 2];
+[frequencyAxis,responses] = freqnessgui.computeFilterResponses( ...
+    frequencies,fwhm,[0 20],4001);
+
+verifySize(testCase,responses,[2 numel(frequencyAxis)]);
+verifyEqual(testCase,max(responses,[],2),ones(2,1),'AbsTol',1e-12);
+for frequencyi = 1:numel(frequencies)
+    [~,peakIndex] = max(responses(frequencyi,:));
+    verifyEqual(testCase,frequencyAxis(peakIndex),frequencies(frequencyi), ...
+        'AbsTol',0.005);
+end
+
+[~,peakIndex] = max(responses(2,:));
+[~,lowerRelative] = min(abs(responses(2,1:peakIndex)-0.5));
+[~,upperRelative] = min(abs(responses(2,peakIndex:end)-0.5));
+upperIndex = peakIndex-1+upperRelative;
+empiricalFWHM = frequencyAxis(upperIndex)-frequencyAxis(lowerRelative);
+verifyEqual(testCase,empiricalFWHM,fwhm(2),'AbsTol',0.03);
+end
+
 function testMNICoordinatesLoadAndTranspose(testCase)
 temporaryRoot = tempname;
 mkdir(temporaryRoot);
