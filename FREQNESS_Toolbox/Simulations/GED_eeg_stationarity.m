@@ -42,7 +42,7 @@ transitionplotwindow = .25; % seconds displayed around the phase transition
 
 % Source parameters
 nsources = 2;
-naway = 0; % neighbor-rank spacing from source A; 0 uses the same dipole
+naway = 1; % neighbor-rank spacing from source A; 0 uses the same dipole
 sourceamp = 10*ones(nsources,1);
 phasedifference = pi/2; % source B phase offset relative to source A
 sourcephase = [0; phasedifference];
