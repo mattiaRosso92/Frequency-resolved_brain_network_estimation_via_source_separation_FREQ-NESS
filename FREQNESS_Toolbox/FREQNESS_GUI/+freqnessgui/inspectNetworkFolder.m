@@ -56,5 +56,75 @@ networkSet.nParticipants = numel(resultFiles);
 manifestFile = fullfile(networkFolder,'FREQNESS_Manifest.mat');
 networkSet.manifestFile = manifestFile;
 networkSet.hasManifest = isfile(manifestFile);
+networkSet.frequencies = [];
+networkSet.nComponents = [];
+networkSet.samplingRate = [];
+networkSet.nVoxels = [];
+networkSet.datasetFolder = '';
+networkSet.mniFile = '';
+
+if networkSet.hasManifest
+    loadedManifest = load(manifestFile,'manifest');
+    if isfield(loadedManifest,'manifest') && isstruct(loadedManifest.manifest)
+        manifest = loadedManifest.manifest;
+        if isfield(manifest,'datasetFolder')
+            networkSet.datasetFolder = char(manifest.datasetFolder);
+        end
+        if isfield(manifest,'config') && isstruct(manifest.config)
+            config = manifest.config;
+            if isfield(config,'mniFile')
+                networkSet.mniFile = char(config.mniFile);
+            end
+            if isfield(config,'network') && isstruct(config.network)
+                network = config.network;
+                if isfield(network,'frequencies')
+                    networkSet.frequencies = network.frequencies(:)';
+                end
+                if isfield(network,'ncomps')
+                    networkSet.nComponents = network.ncomps;
+                end
+                if isfield(network,'samplingRate')
+                    networkSet.samplingRate = network.samplingRate;
+                end
+            end
+        end
+    end
+end
+
+firstResultFile = fullfile(resultFiles(1).folder,resultFiles(1).name);
+firstResultVariables = whos('-file',firstResultFile);
+if any(strcmp({firstResultVariables.name},'participant'))
+    participantMetadata = load(firstResultFile,'participant');
+    if isstruct(participantMetadata.participant) && ...
+            isfield(participantMetadata.participant,'sourceSize') && ...
+            ~isempty(participantMetadata.participant.sourceSize)
+        networkSet.nVoxels = participantMetadata.participant.sourceSize(1);
+    end
+end
+
+firstResult = load(firstResultFile,'FREQ');
+FREQ = firstResult.FREQ;
+if ~isstruct(FREQ) || ~isfield(FREQ,'frex') || isempty(FREQ.frex)
+    error('FREQNESS:GUI:InvalidNetworkResult', ...
+        'Participant FREQ results must contain a nonempty FREQ.frex vector.');
+end
+networkSet.frequencies = FREQ.frex(:)';
+if isempty(networkSet.nComponents)
+    if isfield(FREQ,'evecs') && ~isempty(FREQ.evecs)
+        networkSet.nComponents = size(FREQ.evecs,2);
+    elseif isfield(FREQ,'ts') && ~isempty(FREQ.ts)
+        networkSet.nComponents = size(FREQ.ts,1);
+    end
+end
+if isempty(networkSet.samplingRate) && isfield(FREQ,'srate')
+    networkSet.samplingRate = FREQ.srate;
+end
+if isempty(networkSet.nVoxels) && isfield(FREQ,'evecs') && ...
+        ~isempty(FREQ.evecs)
+    networkSet.nVoxels = size(FREQ.evecs,1);
+end
+
+networkSet.sourceDataAvailable = ~isempty(networkSet.datasetFolder) && ...
+    isfolder(networkSet.datasetFolder);
 
 end

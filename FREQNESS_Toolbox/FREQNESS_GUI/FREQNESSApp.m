@@ -10,6 +10,9 @@ classdef FREQNESSApp < handle
         NetworkSet
         Config
         IsRunning = false
+        PageGroup
+        NetworkTab
+        SecondaryTab
         MainGrid
 
         DatasetDropLabel
@@ -42,6 +45,7 @@ classdef FREQNESSApp < handle
         RecomputeCheckBox
         NetworkOutputField
         RunButton
+        SecondaryPageButton
         RunStatusLabel
         ProgressTextArea
 
@@ -50,7 +54,26 @@ classdef FREQNESSApp < handle
         NetworkBrowseButton
         AnalysisOutputField
         SecondarySummaryLabel
-        ModuleTable
+        SecondaryParticipantButton
+        SecondarySelectedParticipants = {}
+        SecondaryFrequencyLabel
+        SecondaryComponentsLabel
+        SecondaryMNILabel
+        SecondarySourceLabel
+        SecondaryTree
+        SecondaryConfigPanel
+        SecondaryConfigGrid
+        SecondaryOptionalPanel
+        SecondaryAdvancedButton
+        SecondaryFields = struct()
+        SecondarySchema
+        SecondarySelectedModuleId = ''
+        SecondaryReadinessTextArea
+        SecondaryModuleOutputField
+        SecondaryValidationLabel
+        SecondaryValidateButton
+        SecondaryRunButton
+        SecondaryProgressTextArea
 
         FooterStatusLabel
     end
@@ -70,7 +93,16 @@ classdef FREQNESSApp < handle
             end
 
             if nargin >= 1 && ~isempty(varargin{1})
-                app.importDataset(varargin{1});
+                inputPath = char(varargin{1});
+                [~,inputName] = fileparts(inputPath);
+                networkPrefix = 'FREQ_Networks';
+                if isfolder(inputPath) && numel(inputName) >= numel(networkPrefix) && ...
+                        strcmpi(inputName(1:numel(networkPrefix)),networkPrefix)
+                    app.importNetworkFolder(inputPath);
+                    app.PageGroup.SelectedTab = app.SecondaryTab;
+                else
+                    app.importDataset(inputPath);
+                end
             end
         end
 
@@ -99,8 +131,17 @@ classdef FREQNESSApp < handle
                 'Position',[60 20 1360 980], ...
                 'CloseRequestFcn',@(~,~)delete(app));
 
-            app.MainGrid = uigridlayout(app.UIFigure,[5 1]);
-            app.MainGrid.RowHeight = {72,250,455,190,26};
+            rootGrid = uigridlayout(app.UIFigure,[1 1]);
+            rootGrid.Padding = [0 0 0 0];
+            app.PageGroup = uitabgroup(rootGrid, ...
+                'SelectionChangedFcn',@(~,~)app.updateSecondaryReadiness());
+            app.NetworkTab = uitab(app.PageGroup, ...
+                'Title','1  Network estimation');
+            app.SecondaryTab = uitab(app.PageGroup, ...
+                'Title','2  Secondary analyses');
+
+            app.MainGrid = uigridlayout(app.NetworkTab,[4 1]);
+            app.MainGrid.RowHeight = {72,250,455,26};
             app.MainGrid.Padding = [18 14 18 10];
             app.MainGrid.RowSpacing = 10;
             app.MainGrid.Scrollable = 'on';
@@ -127,13 +168,14 @@ classdef FREQNESSApp < handle
 
             app.createDataLayer(mainGrid,colors);
             app.createCoreLayer(mainGrid,colors);
-            app.createSecondaryLayer(mainGrid,colors);
 
             app.FooterStatusLabel = uilabel(mainGrid, ...
                 'Text','Ready', ...
                 'FontSize',11, ...
                 'FontColor',colors.muted);
-            app.FooterStatusLabel.Layout.Row = 5;
+            app.FooterStatusLabel.Layout.Row = 4;
+
+            app.createSecondaryPage(app.SecondaryTab,colors);
         end
 
         function createDataLayer(app,parent,colors)
@@ -418,8 +460,8 @@ classdef FREQNESSApp < handle
                 'FontWeight','bold', ...
                 'BackgroundColor',[1 1 1]);
             outputPanel.Layout.Column = 3;
-            outputGrid = uigridlayout(outputPanel,[7 1]);
-            outputGrid.RowHeight = {20,34,48,28,48,44,'1x'};
+            outputGrid = uigridlayout(outputPanel,[8 1]);
+            outputGrid.RowHeight = {20,34,48,28,48,44,32,'1x'};
             outputGrid.Padding = [10 8 10 8];
             outputGrid.RowSpacing = 5;
 
@@ -459,34 +501,63 @@ classdef FREQNESSApp < handle
                 'ButtonPushedFcn',@(~,~)app.runCoreAnalysis());
             app.RunButton.Layout.Row = 6;
 
+            app.SecondaryPageButton = uibutton(outputGrid,'push', ...
+                'Text','Continue to Secondary Analyses  →', ...
+                'FontWeight','bold', ...
+                'FontColor',colors.blue, ...
+                'ButtonPushedFcn',@(~,~)app.openSecondaryPage());
+            app.SecondaryPageButton.Layout.Row = 7;
+
             app.ProgressTextArea = uitextarea(outputGrid, ...
                 'Editable','off', ...
                 'Value',{'Progress messages will appear here.'}, ...
                 'FontName','Courier New', ...
                 'FontSize',10);
-            app.ProgressTextArea.Layout.Row = 7;
+            app.ProgressTextArea.Layout.Row = 8;
 
             app.applyFrequencyRange([app.Config.network.frequencies(1), ...
                 app.Config.network.frequencies(end)]);
         end
 
-        function createSecondaryLayer(app,parent,colors)
-            panel = uipanel(parent, ...
-                'Title','3  Secondary analyses', ...
-                'FontSize',14, ...
+        function createSecondaryPage(app,parent,colors)
+            pageGrid = uigridlayout(parent,[4 1]);
+            pageGrid.RowHeight = {72,142,'1x',26};
+            pageGrid.Padding = [18 14 18 10];
+            pageGrid.RowSpacing = 10;
+            pageGrid.BackgroundColor = colors.background;
+
+            headerGrid = uigridlayout(pageGrid,[2 1]);
+            headerGrid.Layout.Row = 1;
+            headerGrid.RowHeight = {38,24};
+            headerGrid.Padding = [12 3 12 2];
+            headerGrid.RowSpacing = 0;
+            headerGrid.BackgroundColor = colors.navy;
+            titleLabel = uilabel(headerGrid, ...
+                'Text','FREQ-NESS Secondary Analyses', ...
+                'FontSize',25, ...
+                'FontWeight','bold', ...
+                'FontColor',[1 1 1]);
+            titleLabel.Layout.Row = 1;
+            subtitleLabel = uilabel(headerGrid, ...
+                'Text','Select one analysis, configure only its relevant inputs, and review readiness.', ...
+                'FontSize',12, ...
+                'FontColor',[0.80 0.87 0.94]);
+            subtitleLabel.Layout.Row = 2;
+
+            contextPanel = uipanel(pageGrid, ...
+                'Title','Analysis context', ...
                 'FontWeight','bold', ...
                 'ForegroundColor',colors.navy, ...
                 'BackgroundColor',[1 1 1]);
-            panel.Layout.Row = 4;
+            contextPanel.Layout.Row = 2;
+            contextGrid = uigridlayout(contextPanel,[2 7]);
+            contextGrid.RowHeight = {36,'1x'};
+            contextGrid.ColumnWidth = {210,'1x',95,160,160,160,185};
+            contextGrid.Padding = [10 7 10 8];
+            contextGrid.RowSpacing = 7;
+            contextGrid.ColumnSpacing = 8;
 
-            grid = uigridlayout(panel,[2 5]);
-            grid.RowHeight = {56,'1x'};
-            grid.ColumnWidth = {220,'1x',110,'1x',250};
-            grid.Padding = [12 8 12 10];
-            grid.RowSpacing = 8;
-            grid.ColumnSpacing = 10;
-
-            app.NetworkDropLabel = uilabel(grid, ...
+            app.NetworkDropLabel = uilabel(contextGrid, ...
                 'Text',sprintf('Drop a FREQ_Networks* folder here\nor use Browse'), ...
                 'HorizontalAlignment','center', ...
                 'VerticalAlignment','center', ...
@@ -496,55 +567,897 @@ classdef FREQNESSApp < handle
             app.NetworkDropLabel.Layout.Row = [1 2];
             app.NetworkDropLabel.Layout.Column = 1;
 
-            app.NetworkPathField = uieditfield(grid,'text', ...
+            app.NetworkPathField = uieditfield(contextGrid,'text', ...
                 'Editable','off', ...
                 'Placeholder','No FREQ_Networks* folder selected');
             app.NetworkPathField.Layout.Row = 1;
             app.NetworkPathField.Layout.Column = 2;
-
-            app.NetworkBrowseButton = uibutton(grid,'push', ...
+            app.NetworkBrowseButton = uibutton(contextGrid,'push', ...
                 'Text','Browse...', ...
                 'ButtonPushedFcn',@(~,~)app.browseNetworkFolder());
             app.NetworkBrowseButton.Layout.Row = 1;
             app.NetworkBrowseButton.Layout.Column = 3;
 
-            app.AnalysisOutputField = uieditfield(grid,'text', ...
+            app.AnalysisOutputField = uieditfield(contextGrid,'text', ...
                 'Editable','off', ...
-                'Placeholder','FREQ_Analyses* is derived from FREQ_Networks*');
+                'Placeholder','Derived FREQ_Analyses* output folder');
             app.AnalysisOutputField.Layout.Row = 1;
-            app.AnalysisOutputField.Layout.Column = 4;
+            app.AnalysisOutputField.Layout.Column = [4 7];
 
-            app.SecondarySummaryLabel = uilabel(grid, ...
-                'Text','One output subfolder per function', ...
+            app.SecondarySummaryLabel = app.addContextBadge( ...
+                contextGrid,2,2,'Participants','Waiting for FREQ results',colors);
+            app.SecondaryParticipantButton = uibutton(contextGrid,'push', ...
+                'Text','Select...', ...
+                'Enable','off', ...
+                'ButtonPushedFcn',@(~,~)app.selectSecondaryParticipants());
+            app.SecondaryParticipantButton.Layout.Row = 2;
+            app.SecondaryParticipantButton.Layout.Column = 3;
+            app.SecondaryFrequencyLabel = app.addContextBadge( ...
+                contextGrid,2,4,'Frequencies','—',colors);
+            app.SecondaryComponentsLabel = app.addContextBadge( ...
+                contextGrid,2,5,'Components','—',colors);
+            app.SecondaryMNILabel = app.addContextBadge( ...
+                contextGrid,2,6,'MNI coordinates','—',colors);
+            app.SecondarySourceLabel = app.addContextBadge( ...
+                contextGrid,2,7,'Source data','—',colors);
+
+            workspaceGrid = uigridlayout(pageGrid,[1 3]);
+            workspaceGrid.Layout.Row = 3;
+            workspaceGrid.ColumnWidth = {260,570,'1x'};
+            workspaceGrid.Padding = [0 0 0 0];
+            workspaceGrid.ColumnSpacing = 12;
+
+            browserPanel = uipanel(workspaceGrid, ...
+                'Title','Analysis browser', ...
+                'FontWeight','bold', ...
+                'BackgroundColor',[1 1 1]);
+            browserPanel.Layout.Column = 1;
+            browserGrid = uigridlayout(browserPanel,[2 1]);
+            browserGrid.RowHeight = {42,'1x'};
+            browserGrid.Padding = [8 7 8 8];
+            browserGrid.RowSpacing = 6;
+            note = uilabel(browserGrid, ...
+                'Text','Choose one module. Only its settings appear.', ...
                 'FontColor',colors.muted, ...
-                'HorizontalAlignment','right');
-            app.SecondarySummaryLabel.Layout.Row = 1;
-            app.SecondarySummaryLabel.Layout.Column = 5;
+                'WordWrap','on', ...
+                'VerticalAlignment','top');
+            note.Layout.Row = 1;
+            app.SecondaryTree = uitree(browserGrid, ...
+                'SelectionChangedFcn',@(~,event)app.secondaryTreeSelection(event));
+            app.SecondaryTree.Layout.Row = 2;
+            app.populateSecondaryTree();
 
+            app.SecondaryConfigPanel = uipanel(workspaceGrid, ...
+                'Title','Analysis configuration', ...
+                'FontWeight','bold', ...
+                'BackgroundColor',[1 1 1]);
+            app.SecondaryConfigPanel.Layout.Column = 2;
+
+            readinessPanel = uipanel(workspaceGrid, ...
+                'Title','Readiness and execution', ...
+                'FontWeight','bold', ...
+                'BackgroundColor',[1 1 1]);
+            readinessPanel.Layout.Column = 3;
+            readinessGrid = uigridlayout(readinessPanel,[8 1]);
+            readinessGrid.RowHeight = {20,112,20,34,44,40,34,'1x'};
+            readinessGrid.Padding = [10 8 10 8];
+            readinessGrid.RowSpacing = 6;
+
+            label = uilabel(readinessGrid,'Text','Input readiness', ...
+                'FontWeight','bold');
+            label.Layout.Row = 1;
+            app.SecondaryReadinessTextArea = uitextarea(readinessGrid, ...
+                'Editable','off', ...
+                'Value',{'Import a FREQ_Networks* folder to begin.'});
+            app.SecondaryReadinessTextArea.Layout.Row = 2;
+            label = uilabel(readinessGrid,'Text','Function output folder', ...
+                'FontWeight','bold');
+            label.Layout.Row = 3;
+            app.SecondaryModuleOutputField = uieditfield(readinessGrid,'text', ...
+                'Editable','off', ...
+                'Placeholder','One subfolder per analysis function');
+            app.SecondaryModuleOutputField.Layout.Row = 4;
+            app.SecondaryValidationLabel = uilabel(readinessGrid, ...
+                'Text','Select a module and import network results.', ...
+                'FontColor',colors.muted, ...
+                'WordWrap','on');
+            app.SecondaryValidationLabel.Layout.Row = 5;
+            app.SecondaryValidateButton = uibutton(readinessGrid,'push', ...
+                'Text','Validate Configuration', ...
+                'Enable','off', ...
+                'FontWeight','bold', ...
+                'ButtonPushedFcn',@(~,~)app.validateSecondaryConfiguration());
+            app.SecondaryValidateButton.Layout.Row = 6;
+            app.SecondaryRunButton = uibutton(readinessGrid,'push', ...
+                'Text','Run Analysis — next milestone', ...
+                'Enable','off', ...
+                'Tooltip','Function executors are the next Development Plan item.');
+            app.SecondaryRunButton.Layout.Row = 7;
+            app.SecondaryProgressTextArea = uitextarea(readinessGrid, ...
+                'Editable','off', ...
+                'Value',{'Configuration interface ready.', ...
+                    'Execution adapters are intentionally not active yet.'}, ...
+                'FontName','Courier New', ...
+                'FontSize',10);
+            app.SecondaryProgressTextArea.Layout.Row = 8;
+
+            footer = uilabel(pageGrid, ...
+                'Text','Secondary analyses use one derived output subfolder per backend function.', ...
+                'FontSize',11, ...
+                'FontColor',colors.muted);
+            footer.Layout.Row = 4;
+
+            app.selectSecondaryModule('entropy');
+        end
+
+        function badge = addContextBadge(~,parent,row,column,titleText,valueText,colors)
+            badge = uilabel(parent, ...
+                'Text',sprintf('%s\n%s',titleText,valueText), ...
+                'FontSize',11, ...
+                'FontColor',colors.muted, ...
+                'BackgroundColor',colors.softBlue, ...
+                'HorizontalAlignment','center', ...
+                'VerticalAlignment','center');
+            badge.Layout.Row = row;
+            badge.Layout.Column = column;
+        end
+
+        function populateSecondaryTree(app)
             modules = freqnessgui.moduleRegistry();
-            moduleData = cell(numel(modules),4);
-            for modulei = 1:numel(modules)
-                if modules(modulei).requiresMNI && ...
-                        modules(modulei).requiresSourceData
-                    requirements = 'FREQ + MNI + source data';
-                elseif modules(modulei).requiresMNI
-                    requirements = 'FREQ + MNI';
-                elseif modules(modulei).requiresSourceData
-                    requirements = 'FREQ + source data';
-                else
-                    requirements = 'FREQ';
+            categories = unique({modules.category},'stable');
+            firstLeaf = [];
+            for categoryi = 1:numel(categories)
+                categoryNode = uitreenode(app.SecondaryTree, ...
+                    'Text',categories{categoryi}, ...
+                    'NodeData','');
+                categoryModules = modules(strcmp({modules.category}, ...
+                    categories{categoryi}));
+                for modulei = 1:numel(categoryModules)
+                    leaf = uitreenode(categoryNode, ...
+                        'Text',categoryModules(modulei).name, ...
+                        'NodeData',categoryModules(modulei).id);
+                    if isempty(firstLeaf)
+                        firstLeaf = leaf;
+                    end
                 end
-                moduleData(modulei,:) = {modules(modulei).name, ...
-                    modules(modulei).functionName,modules(modulei).folderName,requirements};
+            end
+            try
+                expand(app.SecondaryTree,'all');
+            catch
+                % Tree categories can still be expanded manually.
+            end
+            if ~isempty(firstLeaf)
+                app.SecondaryTree.SelectedNodes = firstLeaf;
+            end
+        end
+
+        function secondaryTreeSelection(app,event)
+            if isempty(event.SelectedNodes)
+                return
+            end
+            moduleId = event.SelectedNodes(1).NodeData;
+            if ischar(moduleId) && ~isempty(moduleId)
+                app.selectSecondaryModule(moduleId);
+            elseif isstring(moduleId) && isscalar(moduleId) && strlength(moduleId) > 0
+                app.selectSecondaryModule(char(moduleId));
+            end
+        end
+
+        function module = secondaryModule(~,moduleId)
+            modules = freqnessgui.moduleRegistry();
+            moduleIndex = find(strcmp({modules.id},moduleId),1);
+            if isempty(moduleIndex)
+                error('FREQNESS:GUI:UnknownSecondaryModule', ...
+                    'Unknown secondary-analysis module: %s.',moduleId);
+            end
+            module = modules(moduleIndex);
+        end
+
+        function context = secondaryContext(app)
+            context = struct();
+            if isempty(app.NetworkSet)
+                context.frequencies = app.Config.network.frequencies;
+                context.nComponents = app.Config.network.ncomps;
+                context.samplingRate = app.Config.network.samplingRate;
+            else
+                context.frequencies = app.NetworkSet.frequencies;
+                context.nComponents = app.NetworkSet.nComponents;
+                context.samplingRate = app.NetworkSet.samplingRate;
+                if isempty(context.frequencies)
+                    context.frequencies = app.Config.network.frequencies;
+                end
+                if isempty(context.nComponents)
+                    context.nComponents = app.Config.network.ncomps;
+                end
+            end
+        end
+
+        function selectSecondaryModule(app,moduleId)
+            module = app.secondaryModule(moduleId);
+            app.SecondarySelectedModuleId = module.id;
+            app.SecondarySchema = freqnessgui.secondaryModuleSchema( ...
+                module.id,app.secondaryContext());
+            app.buildSecondaryConfiguration(module);
+
+            if ~isempty(app.NetworkSet)
+                moduleFolder = fullfile(app.NetworkSet.analysisFolder, ...
+                    module.folderName);
+                app.SecondaryModuleOutputField.Value = moduleFolder;
+                app.SecondaryModuleOutputField.Tooltip = moduleFolder;
+            else
+                app.SecondaryModuleOutputField.Value = '';
+                app.SecondaryModuleOutputField.Placeholder = ...
+                    ['FREQ_Analyses*/' module.folderName];
+            end
+            app.updateSecondaryReadiness();
+        end
+
+        function buildSecondaryConfiguration(app,module)
+            delete(app.SecondaryConfigPanel.Children);
+            app.SecondaryFields = struct();
+            app.SecondaryConfigPanel.Title = ['Configuration — ' module.name];
+
+            app.SecondaryConfigGrid = uigridlayout( ...
+                app.SecondaryConfigPanel,[6 1]);
+            app.SecondaryConfigGrid.RowHeight = {62,24, ...
+                app.secondaryPanelHeight(app.SecondarySchema.mandatory), ...
+                34,0,'1x'};
+            app.SecondaryConfigGrid.Padding = [10 8 10 8];
+            app.SecondaryConfigGrid.RowSpacing = 7;
+            app.SecondaryConfigGrid.Scrollable = 'on';
+
+            description = uilabel(app.SecondaryConfigGrid, ...
+                'Text',module.description, ...
+                'FontSize',13, ...
+                'FontColor',[0.20 0.24 0.29], ...
+                'WordWrap','on', ...
+                'VerticalAlignment','top');
+            description.Layout.Row = 1;
+
+            requirements = {'FREQ results'};
+            if module.requiresMNI
+                requirements{end+1} = 'MNI coordinates';
+            end
+            if module.requiresSourceData
+                requirements{end+1} = 'original source data';
+            end
+            if module.requiresEvents
+                requirements{end+1} = 'events file';
+            end
+            requirementLabel = uilabel(app.SecondaryConfigGrid, ...
+                'Text',['Requires: ' strjoin(requirements,'  •  ')], ...
+                'FontWeight','bold', ...
+                'FontColor',[0.055 0.415 0.690]);
+            requirementLabel.Layout.Row = 2;
+
+            app.createSecondaryFieldPanel(app.SecondaryConfigGrid,3, ...
+                'Mandatory inputs',app.SecondarySchema.mandatory,true);
+
+            app.SecondaryAdvancedButton = uibutton( ...
+                app.SecondaryConfigGrid,'state', ...
+                'Text','Show optional settings  ▾', ...
+                'Value',false, ...
+                'ValueChangedFcn',@(~,~)app.toggleSecondaryOptions());
+            app.SecondaryAdvancedButton.Layout.Row = 4;
+
+            app.SecondaryOptionalPanel = app.createSecondaryFieldPanel( ...
+                app.SecondaryConfigGrid,5,'Optional settings', ...
+                app.SecondarySchema.optional,false);
+            app.SecondaryOptionalPanel.Visible = 'off';
+            if isempty(app.SecondarySchema.optional)
+                app.SecondaryAdvancedButton.Text = 'No optional settings';
+                app.SecondaryAdvancedButton.Enable = 'off';
             end
 
-            app.ModuleTable = uitable(grid, ...
-                'Data',moduleData, ...
-                'ColumnName',{'Analysis','Backend function','Output subfolder','Requires'}, ...
-                'ColumnWidth',{190,200,150,'auto'}, ...
-                'RowName',{});
-            app.ModuleTable.Layout.Row = 2;
-            app.ModuleTable.Layout.Column = [2 5];
+            hint = uilabel(app.SecondaryConfigGrid, ...
+                'Text',['Values are constrained by the imported frequencies ' ...
+                    'and retained components.'], ...
+                'FontColor',[0.36 0.41 0.47], ...
+                'VerticalAlignment','top');
+            hint.Layout.Row = 6;
+        end
+
+        function height = secondaryPanelHeight(app,fields)
+            if isempty(fields)
+                height = 68;
+                return
+            end
+            fieldHeights = arrayfun(@(field) ...
+                app.secondaryFieldHeight(field),fields);
+            height = max(68,34+sum(fieldHeights)+6*(numel(fields)-1));
+        end
+
+        function height = secondaryFieldHeight(~,field)
+            if ismember(field.type,{'frequency','frequencyRange'})
+                height = 72;
+            else
+                height = 31;
+            end
+        end
+
+        function panel = createSecondaryFieldPanel(app,parent,row,titleText,fields,isRequired)
+            panel = uipanel(parent, ...
+                'Title',titleText, ...
+                'FontWeight','bold', ...
+                'BackgroundColor',[1 1 1]);
+            panel.Layout.Row = row;
+
+            if isempty(fields)
+                panelGrid = uigridlayout(panel,[1 1]);
+                panelGrid.Padding = [10 7 10 7];
+                label = uilabel(panelGrid, ...
+                    'Text','No additional inputs are required.', ...
+                    'FontColor',[0.36 0.41 0.47]);
+                label.Layout.Row = 1;
+                return
+            end
+
+            panelGrid = uigridlayout(panel,[numel(fields) 2]);
+            panelGrid.ColumnWidth = {190,'1x'};
+            panelGrid.RowHeight = arrayfun(@(field) ...
+                app.secondaryFieldHeight(field),fields, ...
+                'UniformOutput',false);
+            panelGrid.Padding = [10 7 10 7];
+            panelGrid.RowSpacing = 6;
+            panelGrid.ColumnSpacing = 8;
+            for fieldi = 1:numel(fields)
+                app.addSecondaryControl(panelGrid,fieldi,fields(fieldi),isRequired);
+            end
+        end
+
+        function addSecondaryControl(app,parent,row,field,isRequired)
+            label = uilabel(parent,'Text',field.label, ...
+                'Tooltip',field.help);
+            label.Layout.Row = row;
+            label.Layout.Column = 1;
+
+            control = struct('type',field.type,'handles',{{}}, ...
+                'required',isRequired,'label',field.label, ...
+                'frequencyValues',[]);
+            switch field.type
+                case {'frequency','frequencyRange'}
+                    context = app.secondaryContext();
+                    frequencies = context.frequencies(:)';
+                    [defaultIndices,~] = freqnessgui.mapFrequencySelection( ...
+                        frequencies,field.default);
+                    [majorTicks,majorLabels] = ...
+                        app.secondaryFrequencyTicks(frequencies);
+                    sliderGrid = uigridlayout(parent,[2 1]);
+                    sliderGrid.Layout.Row = row;
+                    sliderGrid.Layout.Column = 2;
+                    sliderGrid.RowHeight = {45,20};
+                    sliderGrid.Padding = [0 0 0 0];
+                    sliderGrid.RowSpacing = 0;
+                    exactLabel = uilabel(sliderGrid, ...
+                        'FontColor',[0.055 0.415 0.690], ...
+                        'HorizontalAlignment','center');
+                    exactLabel.Layout.Row = 2;
+                    isRange = strcmp(field.type,'frequencyRange');
+                    if isscalar(frequencies)
+                        sliderLimits = [1 2];
+                        sliderEnabled = 'off';
+                    else
+                        sliderLimits = [1 numel(frequencies)];
+                        sliderEnabled = 'on';
+                    end
+                    if isRange
+                        frequencySlider = uislider(sliderGrid,'range', ...
+                            'Limits',sliderLimits, ...
+                            'Value',defaultIndices, ...
+                            'Step',1, ...
+                            'MajorTicks',majorTicks, ...
+                            'MajorTickLabels',majorLabels, ...
+                            'MinorTicks',[], ...
+                            'Enable',sliderEnabled, ...
+                            'Tooltip',field.help, ...
+                            'ValueChangingFcn',@(~,event) ...
+                                app.previewSecondaryFrequencySlider( ...
+                                event.Value,exactLabel,frequencies,true), ...
+                            'ValueChangedFcn',@(source,event) ...
+                                app.commitSecondaryFrequencySlider( ...
+                                source,event.Value,exactLabel,frequencies,true));
+                    else
+                        frequencySlider = uislider(sliderGrid, ...
+                            'Limits',sliderLimits, ...
+                            'Value',defaultIndices, ...
+                            'MajorTicks',majorTicks, ...
+                            'MajorTickLabels',majorLabels, ...
+                            'MinorTicks',[], ...
+                            'Enable',sliderEnabled, ...
+                            'Tooltip',field.help, ...
+                            'ValueChangingFcn',@(~,event) ...
+                                app.previewSecondaryFrequencySlider( ...
+                                event.Value,exactLabel,frequencies,false), ...
+                            'ValueChangedFcn',@(source,event) ...
+                                app.commitSecondaryFrequencySlider( ...
+                                source,event.Value,exactLabel,frequencies,false));
+                    end
+                    frequencySlider.Layout.Row = 1;
+                    app.previewSecondaryFrequencySlider(defaultIndices, ...
+                        exactLabel,frequencies,isRange);
+                    label.VerticalAlignment = 'top';
+                    control.handles = {frequencySlider,exactLabel};
+                    control.frequencyValues = frequencies;
+
+                case {'component','number','integer'}
+                    limits = [-Inf Inf];
+                    if strcmp(field.type,'component')
+                        context = app.secondaryContext();
+                        limits = [1 max(1,context.nComponents)];
+                    elseif ismember(field.type,{'number','integer'})
+                        limits = [0 Inf];
+                    end
+                    numericField = uieditfield(parent,'numeric', ...
+                        'Value',field.default, ...
+                        'Limits',limits, ...
+                        'Tooltip',field.help, ...
+                        'ValueChangedFcn',@(~,~)app.updateSecondaryReadiness());
+                    if ismember(field.type,{'component','integer'})
+                        numericField.RoundFractionalValues = 'on';
+                    end
+                    numericField.Layout.Row = row;
+                    numericField.Layout.Column = 2;
+                    control.handles = {numericField};
+
+                case 'timeRange'
+                    rangeGrid = uigridlayout(parent,[1 3]);
+                    rangeGrid.Layout.Row = row;
+                    rangeGrid.Layout.Column = 2;
+                    rangeGrid.ColumnWidth = {'1x',24,'1x'};
+                    rangeGrid.Padding = [0 0 0 0];
+                    rangeGrid.ColumnSpacing = 5;
+                    lowerField = uieditfield(rangeGrid,'numeric', ...
+                        'Value',field.default(1), ...
+                        'ValueChangedFcn',@(~,~)app.updateSecondaryReadiness());
+                    lowerField.Layout.Column = 1;
+                    connector = uilabel(rangeGrid,'Text','to', ...
+                        'HorizontalAlignment','center');
+                    connector.Layout.Column = 2;
+                    upperField = uieditfield(rangeGrid,'numeric', ...
+                        'Value',field.default(2), ...
+                        'ValueChangedFcn',@(~,~)app.updateSecondaryReadiness());
+                    upperField.Layout.Column = 3;
+                    lowerField.Tooltip = field.help;
+                    upperField.Tooltip = field.help;
+                    control.handles = {lowerField,upperField};
+
+                case {'componentVector','numberOrEmpty'}
+                    textField = uieditfield(parent,'text', ...
+                        'Value',char(string(field.default)), ...
+                        'Tooltip',field.help, ...
+                        'ValueChangedFcn',@(~,~)app.updateSecondaryReadiness());
+                    textField.Layout.Row = row;
+                    textField.Layout.Column = 2;
+                    control.handles = {textField};
+
+                case 'logical'
+                    checkBox = uicheckbox(parent, ...
+                        'Text','Enabled', ...
+                        'Value',field.default, ...
+                        'Tooltip',field.help, ...
+                        'ValueChangedFcn',@(~,~)app.updateSecondaryReadiness());
+                    checkBox.Layout.Row = row;
+                    checkBox.Layout.Column = 2;
+                    control.handles = {checkBox};
+
+                case 'file'
+                    fileGrid = uigridlayout(parent,[1 2]);
+                    fileGrid.Layout.Row = row;
+                    fileGrid.Layout.Column = 2;
+                    fileGrid.ColumnWidth = {'1x',82};
+                    fileGrid.Padding = [0 0 0 0];
+                    fileGrid.ColumnSpacing = 6;
+                    fileField = uieditfield(fileGrid,'text', ...
+                        'Value',field.default, ...
+                        'Placeholder','Select a MAT-file', ...
+                        'ValueChangedFcn',@(~,~)app.updateSecondaryReadiness());
+                    fileField.Layout.Column = 1;
+                    browseButton = uibutton(fileGrid,'push', ...
+                        'Text','Browse...', ...
+                        'ButtonPushedFcn',@(~,~)app.browseSecondaryFile(field.key));
+                    browseButton.Layout.Column = 2;
+                    control.handles = {fileField,browseButton};
+
+                otherwise
+                    error('FREQNESS:GUI:UnknownSecondaryFieldType', ...
+                        'Unsupported secondary field type: %s.',field.type);
+            end
+            app.SecondaryFields.(field.key) = control;
+        end
+
+        function [ticks,labels] = secondaryFrequencyTicks(~,frequencies)
+            tickCount = min(7,numel(frequencies));
+            ticks = unique(round(linspace(1,numel(frequencies),tickCount)));
+            labels = arrayfun(@(index) ...
+                sprintf('%.4g',frequencies(index)),ticks, ...
+                'UniformOutput',false);
+        end
+
+        function previewSecondaryFrequencySlider(~,rawValue,label, ...
+                frequencies,isRange)
+            indices = round(rawValue);
+            indices = max(1,min(numel(frequencies),indices));
+            if isRange
+                indices = sort(indices);
+                if indices(1) == indices(2)
+                    label.Text = sprintf('%.4g Hz  |  1 frequency', ...
+                        frequencies(indices(1)));
+                else
+                    label.Text = sprintf('%.4g–%.4g Hz  |  %d frequencies', ...
+                        frequencies(indices(1)),frequencies(indices(2)), ...
+                        indices(2)-indices(1)+1);
+                end
+            else
+                label.Text = sprintf('Selected: %.4g Hz',frequencies(indices));
+            end
+        end
+
+        function commitSecondaryFrequencySlider(app,slider,rawValue,label, ...
+                frequencies,isRange)
+            indices = round(rawValue);
+            indices = max(1,min(numel(frequencies),indices));
+            if isRange
+                indices = sort(indices);
+            end
+            slider.Value = indices;
+            app.previewSecondaryFrequencySlider(indices,label,frequencies,isRange);
+            app.updateSecondaryReadiness();
+        end
+
+        function toggleSecondaryOptions(app)
+            if app.SecondaryAdvancedButton.Value
+                app.SecondaryAdvancedButton.Text = 'Hide optional settings  ▴';
+                app.SecondaryOptionalPanel.Visible = 'on';
+                rowHeights = app.SecondaryConfigGrid.RowHeight;
+                rowHeights{5} = app.secondaryPanelHeight( ...
+                    app.SecondarySchema.optional);
+                app.SecondaryConfigGrid.RowHeight = rowHeights;
+            else
+                app.SecondaryAdvancedButton.Text = 'Show optional settings  ▾';
+                app.SecondaryOptionalPanel.Visible = 'off';
+                rowHeights = app.SecondaryConfigGrid.RowHeight;
+                rowHeights{5} = 0;
+                app.SecondaryConfigGrid.RowHeight = rowHeights;
+            end
+        end
+
+        function browseSecondaryFile(app,fieldKey)
+            [selectedFile,selectedFolder] = uigetfile( ...
+                {'*.mat','MAT-files (*.mat)'}, ...
+                'Select a secondary-analysis input file');
+            if isequal(selectedFile,0)
+                return
+            end
+            control = app.SecondaryFields.(fieldKey);
+            control.handles{1}.Value = fullfile(selectedFolder,selectedFile);
+            app.updateSecondaryReadiness();
+        end
+
+        function openSecondaryPage(app)
+            if isempty(app.NetworkSet) && ~isempty(app.NetworkOutputField.Value) && ...
+                    isfolder(app.NetworkOutputField.Value)
+                try
+                    app.importNetworkFolder(app.NetworkOutputField.Value);
+                catch
+                    % Page 2 remains available for importing an existing folder.
+                end
+            end
+            app.PageGroup.SelectedTab = app.SecondaryTab;
+            app.updateSecondaryReadiness();
+        end
+
+        function selectSecondaryParticipants(app)
+            if isempty(app.NetworkSet)
+                return
+            end
+            dialog = uifigure( ...
+                'Name','Select participants', ...
+                'Position',[420 260 420 480], ...
+                'WindowStyle','modal');
+            dialogGrid = uigridlayout(dialog,[3 1]);
+            dialogGrid.RowHeight = {48,'1x',40};
+            dialogGrid.Padding = [14 12 14 12];
+            prompt = uilabel(dialogGrid, ...
+                'Text','Choose the participant results included in this analysis.', ...
+                'WordWrap','on');
+            prompt.Layout.Row = 1;
+            participantList = uilistbox(dialogGrid, ...
+                'Items',app.NetworkSet.participantIds, ...
+                'Multiselect','on', ...
+                'Value',app.SecondarySelectedParticipants);
+            participantList.Layout.Row = 2;
+            buttonGrid = uigridlayout(dialogGrid,[1 2]);
+            buttonGrid.Layout.Row = 3;
+            buttonGrid.ColumnWidth = {'1x','1x'};
+            buttonGrid.Padding = [0 0 0 0];
+            cancelButton = uibutton(buttonGrid,'push', ...
+                'Text','Cancel', ...
+                'ButtonPushedFcn',@(~,~)delete(dialog));
+            cancelButton.Layout.Column = 1;
+            applyButton = uibutton(buttonGrid,'push', ...
+                'Text','Apply selection', ...
+                'FontWeight','bold', ...
+                'ButtonPushedFcn',@(~,~) ...
+                    app.applySecondaryParticipantSelection( ...
+                    dialog,participantList));
+            applyButton.Layout.Column = 2;
+        end
+
+        function applySecondaryParticipantSelection(app,dialog,participantList)
+            selected = participantList.Value;
+            if ischar(selected) || isstring(selected)
+                selected = cellstr(selected);
+            end
+            if isempty(selected)
+                uialert(dialog,'Select at least one participant.', ...
+                    'Empty participant selection');
+                return
+            end
+            app.SecondarySelectedParticipants = selected(:)';
+            delete(dialog);
+            app.updateSecondaryContext();
+        end
+
+        function updateSecondaryContext(app)
+            if isempty(app.SecondarySummaryLabel) || ...
+                    ~isvalid(app.SecondarySummaryLabel)
+                return
+            end
+            if isempty(app.NetworkSet)
+                app.SecondarySummaryLabel.Text = sprintf( ...
+                    'Participants\nWaiting for FREQ results');
+                app.SecondaryFrequencyLabel.Text = sprintf('Frequencies\n—');
+                app.SecondaryComponentsLabel.Text = sprintf('Components\n—');
+                app.SecondarySourceLabel.Text = sprintf('Source data\n—');
+                app.SecondaryParticipantButton.Enable = 'off';
+            else
+                app.SecondarySummaryLabel.Text = sprintf( ...
+                    'Participants\n%d/%d selected', ...
+                    numel(app.SecondarySelectedParticipants), ...
+                    app.NetworkSet.nParticipants);
+                app.SecondaryParticipantButton.Enable = 'on';
+                if isempty(app.NetworkSet.frequencies)
+                    frequencyText = 'unknown';
+                else
+                    frequencyText = sprintf('%.4g–%.4g Hz', ...
+                        app.NetworkSet.frequencies(1), ...
+                        app.NetworkSet.frequencies(end));
+                end
+                app.SecondaryFrequencyLabel.Text = sprintf( ...
+                    'Frequencies\n%s',frequencyText);
+                if isempty(app.NetworkSet.nComponents)
+                    componentText = 'unknown';
+                else
+                    componentText = sprintf('%d retained', ...
+                        app.NetworkSet.nComponents);
+                end
+                app.SecondaryComponentsLabel.Text = sprintf( ...
+                    'Components\n%s',componentText);
+                if app.NetworkSet.sourceDataAvailable
+                    sourceText = 'available';
+                else
+                    sourceText = 'not linked';
+                end
+                app.SecondarySourceLabel.Text = sprintf( ...
+                    'Source data\n%s',sourceText);
+            end
+            if isempty(app.MNI)
+                mniText = 'not loaded';
+            else
+                mniText = sprintf('%d points',app.MNI.nPoints);
+            end
+            app.SecondaryMNILabel.Text = sprintf('MNI coordinates\n%s',mniText);
+            app.updateSecondaryReadiness();
+        end
+
+        function [configuration,message] = collectSecondaryConfiguration(app)
+            if isempty(app.NetworkSet)
+                error('FREQNESS:GUI:MissingNetworkResults', ...
+                    'Import a FREQ_Networks* folder.');
+            end
+            module = app.secondaryModule(app.SecondarySelectedModuleId);
+            if module.requiresMNI && isempty(app.MNI)
+                error('FREQNESS:GUI:MissingMNI', ...
+                    'This analysis requires MNI coordinates.');
+            end
+            if module.requiresMNI && ~isempty(app.NetworkSet.nVoxels) && ...
+                    app.MNI.nPoints ~= app.NetworkSet.nVoxels
+                error('FREQNESS:GUI:IncompatibleMNI', ...
+                    ['MNI coordinates contain %d points, but the imported ' ...
+                    'FREQ results contain %d voxels.'], ...
+                    app.MNI.nPoints,app.NetworkSet.nVoxels);
+            end
+            if module.requiresSourceData && ~app.NetworkSet.sourceDataAvailable
+                error('FREQNESS:GUI:MissingSourceData', ...
+                    'This analysis requires the original Dataset* source data.');
+            end
+
+            values = struct();
+            selectedFrequencies = struct();
+            fieldNames = fieldnames(app.SecondaryFields);
+            context = app.secondaryContext();
+            for fieldi = 1:numel(fieldNames)
+                key = fieldNames{fieldi};
+                control = app.SecondaryFields.(key);
+                handles = control.handles;
+                switch control.type
+                    case 'frequency'
+                        index = round(handles{1}.Value);
+                        index = max(1,min(numel(control.frequencyValues),index));
+                        value = control.frequencyValues(index);
+                        selectedFrequencies.(key) = value;
+                    case 'frequencyRange'
+                        indices = round(handles{1}.Value);
+                        indices = sort(max(1,min( ...
+                            numel(control.frequencyValues),indices)));
+                        value = control.frequencyValues(indices);
+                        selectedFrequencies.(key) = ...
+                            control.frequencyValues(indices(1):indices(2));
+                    case {'component','number','integer'}
+                        value = handles{1}.Value;
+                        if ~isfinite(value)
+                            error('FREQNESS:GUI:InvalidSecondaryConfig', ...
+                                '%s must be finite.',control.label);
+                        end
+                        if strcmp(control.type,'component') && ...
+                                (value < 1 || value > context.nComponents)
+                            error('FREQNESS:GUI:InvalidSecondaryConfig', ...
+                                '%s exceeds the retained component count.',control.label);
+                        end
+                    case 'timeRange'
+                        value = [handles{1}.Value handles{2}.Value];
+                        if any(~isfinite(value)) || value(1) > value(2)
+                            error('FREQNESS:GUI:InvalidSecondaryConfig', ...
+                                '%s must contain ascending finite endpoints.',control.label);
+                        end
+                    case 'componentVector'
+                        value = freqnessgui.parseNumericVector( ...
+                            handles{1}.Value,false,control.label);
+                        if any(value < 1) || any(value ~= round(value)) || ...
+                                any(value > context.nComponents)
+                            error('FREQNESS:GUI:InvalidSecondaryConfig', ...
+                                ['%s must contain positive integer indices no ' ...
+                                'greater than %d.'],control.label,context.nComponents);
+                        end
+                    case 'numberOrEmpty'
+                        value = freqnessgui.parseNumericVector( ...
+                            handles{1}.Value,true,control.label);
+                        if ~isempty(value) && (~isscalar(value) || value <= 0)
+                            error('FREQNESS:GUI:InvalidSecondaryConfig', ...
+                                '%s must be empty or one positive value.',control.label);
+                        end
+                    case 'logical'
+                        value = handles{1}.Value;
+                    case 'file'
+                        value = handles{1}.Value;
+                        if control.required && ~isfile(value)
+                            error('FREQNESS:GUI:InvalidSecondaryConfig', ...
+                                '%s must be an existing MAT-file.',control.label);
+                        end
+                    otherwise
+                        error('FREQNESS:GUI:UnknownSecondaryFieldType', ...
+                            'Unsupported secondary field type: %s.',control.type);
+                end
+                values.(key) = value;
+            end
+
+            if strcmp(module.id,'induced_responses')
+                if values.baselineWindow(1) < values.epochWindow(1) || ...
+                        values.baselineWindow(2) > values.epochWindow(2)
+                    error('FREQNESS:GUI:InvalidSecondaryConfig', ...
+                        'The baseline window must lie inside the epoch window.');
+                end
+            elseif strcmp(module.id,'cross_coupling') && ...
+                    values.lfoFrequency >= values.carrierRange(2)
+                error('FREQNESS:GUI:InvalidSecondaryConfig', ...
+                    'The LFO frequency must be below the carrier-range maximum.');
+            end
+
+            configuration = struct();
+            configuration.schemaVersion = 1;
+            configuration.moduleId = module.id;
+            configuration.functionName = module.functionName;
+            configuration.networkFolder = app.NetworkSet.folder;
+            configuration.outputFolder = fullfile( ...
+                app.NetworkSet.analysisFolder,module.folderName);
+            configuration.values = values;
+            configuration.selectedFrequencies = selectedFrequencies;
+            if isempty(app.SecondarySelectedParticipants)
+                error('FREQNESS:GUI:MissingParticipants', ...
+                    'Select at least one participant result.');
+            end
+            configuration.participants = app.SecondarySelectedParticipants;
+            message = sprintf('%s configuration is valid.',module.name);
+        end
+
+        function updateSecondaryReadiness(app)
+            if isempty(app.SecondaryReadinessTextArea) || ...
+                    ~isvalid(app.SecondaryReadinessTextArea) || ...
+                    isempty(app.SecondarySelectedModuleId)
+                return
+            end
+            module = app.secondaryModule(app.SecondarySelectedModuleId);
+            lines = cell(0,1);
+            if isempty(app.NetworkSet)
+                lines{end+1,1} = '✗ FREQ results — not imported';
+            else
+                lines{end+1,1} = sprintf('✓ FREQ results — %d/%d participants', ...
+                    numel(app.SecondarySelectedParticipants), ...
+                    app.NetworkSet.nParticipants);
+            end
+            if module.requiresMNI
+                if isempty(app.MNI)
+                    lines{end+1,1} = '✗ MNI coordinates — required';
+                elseif ~isempty(app.NetworkSet) && ...
+                        ~isempty(app.NetworkSet.nVoxels) && ...
+                        app.MNI.nPoints ~= app.NetworkSet.nVoxels
+                    lines{end+1,1} = sprintf( ...
+                        '✗ MNI coordinates — %d points / %d voxels', ...
+                        app.MNI.nPoints,app.NetworkSet.nVoxels);
+                else
+                    lines{end+1,1} = sprintf('✓ MNI coordinates — %d points', ...
+                        app.MNI.nPoints);
+                end
+            else
+                lines{end+1,1} = '— MNI coordinates — not required';
+            end
+            if module.requiresSourceData
+                if ~isempty(app.NetworkSet) && app.NetworkSet.sourceDataAvailable
+                    lines{end+1,1} = '✓ Original source data — linked';
+                else
+                    lines{end+1,1} = '✗ Original source data — required';
+                end
+            else
+                lines{end+1,1} = '— Original source data — not required';
+            end
+            if module.requiresEvents
+                eventsReady = isfield(app.SecondaryFields,'eventsFile') && ...
+                    isfile(app.SecondaryFields.eventsFile.handles{1}.Value);
+                if eventsReady
+                    lines{end+1,1} = '✓ Events file — selected';
+                else
+                    lines{end+1,1} = '✗ Events file — required';
+                end
+            else
+                lines{end+1,1} = '— Events file — not required';
+            end
+
+            try
+                [~,message] = app.collectSecondaryConfiguration();
+                isReady = true;
+                lines{end+1,1} = '✓ Configuration — valid';
+                app.SecondaryValidationLabel.Text = message;
+                app.SecondaryValidationLabel.FontColor = [0.125 0.545 0.365];
+            catch exception
+                isReady = false;
+                lines{end+1,1} = '✗ Configuration — incomplete';
+                app.SecondaryValidationLabel.Text = exception.message;
+                app.SecondaryValidationLabel.FontColor = [0.78 0.24 0.16];
+            end
+            app.SecondaryReadinessTextArea.Value = lines;
+            if isReady
+                app.SecondaryValidateButton.Enable = 'on';
+            else
+                app.SecondaryValidateButton.Enable = 'off';
+            end
+            app.SecondaryRunButton.Enable = 'off';
+        end
+
+        function validateSecondaryConfiguration(app)
+            try
+                [configuration,message] = app.collectSecondaryConfiguration();
+                app.SecondaryValidationLabel.Text = message;
+                app.SecondaryValidationLabel.FontColor = [0.125 0.545 0.365];
+                app.SecondaryProgressTextArea.Value = { ...
+                    sprintf('%s is ready.',configuration.functionName), ...
+                    sprintf('Output: %s',configuration.outputFolder), ...
+                    'Execution adapter: next Development Plan milestone.'};
+            catch exception
+                app.SecondaryValidationLabel.Text = exception.message;
+                app.SecondaryValidationLabel.FontColor = [0.78 0.24 0.16];
+                uialert(app.UIFigure,exception.message, ...
+                    'Invalid secondary-analysis configuration');
+            end
         end
 
         function field = addTextSetting(~,parent,row,labelText,defaultValue,tooltipText)
@@ -714,6 +1627,7 @@ classdef FREQNESSApp < handle
                 'Color',[0.36 0.41 0.47]);
             app.MNISummaryLabel.Text = 'No MNI coordinates loaded';
             app.MNISummaryLabel.FontColor = [0.36 0.41 0.47];
+            app.updateSecondaryContext();
         end
 
         function plotMNIPreview(app)
@@ -736,6 +1650,7 @@ classdef FREQNESSApp < handle
 
         function updateMNICompatibility(app)
             if isempty(app.MNI)
+                app.updateSecondaryContext();
                 return
             end
 
@@ -744,6 +1659,7 @@ classdef FREQNESSApp < handle
                     '%d coordinates — drag the plot to rotate', ...
                     app.MNI.nPoints);
                 app.MNISummaryLabel.FontColor = [0.055 0.415 0.690];
+                app.updateSecondaryContext();
                 return
             end
 
@@ -761,6 +1677,7 @@ classdef FREQNESSApp < handle
                     app.MNI.nPoints);
                 app.MNISummaryLabel.FontColor = [0.78 0.38 0.05];
             end
+            app.updateSecondaryContext();
         end
 
         function importDataset(app,datasetFolder)
@@ -824,12 +1741,20 @@ classdef FREQNESSApp < handle
             try
                 networkSet = freqnessgui.inspectNetworkFolder(networkFolder);
                 app.NetworkSet = networkSet;
+                app.SecondarySelectedParticipants = networkSet.participantIds(:)';
                 app.NetworkPathField.Value = networkSet.folder;
                 app.NetworkPathField.Tooltip = networkSet.folder;
                 app.AnalysisOutputField.Value = networkSet.analysisFolder;
                 app.AnalysisOutputField.Tooltip = networkSet.analysisFolder;
-                app.SecondarySummaryLabel.Text = sprintf( ...
-                    '%d participant results ready',networkSet.nParticipants);
+                if ~isempty(networkSet.mniFile) && isfile(networkSet.mniFile) && ...
+                        (isempty(app.MNI) || ...
+                        ~strcmp(app.MNI.path,networkSet.mniFile))
+                    app.importMNIFile(networkSet.mniFile,false);
+                end
+                app.updateSecondaryContext();
+                if ~isempty(app.SecondarySelectedModuleId)
+                    app.selectSecondaryModule(app.SecondarySelectedModuleId);
+                end
                 app.FooterStatusLabel.Text = sprintf( ...
                     'Imported %s for secondary analyses.',networkSet.name);
             catch exception

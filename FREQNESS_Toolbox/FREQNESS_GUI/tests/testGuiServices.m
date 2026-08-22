@@ -74,6 +74,51 @@ function testModuleFoldersAreUnique(testCase)
 modules = freqnessgui.moduleRegistry();
 verifyEqual(testCase,numel(unique({modules.folderName})),numel(modules));
 verifyTrue(testCase,all(~cellfun('isempty',{modules.functionName})));
+verifyEqual(testCase,numel(unique({modules.id})),numel(modules));
+verifyGreaterThanOrEqual(testCase,numel(unique({modules.category})),5);
+end
+
+function testEverySecondaryModuleHasAValidSchema(testCase)
+modules = freqnessgui.moduleRegistry();
+context = struct('frequencies',2:2:20,'nComponents',8);
+for modulei = 1:numel(modules)
+    schema = freqnessgui.secondaryModuleSchema(modules(modulei).id,context);
+    fields = [schema.mandatory schema.optional];
+    verifyEqual(testCase,numel(unique({fields.key})),numel(fields));
+    verifyTrue(testCase,all(~cellfun('isempty',{fields.type})));
+end
+
+induced = modules(strcmp({modules.id},'induced_responses'));
+removal = modules(strcmp({modules.id},'network_removal'));
+verifyTrue(testCase,induced.requiresEvents);
+verifyTrue(testCase,removal.requiresSourceData);
+end
+
+function testNetworkInspectionReadsManifestContext(testCase)
+temporaryRoot = tempname;
+mkdir(temporaryRoot);
+cleanup = onCleanup(@()rmdir(temporaryRoot,'s')); %#ok<NASGU>
+datasetFolder = fullfile(temporaryRoot,'Dataset_Context');
+networkFolder = fullfile(temporaryRoot,'FREQ_Networks_Context');
+mkdir(datasetFolder);
+mkdir(networkFolder);
+
+FREQ = struct('frex',2:2:10,'evecs',zeros(5,4,5), ...
+    'ts',zeros(4,20,5),'srate',100); %#ok<NASGU>
+save(fullfile(networkFolder,'sub-001_FREQ.mat'),'FREQ');
+config = freqnessgui.defaultConfig();
+config.network.frequencies = [99 100];
+config.network.ncomps = 4;
+config.network.samplingRate = 100;
+manifest = struct('datasetFolder',datasetFolder,'config',config); %#ok<NASGU>
+save(fullfile(networkFolder,'FREQNESS_Manifest.mat'),'manifest');
+
+networkSet = freqnessgui.inspectNetworkFolder(networkFolder);
+verifyEqual(testCase,networkSet.frequencies,2:2:10);
+verifyEqual(testCase,networkSet.nComponents,4);
+verifyEqual(testCase,networkSet.samplingRate,100);
+verifyEqual(testCase,networkSet.nVoxels,5);
+verifyTrue(testCase,networkSet.sourceDataAvailable);
 end
 
 function testFrequencyRangeUsesExactStepGrid(testCase)
@@ -81,6 +126,17 @@ function testFrequencyRangeUsesExactStepGrid(testCase)
     [1.1 4.9],1.2);
 verifyEqual(testCase,snappedRange,[1.2 4.8],'AbsTol',1e-12);
 verifyEqual(testCase,frequencies,[1.2 2.4 3.6 4.8],'AbsTol',1e-12);
+end
+
+function testSecondaryFrequencySelectionUsesImportedGrid(testCase)
+available = [1.2 2.4 4.8 9.6 19.2];
+[rangeIndices,rangeValues] = freqnessgui.mapFrequencySelection( ...
+    available,[2 10]);
+verifyEqual(testCase,rangeIndices,[2 4]);
+verifyEqual(testCase,rangeValues,[2.4 4.8 9.6]);
+[singleIndex,singleValue] = freqnessgui.mapFrequencySelection(available,5);
+verifyEqual(testCase,singleIndex,3);
+verifyEqual(testCase,singleValue,4.8);
 end
 
 function testFWHMPreviewMatchesSupportedForms(testCase)

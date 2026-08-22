@@ -15,9 +15,11 @@ FREQNESS_GUI
 The launcher adds only the existing function and dependency folders needed by
 the current GUI session.
 
-## Three-layer workflow
+## Two-page workflow
 
-1. **Data import**
+### Page 1 — Network estimation
+
+1. **Data and anatomical import**
    - Drop or browse to one folder named `Dataset*`; dropping its participant
      MAT-files also resolves their common folder.
    - Each top-level `.mat` file is one participant.
@@ -33,10 +35,20 @@ the current GUI session.
    - Optional inputs mirror `FREQNESS_NetworkEstimation`.
    - Participants are processed independently and persisted immediately.
 
-3. **Secondary analyses**
+### Page 2 — Secondary analyses
+
+3. **Analysis context and configuration**
    - Drop or browse to the corresponding `FREQ_Networks*` folder.
    - Secondary outputs use one subfolder per backend function inside the
      derived `FREQ_Analyses*` folder.
+   - A grouped analysis tree exposes one function at a time.
+   - Mandatory fields stay visible; optional settings remain collapsed until
+     requested.
+   - Every frequency input uses the imported `FREQ.frex` grid. Range sliders
+     start at the full available interval and can be narrowed to a contiguous
+     subset; single-frequency sliders snap to one exact available frequency.
+   - Readiness checks identify missing FREQ results, MNI coordinates, events,
+     or original source data before execution.
 
 ## Output contract
 
@@ -82,5 +94,8 @@ Native OS file/folder drag-and-drop is enabled by the vendored MIT-licensed
 ## Current milestone
 
 The data-import and participant-wise network-estimation path is functional.
-The secondary layer currently defines and validates its input/output contract;
-function-specific configuration panels and executors are the next milestone.
+The dedicated Secondary Analyses page now imports network-result context,
+provides grouped function selection, builds function-specific configuration
+forms, and validates readiness. Function-specific numerical executors remain
+the next Development Plan milestone and are deliberately disabled in this
+interface release.

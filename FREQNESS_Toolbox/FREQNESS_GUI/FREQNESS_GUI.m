@@ -5,6 +5,8 @@ function app = FREQNESS_GUI(varargin)
 %   APP = FREQNESS_GUI returns the application handle.
 %   FREQNESS_GUI(DATASET_FOLDER) opens the interface and imports a Dataset*
 %   folder immediately.
+%   FREQNESS_GUI(NETWORK_FOLDER) opens the Secondary Analyses page and
+%   imports a FREQ_Networks* folder immediately.
 
 guiRoot = fileparts(mfilename('fullpath'));
 toolboxRoot = fileparts(guiRoot);
