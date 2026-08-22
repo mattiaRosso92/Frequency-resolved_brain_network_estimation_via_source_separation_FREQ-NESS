@@ -51,6 +51,9 @@ the current GUI session.
      subset; single-frequency sliders snap to one exact available frequency.
    - Readiness checks identify missing FREQ results, MNI coordinates, events,
      or original source data before execution.
+   - The Run Analysis button combines the selected participant results for
+     one group-capable backend call, then persists the group output and each
+     participant's extracted numerical output independently.
 
 ## Output contract
 
@@ -68,7 +71,17 @@ FREQ_Networks_1/
 
 FREQ_Analyses_1/
     Visualizer/
+        Group_Visualizer.mat
+        sub-001_Visualizer.mat
+        sub-002_Visualizer.mat
+        FREQNESS_AnalysisManifest.mat
+        Figures/
     EntropyLandscape/
+        Group_EntropyLandscape.mat
+        sub-001_EntropyLandscape.mat
+        sub-002_EntropyLandscape.mat
+        FREQNESS_AnalysisManifest.mat
+        Figures/
     ExponentialDK/
     FreqGradients/
     CompGradients/
@@ -88,6 +101,18 @@ Each participant result contains:
 completed, failed, or was skipped because an existing output was retained.
 This permits safe resumption of long analyses.
 
+Each secondary-analysis function folder contains:
+
+- `Group_<Function>.mat`: the complete backend output for the selected group;
+- `<participant>_<Function>.mat`: that participant's extracted numerical
+  output, participant metadata, and complete GUI configuration;
+- `FREQNESS_AnalysisManifest.mat`: execution status and paths for every output;
+- `Figures/`: captured MATLAB figures in editable FIG and PNG formats.
+
+Outputs are written through temporary files and finalized atomically, so an
+interrupted or failed run does not replace an existing completed MAT-file with
+a partially written result.
+
 ## Drag and drop
 
 Native OS file/folder drag-and-drop is enabled by the vendored MIT-licensed
@@ -95,9 +120,8 @@ Native OS file/folder drag-and-drop is enabled by the vendored MIT-licensed
 
 ## Current milestone
 
-The data-import and participant-wise network-estimation path is functional.
-The dedicated Secondary Analyses page now imports network-result context,
-provides grouped function selection, builds function-specific configuration
-forms, and validates readiness. Function-specific numerical executors remain
-the next Development Plan milestone and are deliberately disabled in this
-interface release.
+The data-import, participant-wise network estimation, and secondary-analysis
+paths are functional. The Secondary Analyses page imports network-result
+context, provides grouped function selection, builds and validates
+function-specific configurations, runs the existing numerical functions, and
+persists participant, group, figure, and manifest outputs.

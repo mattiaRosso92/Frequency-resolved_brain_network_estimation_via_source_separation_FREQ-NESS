@@ -671,14 +671,18 @@ classdef FREQNESSApp < handle
                 'ButtonPushedFcn',@(~,~)app.validateSecondaryConfiguration());
             app.SecondaryValidateButton.Layout.Row = 6;
             app.SecondaryRunButton = uibutton(readinessGrid,'push', ...
-                'Text','Run Analysis — next milestone', ...
+                'Text','Run Analysis', ...
                 'Enable','off', ...
-                'Tooltip','Function executors are the next Development Plan item.');
+                'FontWeight','bold', ...
+                'FontColor',[1 1 1], ...
+                'BackgroundColor',colors.blue, ...
+                'Tooltip','Run the selected analysis and persist its outputs.', ...
+                'ButtonPushedFcn',@(~,~)app.runSecondaryAnalysis());
             app.SecondaryRunButton.Layout.Row = 7;
             app.SecondaryProgressTextArea = uitextarea(readinessGrid, ...
                 'Editable','off', ...
-                'Value',{'Configuration interface ready.', ...
-                    'Execution adapters are intentionally not active yet.'}, ...
+                'Value',{'Validate a configuration, then run the analysis.', ...
+                    'Participant and group outputs will be saved automatically.'}, ...
                 'FontName','Courier New', ...
                 'FontSize',10);
             app.SecondaryProgressTextArea.Layout.Row = 8;
@@ -1353,6 +1357,12 @@ classdef FREQNESSApp < handle
                     values.lfoFrequency >= values.carrierRange(2)
                 error('FREQNESS:GUI:InvalidSecondaryConfig', ...
                     'The LFO frequency must be below the carrier-range maximum.');
+            elseif strcmp(module.id,'comp_gradients')
+                expectedComponents = values.components(1):values.components(end);
+                if ~isequal(values.components,expectedComponents)
+                    error('FREQNESS:GUI:InvalidSecondaryConfig', ...
+                        'Components to model must define one ascending contiguous range.');
+                end
             end
 
             configuration = struct();
@@ -1437,12 +1447,13 @@ classdef FREQNESSApp < handle
                 app.SecondaryValidationLabel.FontColor = [0.78 0.24 0.16];
             end
             app.SecondaryReadinessTextArea.Value = lines;
-            if isReady
+            if isReady && ~app.IsRunning
                 app.SecondaryValidateButton.Enable = 'on';
+                app.SecondaryRunButton.Enable = 'on';
             else
                 app.SecondaryValidateButton.Enable = 'off';
+                app.SecondaryRunButton.Enable = 'off';
             end
-            app.SecondaryRunButton.Enable = 'off';
         end
 
         function validateSecondaryConfiguration(app)
@@ -1453,12 +1464,102 @@ classdef FREQNESSApp < handle
                 app.SecondaryProgressTextArea.Value = { ...
                     sprintf('%s is ready.',configuration.functionName), ...
                     sprintf('Output: %s',configuration.outputFolder), ...
-                    'Execution adapter: next Development Plan milestone.'};
+                    'Press Run Analysis to execute and persist the results.'};
             catch exception
                 app.SecondaryValidationLabel.Text = exception.message;
                 app.SecondaryValidationLabel.FontColor = [0.78 0.24 0.16];
                 uialert(app.UIFigure,exception.message, ...
                     'Invalid secondary-analysis configuration');
+            end
+        end
+
+        function runSecondaryAnalysis(app)
+            if app.IsRunning
+                return
+            end
+            try
+                [configuration,~] = app.collectSecondaryConfiguration();
+            catch exception
+                uialert(app.UIFigure,exception.message, ...
+                    'Invalid secondary-analysis configuration');
+                return
+            end
+
+            mniCoordinates = [];
+            if ~isempty(app.MNI)
+                mniCoordinates = app.MNI.coordinates;
+            end
+            app.setSecondaryRunningState(true);
+            runningCleanup = onCleanup( ...
+                @()app.setSecondaryRunningState(false));
+            try
+                report = freqnessgui.runSecondaryAnalysis( ...
+                    app.NetworkSet,configuration,mniCoordinates, ...
+                    @app.updateSecondaryProgress);
+                summary = sprintf( ...
+                    'Finished: %d participant output(s), %d figure(s).', ...
+                    report.nCompleted,numel(report.figureFiles));
+                clear runningCleanup
+                app.SecondaryValidationLabel.Text = summary;
+                app.SecondaryValidationLabel.FontColor = [0.125 0.545 0.365];
+                app.FooterStatusLabel.Text = summary;
+            catch exception
+                clear runningCleanup
+                app.SecondaryValidationLabel.Text = exception.message;
+                app.SecondaryValidationLabel.FontColor = [0.78 0.24 0.16];
+                app.FooterStatusLabel.Text = exception.message;
+                uialert(app.UIFigure,exception.message, ...
+                    'Secondary-analysis error');
+            end
+        end
+
+        function updateSecondaryProgress(app,fraction,message)
+            percentage = max(0,min(100,round(100*fraction)));
+            app.SecondaryValidationLabel.Text = sprintf( ...
+                '%s  (%d%%)',message,percentage);
+            app.SecondaryValidationLabel.FontColor = [0.055 0.415 0.690];
+            app.FooterStatusLabel.Text = message;
+            currentLines = app.SecondaryProgressTextArea.Value;
+            if ischar(currentLines) || isstring(currentLines)
+                currentLines = cellstr(currentLines);
+            end
+            timeText = char(datetime('now','Format','HH:mm:ss'));
+            currentLines{end+1,1} = sprintf('[%s] %s',timeText,message);
+            maxVisibleLines = 12;
+            if numel(currentLines) > maxVisibleLines
+                currentLines = currentLines(end-maxVisibleLines+1:end);
+            end
+            app.SecondaryProgressTextArea.Value = currentLines;
+            drawnow limitrate
+        end
+
+        function setSecondaryRunningState(app,isRunning)
+            app.IsRunning = isRunning;
+            if isRunning
+                app.SecondaryRunButton.Enable = 'off';
+                app.SecondaryRunButton.Text = 'Running...';
+                app.SecondaryValidateButton.Enable = 'off';
+                app.SecondaryTree.Enable = 'off';
+                app.SecondaryParticipantButton.Enable = 'off';
+                app.NetworkBrowseButton.Enable = 'off';
+                app.DatasetBrowseButton.Enable = 'off';
+                app.MNIBrowseButton.Enable = 'off';
+                app.RunButton.Enable = 'off';
+                app.SecondaryProgressTextArea.Value = { ...
+                    'Starting secondary analysis...'};
+            else
+                app.SecondaryRunButton.Text = 'Run Analysis';
+                app.SecondaryTree.Enable = 'on';
+                app.NetworkBrowseButton.Enable = 'on';
+                app.DatasetBrowseButton.Enable = 'on';
+                app.MNIBrowseButton.Enable = 'on';
+                if ~isempty(app.NetworkSet)
+                    app.SecondaryParticipantButton.Enable = 'on';
+                end
+                if ~isempty(app.Dataset) && app.Dataset.isValid
+                    app.RunButton.Enable = 'on';
+                end
+                app.updateSecondaryReadiness();
             end
         end
 
