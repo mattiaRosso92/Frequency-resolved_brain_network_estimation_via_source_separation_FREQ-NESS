@@ -75,3 +75,49 @@ modules = freqnessgui.moduleRegistry();
 verifyEqual(testCase,numel(unique({modules.folderName})),numel(modules));
 verifyTrue(testCase,all(~cellfun('isempty',{modules.functionName})));
 end
+
+function testFrequencyRangeUsesExactStepGrid(testCase)
+[frequencies,snappedRange] = freqnessgui.buildFrequencyVector( ...
+    [1.1 4.9],1.2);
+verifyEqual(testCase,snappedRange,[1.2 4.8],'AbsTol',1e-12);
+verifyEqual(testCase,frequencies,[1.2 2.4 3.6 4.8],'AbsTol',1e-12);
+end
+
+function testFWHMPreviewMatchesSupportedForms(testCase)
+frequencies = 1.2:1.2:6;
+automatic = freqnessgui.computeFWHM(frequencies,[],'logarithmic');
+verifySize(testCase,automatic,size(frequencies));
+verifyGreaterThan(testCase,automatic,zeros(size(automatic)));
+verifyEqual(testCase,freqnessgui.computeFWHM( ...
+    frequencies,0.5,'linear'),0.5*ones(size(frequencies)));
+verifyEqual(testCase,freqnessgui.computeFWHM( ...
+    frequencies,1:numel(frequencies),'linear'),1:numel(frequencies));
+end
+
+function testMNICoordinatesLoadAndTranspose(testCase)
+temporaryRoot = tempname;
+mkdir(temporaryRoot);
+cleanup = onCleanup(@()rmdir(temporaryRoot,'s')); %#ok<NASGU>
+mniFile = fullfile(temporaryRoot,'custom_mni.mat');
+coordinates = reshape(1:12,3,4); %#ok<NASGU>
+description = 'ignored metadata'; %#ok<NASGU>
+save(mniFile,'coordinates','description');
+
+mni = freqnessgui.loadMNICoordinates(mniFile);
+verifyEqual(testCase,mni.coordinates,coordinates.');
+verifyEqual(testCase,mni.nPoints,4);
+verifyEqual(testCase,mni.variableName,'coordinates');
+end
+
+function testDefaultMNIDiscovery(testCase)
+temporaryRoot = tempname;
+mkdir(temporaryRoot);
+cleanup = onCleanup(@()rmdir(temporaryRoot,'s')); %#ok<NASGU>
+mniFolder = fullfile(temporaryRoot,'FREQNESS_MNI_Coordinates');
+mkdir(mniFolder);
+MNI8 = randn(8,3); %#ok<NASGU>
+expectedFile = fullfile(mniFolder,'MNI152_8mm_coord_dyi.mat');
+save(expectedFile,'MNI8');
+
+verifyEqual(testCase,freqnessgui.findDefaultMNI(temporaryRoot),expectedFile);
+end

@@ -18,12 +18,18 @@ the current GUI session.
 ## Three-layer workflow
 
 1. **Data import**
-   - Drop or browse to one folder named `Dataset*`.
+   - Drop or browse to one folder named `Dataset*`; dropping its participant
+     MAT-files also resolves their common folder.
    - Each top-level `.mat` file is one participant.
    - Each file must contain exactly one real numeric voxels-by-time matrix.
+   - The bundled MNI coordinate file loads automatically when present. A custom
+     finite N-by-3 coordinate matrix can be dropped or browsed independently,
+     and its black-dot 3-D preview can be rotated by dragging.
 
 2. **Core network estimation**
-   - Mandatory inputs: frequencies and sampling rate.
+   - Mandatory inputs: frequency range, frequency step, and sampling rate.
+   - The two-ended slider snaps to the selected step. Exact endpoint fields and
+     an aligned FWHM plot show the vector that will be sent to the backend.
    - Optional inputs mirror `FREQNESS_NetworkEstimation`.
    - Participants are processed independently and persisted immediately.
 

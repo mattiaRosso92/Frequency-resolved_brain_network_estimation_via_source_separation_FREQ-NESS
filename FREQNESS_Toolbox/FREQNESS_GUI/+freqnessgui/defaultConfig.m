@@ -5,6 +5,7 @@ config = struct();
 config.schemaVersion = 1;
 config.datasetFolder = '';
 config.outputFolder = '';
+config.mniFile = '';
 
 config.network = struct();
 config.network.frequencies = 1.2:1.2:24;
