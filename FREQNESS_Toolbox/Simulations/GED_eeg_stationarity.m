@@ -38,9 +38,11 @@ silenceduration = 0; % duration of the interval where both sources are silent
 silencestart = switchtime-silenceduration/2;
 silenceend = switchtime+silenceduration/2;
 transitionguard = .5; % seconds excluded around activation boundaries
+transitionplotwindow = .25; % seconds displayed around the phase transition
 
 % Source parameters
 nsources = 2;
+naway = 0; % neighbor-rank spacing from source A; 0 uses the same dipole
 sourceamp = 10*ones(nsources,1);
 phasedifference = pi/2; % source B phase offset relative to source A
 sourcephase = [0; phasedifference];
@@ -89,19 +91,19 @@ wnoise = noiseamp * 2*(rand(size(eegData))-.5);
 
 ndips = size(lf.Gain,3);
 
-% Calculate normalized projection maps for all candidate dipoles
-allfwd = squeeze(-lf.Gain(:,1,:));
-allfwdmax = max(abs(allfwd),[],1);
-allfwdmax(allfwdmax == 0) = 1;
-allfwd = allfwd ./ allfwdmax;
+% Rank dipoles by Euclidean distance from the reference source
+referencedip = ceil(ndips*rand);
+dipdistance = sqrt(sum((lf.GridLoc-lf.GridLoc(referencedip,:)).^2,2));
+[~,diporder] = sort(dipdistance);
+neighboridx = 1 + (0:nsources-1)*naway;
 
-% Select one random dipole and the dipole with the least-correlated map
-mydips = zeros(nsources,1);
-mydips(1) = ceil(ndips*rand);
-spatcorr = abs(corr(allfwd,allfwd(:,mydips(1))));
-spatcorr(~isfinite(spatcorr)) = inf;
-spatcorr(mydips(1)) = inf;
-[~,mydips(2)] = min(spatcorr);
+if neighboridx(end) > ndips
+    error('naway is too large for the requested number of sources.')
+end
+
+mydips = diporder(neighboridx);
+selecteddistance = 1000*dipdistance(mydips); % distance from A, in mm
+flag_overlapping = length(unique(mydips)) == 1;
 
 % Assign source signals to dipoles
 dipsData = sources;
@@ -130,6 +132,9 @@ figemptyidx = ~ismember(1:ndips,mydips);
 figcolors = ['r','b'];
 figlinesize = [1.7,1.7];
 figmarksize = 2*figemptysize*ones(1,nsources);
+if flag_overlapping
+    figmarksize = [2.8 1.6]*figemptysize;
+end
 
 figure(1), clf
 
@@ -217,6 +222,12 @@ FREQ = FREQNESS_NetworkEstimation(eegData,frex,srate, ...
 % Identify the target-frequency output
 [~,targetfrexi] = min(abs(FREQ.frex-targetfrex));
 
+% Compute effective dimensionality of the frequency-resolved eigenspectrum
+[~,ED] = FREQNESS_EntropyLandscape(FREQ);
+close(gcf)
+targetED = ED(targetfrexi,1);
+targetevals = squeeze(FREQ.evals(1:2,targetfrexi,1));
+
 % Visualize the top ten components in the network landscape
 Landscape.frex = FREQ.frex;
 Landscape.ncomps = ncomps;
@@ -230,25 +241,38 @@ FREQNESS_Visualizer(FREQ,Landscape,[],'save_nifti',false);
 % Extract the first two components at the target frequency from FREQ
 targetPats = squeeze(FREQ.pats(:,1:2,targetfrexi,1));
 targetTs = squeeze(FREQ.ts(1:2,:,targetfrexi,1));
+combinedSource = sum(sources,1);
 
-% Match the two target-frequency components to ground truth for assessment
-corrmatrix = abs(corr(targetTs',sources'));
-comporder = 1:2;
-if sum(diag(corrmatrix)) < sum(diag(fliplr(corrmatrix)))
-    comporder = [2 1];
+if flag_overlapping
+
+    % The shared dipole provides one spatial ground truth across both epochs
+    comporder = 1:2;
+    matchedPats = targetPats;
+    matchedTs = targetTs;
+    FREQcorr_ts_signed = corr(matchedTs',combinedSource');
+    FREQcorr_ts = abs(FREQcorr_ts_signed);
+
+else
+
+    % Match two spatially distinct components to their respective sources
+    corrmatrix = abs(corr(targetTs',sources'));
+    comporder = 1:2;
+    if sum(diag(corrmatrix)) < sum(diag(fliplr(corrmatrix)))
+        comporder = [2 1];
+    end
+
+    matchedPats = targetPats(:,comporder);
+    matchedTs = targetTs(comporder,:);
+    FREQcorr_ts_signed = diag(corr(matchedTs',sources'));
+    FREQcorr_ts = abs(FREQcorr_ts_signed);
+
 end
-
-matchedPats = targetPats(:,comporder);
-matchedTs = targetTs(comporder,:);
-
-% Correlation with the raw ground-truth source time series
-FREQcorr_ts_signed = diag(corr(matchedTs',sources'));
-FREQcorr_ts = abs(FREQcorr_ts_signed);
 
 % Resolve arbitrary GED signs and normalize raw time series for visualization
 FREQsign = sign(FREQcorr_ts_signed);
 FREQsign(FREQsign == 0) = 1;
 sourceTS = sources ./ max(abs(sources),[],2);
+combinedSourceTS = combinedSource ./ max(abs(combinedSource));
 FREQts = FREQsign .* matchedTs;
 FREQts = FREQts ./ max(abs(FREQts),[],2);
 
@@ -282,12 +306,26 @@ figure(3), clf
 % FREQ-NESS activation patterns
 subplot(4,2,1)
 topoplotIndie(matchedPats(:,1),EEG.chanlocs,'numcontour',0,'electrodes','off');
-title({'FREQ-NESS component matched to source A', ...
-       ['Pattern r = ' num2str(abs(corr(matchedPats(:,1),fwd_weights(:,1))),2)]})
+if flag_overlapping
+    title({'FREQ-NESS component #1', ...
+           ['Shared-pattern r = ' ...
+            num2str(abs(corr(matchedPats(:,1),fwd_weights(:,1))),2)]})
+else
+    title({'FREQ-NESS component matched to source A', ...
+           ['Pattern r = ' ...
+            num2str(abs(corr(matchedPats(:,1),fwd_weights(:,1))),2)]})
+end
 subplot(4,2,2)
 topoplotIndie(matchedPats(:,2),EEG.chanlocs,'numcontour',0,'electrodes','off');
-title({'FREQ-NESS component matched to source B', ...
-       ['Pattern r = ' num2str(abs(corr(matchedPats(:,2),fwd_weights(:,2))),2)]})
+if flag_overlapping
+    title({'FREQ-NESS component #2', ...
+           ['Shared-pattern r = ' ...
+            num2str(abs(corr(matchedPats(:,2),fwd_weights(:,1))),2)]})
+else
+    title({'FREQ-NESS component matched to source B', ...
+           ['Pattern r = ' ...
+            num2str(abs(corr(matchedPats(:,2),fwd_weights(:,2))),2)]})
+end
 colormap jet
 
 % Ground-truth source activation gates
@@ -308,7 +346,11 @@ title({'Ground-truth source activation gates', ...
 
 % Source A injected oscillation and raw FREQ-NESS component time series
 subplot(4,2,[5 6])
-plot(tvec,sourceTS(1,:),'k--','LineWidth',1.2)
+if flag_overlapping
+    plot(tvec,combinedSourceTS,'k--','LineWidth',1.2)
+else
+    plot(tvec,sourceTS(1,:),'k--','LineWidth',1.2)
+end
 hold on
 plot(tvec,FREQts(1,:),'r','LineWidth',1)
 if silenceduration > 0
@@ -319,14 +361,24 @@ else
 end
 ylim([-1.1 1.1])
 ylabel('Normalized amplitude')
-title({'Source A injected oscillation (black) and raw FREQ.ts (red)', ...
-       ['Component #' num2str(comporder(1)) ': r = ' ...
-        num2str(FREQcorr_ts(1),2) ', selectivity = ' ...
-        num2str(FREQselectivity(1),2)]})
+if flag_overlapping
+    title({'Combined phase-reset signal (black) and raw FREQ.ts (red)', ...
+           ['Component #1: r = ' num2str(FREQcorr_ts(1),2) ...
+            ', ED = ' num2str(targetED,3)]})
+else
+    title({'Source A injected oscillation (black) and raw FREQ.ts (red)', ...
+           ['Component #' num2str(comporder(1)) ': r = ' ...
+            num2str(FREQcorr_ts(1),2) ', selectivity = ' ...
+            num2str(FREQselectivity(1),2)]})
+end
 
 % Source B injected oscillation and raw FREQ-NESS component time series
 subplot(4,2,[7 8])
-plot(tvec,sourceTS(2,:),'k--','LineWidth',1.2)
+if flag_overlapping
+    plot(tvec,combinedSourceTS,'k--','LineWidth',1.2)
+else
+    plot(tvec,sourceTS(2,:),'k--','LineWidth',1.2)
+end
 hold on
 plot(tvec,FREQts(2,:),'b','LineWidth',1)
 if silenceduration > 0
@@ -338,10 +390,16 @@ end
 ylim([-1.1 1.1])
 xlabel('Time (s)')
 ylabel('Normalized amplitude')
-title({'Source B injected oscillation (black) and raw FREQ.ts (blue)', ...
-       ['Component #' num2str(comporder(2)) ': r = ' ...
-        num2str(FREQcorr_ts(2),2) ', selectivity = ' ...
-        num2str(FREQselectivity(2),2)]})
+if flag_overlapping
+    title({'Combined phase-reset signal (black) and component #2 (blue)', ...
+           ['Residual component correlation: r = ' ...
+            num2str(FREQcorr_ts(2),2)]})
+else
+    title({'Source B injected oscillation (black) and raw FREQ.ts (blue)', ...
+           ['Component #' num2str(comporder(2)) ': r = ' ...
+            num2str(FREQcorr_ts(2),2) ', selectivity = ' ...
+            num2str(FREQselectivity(2),2)]})
+end
 
 if silenceduration > 0
     transitionlabel = [num2str(silenceduration) '-s silence'];
@@ -350,21 +408,35 @@ else
 end
 sgtitle(['FREQ-NESS stationarity test with ' transitionlabel ' and ' ...
          num2str(rad2deg(phasedifference)) '-deg phase offset at ' ...
-         num2str(FREQ.frex(targetfrexi)) ' Hz'])
+         num2str(FREQ.frex(targetfrexi)) ' Hz; naway = ' num2str(naway)])
 
 
 %% Report assessment
 
 fprintf('\nFREQ-NESS stationarity assessment at %.1f Hz\n',FREQ.frex(targetfrexi));
 fprintf('Source B phase offset: %.1f degrees\n',rad2deg(phasedifference));
+fprintf('Neighbor-rank spacing: %d\n',naway);
+fprintf('Source separation: %.3f mm\n',selecteddistance(2));
 fprintf('Source projection correlation: %.3f\n', ...
         abs(corr(fwd_weights(:,1),fwd_weights(:,2))));
-fprintf('Component #%d / Source A time-series correlation: %.3f\n', ...
-        comporder(1),FREQcorr_ts(1));
-fprintf('Component #%d / Source B time-series correlation: %.3f\n', ...
-        comporder(2),FREQcorr_ts(2));
-fprintf('Source A component first-half selectivity: %.3f\n',FREQselectivity(1));
-fprintf('Source B component second-half selectivity: %.3f\n',FREQselectivity(2));
+fprintf('Effective dimensionality: %.3f\n',targetED);
+fprintf('Top two eigenvalues: %.3f%% and %.3f%%\n', ...
+        targetevals(1),targetevals(2));
+if flag_overlapping
+    fprintf('Component #1 / combined signal correlation: %.3f\n', ...
+            FREQcorr_ts(1));
+    fprintf('Component #2 / combined signal correlation: %.3f\n', ...
+            FREQcorr_ts(2));
+else
+    fprintf('Component #%d / Source A time-series correlation: %.3f\n', ...
+            comporder(1),FREQcorr_ts(1));
+    fprintf('Component #%d / Source B time-series correlation: %.3f\n', ...
+            comporder(2),FREQcorr_ts(2));
+    fprintf('Source A component first-half selectivity: %.3f\n', ...
+            FREQselectivity(1));
+    fprintf('Source B component second-half selectivity: %.3f\n', ...
+            FREQselectivity(2));
+end
 if silenceduration > 0
     fprintf('Component #1 silent-interval RMS: %.3f\n',FREQsilence(1));
     fprintf('Component #2 silent-interval RMS: %.3f\n\n',FREQsilence(2));
@@ -379,6 +451,7 @@ nphaseoffsets = length(phaseoffsets);
 [paramTimeCorrelation,paramSelectivity,paramPatternCorrelation] = ...
     deal(nan(nphaseoffsets,nsources));
 paramEvals = nan(nphaseoffsets,nsources);
+paramED = nan(nphaseoffsets,1);
 paramSubspaceAngles = nan(nphaseoffsets,nsources);
 paramCompOrder = nan(nphaseoffsets,nsources);
 paramFREQts = nan(nphaseoffsets,nsources,npnts);
@@ -408,22 +481,39 @@ for phasei = 1:nphaseoffsets
                                            'regularisation',regularisation, ...
                                            'ncomps',ncomps);
 
+    [~,this_ED] = FREQNESS_EntropyLandscape(this_FREQ);
+    close(gcf)
+    paramED(phasei) = this_ED(targetfrexi,1);
+
     this_targetPats = squeeze(this_FREQ.pats(:,1:2,targetfrexi,1));
     this_targetTs = squeeze(this_FREQ.ts(1:2,:,targetfrexi,1));
 
-    % Match components to the two source signals independently per run
-    this_corrmatrix = abs(corr(this_targetTs',this_sources'));
-    this_comporder = 1:2;
-    if sum(diag(this_corrmatrix)) < ...
-            sum(diag(fliplr(this_corrmatrix)))
-        this_comporder = [2 1];
+    if flag_overlapping
+
+        % Rank-one ground truth: assess both eigenvalue-ordered components
+        this_comporder = 1:2;
+        this_matchedPats = this_targetPats;
+        this_matchedTs = this_targetTs;
+        this_combinedSource = sum(this_sources,1);
+        this_corrsigned = corr(this_matchedTs',this_combinedSource');
+        paramTimeCorrelation(phasei,:) = abs(this_corrsigned)';
+
+    else
+
+        % Match components to two spatially distinct source signals
+        this_corrmatrix = abs(corr(this_targetTs',this_sources'));
+        this_comporder = 1:2;
+        if sum(diag(this_corrmatrix)) < ...
+                sum(diag(fliplr(this_corrmatrix)))
+            this_comporder = [2 1];
+        end
+        this_matchedPats = this_targetPats(:,this_comporder);
+        this_matchedTs = this_targetTs(this_comporder,:);
+        this_corrsigned = diag(corr(this_matchedTs',this_sources'));
+        paramTimeCorrelation(phasei,:) = abs(this_corrsigned)';
+
     end
     paramCompOrder(phasei,:) = this_comporder;
-
-    this_matchedPats = this_targetPats(:,this_comporder);
-    this_matchedTs = this_targetTs(this_comporder,:);
-    this_corrsigned = diag(corr(this_matchedTs',this_sources'));
-    paramTimeCorrelation(phasei,:) = abs(this_corrsigned)';
 
     % Resolve component signs and compute epoch selectivity
     this_sign = sign(this_corrsigned);
@@ -434,9 +524,18 @@ for phasei = 1:nphaseoffsets
     this_FREQts = this_FREQts ./ this_FREQtsmax;
     paramFREQts(phasei,:,:) = this_FREQts;
 
-    this_sourceTSmax = max(abs(this_sources),[],2);
-    this_sourceTSmax(this_sourceTSmax == 0) = 1;
-    paramSourceTs(phasei,:,:) = this_sources ./ this_sourceTSmax;
+    if flag_overlapping
+        this_sourceTSmax = max(abs(this_combinedSource));
+        paramSourceTs(phasei,1,:) = ...
+            this_combinedSource ./ this_sourceTSmax;
+        paramSourceTs(phasei,2,:) = ...
+            this_combinedSource ./ this_sourceTSmax;
+    else
+        this_sourceTSmax = max(abs(this_sources),[],2);
+        this_sourceTSmax(this_sourceTSmax == 0) = 1;
+        paramSourceTs(phasei,:,:) = ...
+            this_sources ./ this_sourceTSmax;
+    end
 
     this_activity = [sqrt(mean(this_FREQts(1,firsthalfidx).^2)) ...
                      sqrt(mean(this_FREQts(1,secondhalfidx).^2));
@@ -446,13 +545,23 @@ for phasei = 1:nphaseoffsets
         [this_activity(1,1)/sum(this_activity(1,:)) ...
          this_activity(2,2)/sum(this_activity(2,:))];
 
-    % Spatial-pattern and two-dimensional subspace recovery
-    paramPatternCorrelation(phasei,:) = ...
-        abs(diag(corr(this_matchedPats,fwd_weights)))';
+    % Spatial-pattern and ground-truth subspace recovery
+    if flag_overlapping
+        paramPatternCorrelation(phasei,:) = ...
+            abs(corr(this_matchedPats,fwd_weights(:,1)))';
+    else
+        paramPatternCorrelation(phasei,:) = ...
+            abs(diag(corr(this_matchedPats,fwd_weights)))';
+    end
+    groundtruthSpatialBasis = orth(fwd_weights);
+    estimatedSpatialBasis = ...
+        orth(this_targetPats(:,1:size(groundtruthSpatialBasis,2)));
     this_subspacesingular = ...
-        svd(orth(fwd_weights)'*orth(this_targetPats));
+        svd(groundtruthSpatialBasis'*estimatedSpatialBasis);
     this_subspacesingular = min(max(this_subspacesingular,-1),1);
-    paramSubspaceAngles(phasei,:) = acosd(this_subspacesingular)';
+    this_subspaceangles = acosd(this_subspacesingular)';
+    paramSubspaceAngles(phasei,1:length(this_subspaceangles)) = ...
+        this_subspaceangles;
 
     paramEvals(phasei,:) = ...
         squeeze(this_FREQ.evals(1:2,targetfrexi,1))';
@@ -466,6 +575,61 @@ phaseoffsetdegrees = rad2deg(phaseoffsets);
 
 figure(4), clf
 set(gcf,'Position',[100 100 1200 800])
+
+if flag_overlapping
+
+subplot(2,2,1)
+plot(phaseoffsetdegrees,paramTimeCorrelation(:,1),'-or', ...
+     'LineWidth',1.5,'MarkerFaceColor','r')
+hold on
+plot(phaseoffsetdegrees,paramTimeCorrelation(:,2),'-ob', ...
+     'LineWidth',1.5,'MarkerFaceColor','b')
+ylabel('Absolute time-series correlation')
+title('Combined phase-reset signal recovery')
+ylim([0 1.05])
+legend('Component #1','Component #2','Location','best')
+grid on
+xticks(0:30:330)
+xlim([0 330])
+
+subplot(2,2,2)
+plot(phaseoffsetdegrees,paramED,'-ok','LineWidth',1.5, ...
+     'MarkerFaceColor','k')
+ylabel('Effective dimensionality (ED)')
+title('Dimensionality of the shared-dipole signal')
+grid on
+xticks(0:30:330)
+xlim([0 330])
+
+subplot(2,2,3)
+plot(phaseoffsetdegrees,paramPatternCorrelation(:,1),'-or', ...
+     'LineWidth',1.5,'MarkerFaceColor','r')
+hold on
+plot(phaseoffsetdegrees,paramPatternCorrelation(:,2),'-ob', ...
+     'LineWidth',1.5,'MarkerFaceColor','b')
+xlabel('Source B phase offset (degrees)')
+ylabel('Absolute pattern correlation')
+title('Recovery of the shared spatial pattern')
+ylim([0 1.05])
+grid on
+xticks(0:30:330)
+xlim([0 330])
+
+subplot(2,2,4)
+plot(phaseoffsetdegrees,paramEvals(:,1),'-or', ...
+     'LineWidth',1.5,'MarkerFaceColor','r')
+hold on
+plot(phaseoffsetdegrees,paramEvals(:,2),'-ob', ...
+     'LineWidth',1.5,'MarkerFaceColor','b')
+xlabel('Source B phase offset (degrees)')
+ylabel('Explained variance (%)')
+title('Leading eigenvalues')
+legend('Component #1','Component #2','Location','best')
+grid on
+xticks(0:30:330)
+xlim([0 330])
+
+else
 
 subplot(2,2,1)
 plot(phaseoffsetdegrees,paramTimeCorrelation(:,1),'-or', ...
@@ -528,8 +692,10 @@ grid on
 xticks(0:30:330)
 xlim([0 330])
 
+end
+
 sgtitle(['Parametric FREQ-NESS stationarity test at ' ...
-         num2str(FREQ.frex(targetfrexi)) ' Hz'])
+         num2str(FREQ.frex(targetfrexi)) ' Hz; naway = ' num2str(naway)])
 
 
 %% Visualize raw FREQ.ts for every tested phase offset
@@ -537,7 +703,11 @@ sgtitle(['Parametric FREQ-NESS stationarity test at ' ...
 figure(5), clf
 set(gcf,'Position',[50 50 1600 1200])
 phaseplots = tiledlayout(4,3,'TileSpacing','compact','Padding','compact');
-componentoffset = [0; 2.5];
+if flag_overlapping
+    componentoffset = [0; 2.5; 5];
+else
+    componentoffset = [0; 2.5];
+end
 
 for phasei = 1:nphaseoffsets
 
@@ -546,35 +716,62 @@ for phasei = 1:nphaseoffsets
     this_sourceTS = squeeze(paramSourceTs(phasei,:,:));
     this_FREQts = squeeze(paramFREQts(phasei,:,:));
 
-    sourcehandle = plot(tvec,this_sourceTS(1,:)+componentoffset(1), ...
-                        'k--','LineWidth',.8);
-    plot(tvec,this_sourceTS(2,:)+componentoffset(2), ...
-         'k--','LineWidth',.8)
-    freqAhandle = plot(tvec,this_FREQts(1,:)+componentoffset(1), ...
-                       'r','LineWidth',.8);
-    freqBhandle = plot(tvec,this_FREQts(2,:)+componentoffset(2), ...
-                       'b','LineWidth',.8);
+    if flag_overlapping
+        sourcehandle = plot(tvec,this_sourceTS(1,:)+componentoffset(1), ...
+                            'k--','LineWidth',.8);
+        freqAhandle = plot(tvec,this_FREQts(1,:)+componentoffset(2), ...
+                           'r','LineWidth',.8);
+        freqBhandle = plot(tvec,this_FREQts(2,:)+componentoffset(3), ...
+                           'b','LineWidth',.8);
+    else
+        sourcehandle = plot(tvec,this_sourceTS(1,:)+componentoffset(1), ...
+                            'k--','LineWidth',.8);
+        plot(tvec,this_sourceTS(2,:)+componentoffset(2), ...
+             'k--','LineWidth',.8)
+        freqAhandle = plot(tvec,this_FREQts(1,:)+componentoffset(1), ...
+                           'r','LineWidth',.8);
+        freqBhandle = plot(tvec,this_FREQts(2,:)+componentoffset(2), ...
+                           'b','LineWidth',.8);
+    end
     xline(switchtime,'k:')
 
-    xlim([0 Tsim])
-    ylim([-1.2 3.7])
-    yticks(componentoffset)
-    yticklabels({'Source A';'Source B'})
-    title({[num2str(phaseoffsetdegrees(phasei)) '-deg offset'], ...
-           ['FREQ components ' num2str(paramCompOrder(phasei,1)) ...
-            '/' num2str(paramCompOrder(phasei,2)) ...
-            ', selectivity ' ...
-            num2str(paramSelectivity(phasei,1),'%.2f') ...
-            '/' num2str(paramSelectivity(phasei,2),'%.2f')]})
+    if flag_overlapping
+        xlim([switchtime-transitionplotwindow ...
+              switchtime+transitionplotwindow])
+        ylim([-1.2 6.2])
+        yticks(componentoffset)
+        yticklabels({'Injected';'Component 1';'Component 2'})
+        title({[num2str(phaseoffsetdegrees(phasei)) '-deg offset'], ...
+               ['r = ' num2str(paramTimeCorrelation(phasei,1),'%.2f') ...
+                '/' num2str(paramTimeCorrelation(phasei,2),'%.2f') ...
+                ', ED = ' num2str(paramED(phasei),'%.2f')]})
+    else
+        xlim([0 Tsim])
+        ylim([-1.2 3.7])
+        yticks(componentoffset)
+        yticklabels({'Source A';'Source B'})
+        title({[num2str(phaseoffsetdegrees(phasei)) '-deg offset'], ...
+               ['FREQ components ' num2str(paramCompOrder(phasei,1)) ...
+                '/' num2str(paramCompOrder(phasei,2)) ...
+                ', selectivity ' ...
+                num2str(paramSelectivity(phasei,1),'%.2f') ...
+                '/' num2str(paramSelectivity(phasei,2),'%.2f')]})
+    end
 
     if phasei > nphaseoffsets-3
         xlabel('Time (s)')
     end
 
     if phasei == 1
-        legend([sourcehandle freqAhandle freqBhandle], ...
-               {'Injected sources','Matched FREQ.ts A', ...
-                'Matched FREQ.ts B'},'Location','best')
+        if flag_overlapping
+            legend([sourcehandle freqAhandle freqBhandle], ...
+                   {'Combined injected signal','FREQ.ts component #1', ...
+                    'FREQ.ts component #2'},'Location','best')
+        else
+            legend([sourcehandle freqAhandle freqBhandle], ...
+                   {'Injected sources','Matched FREQ.ts A', ...
+                    'Matched FREQ.ts B'},'Location','best')
+        end
     end
 
 end
@@ -582,18 +779,32 @@ end
 
 title(phaseplots,{['Raw FREQ.ts across source-B phase offsets at ' ...
                    num2str(FREQ.frex(targetfrexi)) ' Hz'], ...
-                  'Black dashed: injected oscillations; vertical line: switch'})
+                  ['Black dashed: injected oscillation; vertical line: ' ...
+                   'phase transition']})
 
 
 %% Report parametric phase-offset experiment
 
-[~,bestphasei] = max(mean(paramSelectivity,2));
-[~,worstphasei] = min(mean(paramSelectivity,2));
-
 fprintf('Parametric source-B phase-offset experiment\n');
-fprintf('Best mean selectivity: %.3f at %.1f degrees\n', ...
-        mean(paramSelectivity(bestphasei,:)), ...
-        phaseoffsetdegrees(bestphasei));
-fprintf('Lowest mean selectivity: %.3f at %.1f degrees\n\n', ...
-        mean(paramSelectivity(worstphasei,:)), ...
-        phaseoffsetdegrees(worstphasei));
+if flag_overlapping
+    fprintf('ED range across phases: %.3f-%.3f\n', ...
+            min(paramED),max(paramED));
+    fprintf('Component #1 combined-signal correlation range: %.3f-%.3f\n', ...
+            min(paramTimeCorrelation(:,1)), ...
+            max(paramTimeCorrelation(:,1)));
+    fprintf('Component #2 combined-signal correlation range: %.3f-%.3f\n', ...
+            min(paramTimeCorrelation(:,2)), ...
+            max(paramTimeCorrelation(:,2)));
+    fprintf('Component #1 shared-pattern correlation range: %.3f-%.3f\n\n', ...
+            min(paramPatternCorrelation(:,1)), ...
+            max(paramPatternCorrelation(:,1)));
+else
+    [~,bestphasei] = max(mean(paramSelectivity,2));
+    [~,worstphasei] = min(mean(paramSelectivity,2));
+    fprintf('Best mean selectivity: %.3f at %.1f degrees\n', ...
+            mean(paramSelectivity(bestphasei,:)), ...
+            phaseoffsetdegrees(bestphasei));
+    fprintf('Lowest mean selectivity: %.3f at %.1f degrees\n\n', ...
+            mean(paramSelectivity(worstphasei,:)), ...
+            phaseoffsetdegrees(worstphasei));
+end
