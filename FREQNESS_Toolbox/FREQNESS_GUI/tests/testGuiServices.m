@@ -359,8 +359,10 @@ visibilityCleanup = onCleanup( ...
 
 report = freqnessgui.runSecondaryAnalysis( ...
     networkSet,configuration,[],[]);
+verifyEqual(testCase,report.status,'completed');
 verifyEqual(testCase,report.nCompleted,2);
 verifyEqual(testCase,report.nFailed,0);
+verifyEqual(testCase,report.nCancelled,0);
 verifyTrue(testCase,isfile(report.groupOutputFile));
 verifyTrue(testCase,isfile(report.manifestFile));
 
@@ -374,6 +376,47 @@ for participanti = 1:numel(participantIds)
 end
 loadedManifest = load(report.manifestFile,'manifest');
 verifyEqual(testCase,loadedManifest.manifest.status,'completed');
+
+unchangedManifest = freqnessgui.markSecondaryAnalysisCancelled( ...
+    configuration,'Late cancellation must not replace completion.');
+verifyEqual(testCase,unchangedManifest.status,'completed');
+end
+
+function testCancellationPersistsCancelledManifest(testCase)
+temporaryRoot = tempname;
+mkdir(temporaryRoot);
+cleanup = onCleanup(@()rmdir(temporaryRoot,'s')); %#ok<NASGU>
+networkFolder = fullfile(temporaryRoot,'FREQ_Networks_Cancel');
+mkdir(networkFolder);
+participantIds = {'sub-001','sub-002'};
+for participanti = 1:numel(participantIds)
+    FREQ = syntheticFREQ(participanti); %#ok<NASGU>
+    participant = struct('id',participantIds{participanti}); %#ok<NASGU>
+    save(fullfile(networkFolder, ...
+        [participantIds{participanti} '_FREQ.mat']),'FREQ','participant');
+end
+networkSet = freqnessgui.inspectNetworkFolder(networkFolder);
+moduleFolder = fullfile(networkSet.analysisFolder,'EntropyLandscape');
+context = struct('frequencies',networkSet.frequencies, ...
+    'nComponents',networkSet.nComponents);
+configuration = defaultSecondaryConfiguration( ...
+    'entropy',context,moduleFolder,participantIds);
+cancellationFile = freqnessgui.prepareSecondaryCancellation(moduleFolder);
+progressFcn = @(~,message)cancelAfterFirstParticipant( ...
+    message,cancellationFile);
+
+report = freqnessgui.runSecondaryAnalysis( ...
+    networkSet,configuration,[],progressFcn,@()isfile(cancellationFile));
+verifyEqual(testCase,report.status,'cancelled');
+verifyEqual(testCase,report.nCompleted,0);
+verifyEqual(testCase,report.nFailed,0);
+verifyEqual(testCase,report.nCancelled,2);
+verifyFalse(testCase,isfile(report.groupOutputFile));
+
+loadedManifest = load(report.manifestFile,'manifest');
+verifyEqual(testCase,loadedManifest.manifest.status,'cancelled');
+verifyTrue(testCase,all(strcmp( ...
+    {loadedManifest.manifest.participants.status},'cancelled')));
 end
 
 function FREQ = syntheticFREQ(scaleFactor)
@@ -409,6 +452,12 @@ for fieldi = 1:numel(columnFields)
     CFC.(columnFields{fieldi}) = zeros(3,2);
 end
 CFC.lfo_phase = zeros(10,2);
+end
+
+function cancelAfterFirstParticipant(message,cancellationFile)
+if contains(message,'Loaded participant #1/') && ~isfile(cancellationFile)
+    freqnessgui.requestSecondaryCancellation(cancellationFile);
+end
 end
 
 function configuration = defaultSecondaryConfiguration( ...

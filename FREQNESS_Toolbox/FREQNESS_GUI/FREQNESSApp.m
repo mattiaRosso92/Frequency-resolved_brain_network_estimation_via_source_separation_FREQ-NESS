@@ -72,8 +72,18 @@ classdef FREQNESSApp < handle
         SecondaryModuleOutputField
         SecondaryValidationLabel
         SecondaryValidateButton
+        SecondaryBackgroundCheckBox
         SecondaryRunButton
         SecondaryProgressTextArea
+        SecondaryProcess
+        SecondaryProcessTimer
+        SecondaryProcessControl
+        SecondaryLastProgressSequence = 0
+        SecondaryCancellationFile = ''
+        SecondaryCancelRequested = false
+        SecondaryCancelTic
+        SecondaryRunInBackground = false
+        SecondaryRunConfiguration
 
         FooterStatusLabel
     end
@@ -107,6 +117,7 @@ classdef FREQNESSApp < handle
         end
 
         function delete(app)
+            app.shutdownSecondaryExecution();
             if ~isempty(app.UIFigure) && isvalid(app.UIFigure)
                 app.UIFigure.CloseRequestFcn = '';
                 delete(app.UIFigure);
@@ -640,8 +651,8 @@ classdef FREQNESSApp < handle
                 'FontWeight','bold', ...
                 'BackgroundColor',[1 1 1]);
             readinessPanel.Layout.Column = 3;
-            readinessGrid = uigridlayout(readinessPanel,[8 1]);
-            readinessGrid.RowHeight = {20,112,20,34,44,40,34,'1x'};
+            readinessGrid = uigridlayout(readinessPanel,[9 1]);
+            readinessGrid.RowHeight = {20,112,20,34,44,24,40,34,'1x'};
             readinessGrid.Padding = [10 8 10 8];
             readinessGrid.RowSpacing = 6;
 
@@ -664,12 +675,25 @@ classdef FREQNESSApp < handle
                 'FontColor',colors.muted, ...
                 'WordWrap','on');
             app.SecondaryValidationLabel.Layout.Row = 5;
+            backgroundAvailable = freqnessgui.secondaryBackgroundAvailable();
+            app.SecondaryBackgroundCheckBox = uicheckbox(readinessGrid, ...
+                'Text','Run in background (keeps the GUI responsive)', ...
+                'Value',backgroundAvailable, ...
+                'Enable','on', ...
+                'Tooltip',['Recommended for long analyses. Clear this box ' ...
+                'to run synchronously in the current MATLAB session.']);
+            if ~backgroundAvailable
+                app.SecondaryBackgroundCheckBox.Text = ...
+                    'Background execution unavailable in this MATLAB installation';
+                app.SecondaryBackgroundCheckBox.Enable = 'off';
+            end
+            app.SecondaryBackgroundCheckBox.Layout.Row = 6;
             app.SecondaryValidateButton = uibutton(readinessGrid,'push', ...
                 'Text','Validate Configuration', ...
                 'Enable','off', ...
                 'FontWeight','bold', ...
                 'ButtonPushedFcn',@(~,~)app.validateSecondaryConfiguration());
-            app.SecondaryValidateButton.Layout.Row = 6;
+            app.SecondaryValidateButton.Layout.Row = 7;
             app.SecondaryRunButton = uibutton(readinessGrid,'push', ...
                 'Text','Run Analysis', ...
                 'Enable','off', ...
@@ -677,15 +701,15 @@ classdef FREQNESSApp < handle
                 'FontColor',[1 1 1], ...
                 'BackgroundColor',colors.blue, ...
                 'Tooltip','Run the selected analysis and persist its outputs.', ...
-                'ButtonPushedFcn',@(~,~)app.runSecondaryAnalysis());
-            app.SecondaryRunButton.Layout.Row = 7;
+                'ButtonPushedFcn',@(~,~)app.handleSecondaryRunButton());
+            app.SecondaryRunButton.Layout.Row = 8;
             app.SecondaryProgressTextArea = uitextarea(readinessGrid, ...
                 'Editable','off', ...
                 'Value',{'Validate a configuration, then run the analysis.', ...
                     'Participant and group outputs will be saved automatically.'}, ...
                 'FontName','Courier New', ...
                 'FontSize',10);
-            app.SecondaryProgressTextArea.Layout.Row = 8;
+            app.SecondaryProgressTextArea.Layout.Row = 9;
 
             footer = uilabel(pageGrid, ...
                 'Text','Secondary analyses use one derived output subfolder per backend function.', ...
@@ -1473,6 +1497,16 @@ classdef FREQNESSApp < handle
             end
         end
 
+        function handleSecondaryRunButton(app)
+            if app.IsRunning
+                if app.SecondaryRunInBackground
+                    app.requestSecondaryCancellation();
+                end
+                return
+            end
+            app.runSecondaryAnalysis();
+        end
+
         function runSecondaryAnalysis(app)
             if app.IsRunning
                 return
@@ -1489,28 +1523,269 @@ classdef FREQNESSApp < handle
             if ~isempty(app.MNI)
                 mniCoordinates = app.MNI.coordinates;
             end
-            app.setSecondaryRunningState(true);
+            useBackground = app.SecondaryBackgroundCheckBox.Value && ...
+                freqnessgui.secondaryBackgroundAvailable();
+            if useBackground
+                app.startSecondaryBackgroundAnalysis( ...
+                    configuration,mniCoordinates);
+            else
+                app.runSecondarySynchronously(configuration,mniCoordinates);
+            end
+        end
+
+        function runSecondarySynchronously(app,configuration,mniCoordinates)
+            app.setSecondaryRunningState(true,false);
             runningCleanup = onCleanup( ...
                 @()app.setSecondaryRunningState(false));
             try
+                app.updateSecondaryProgress(0, ...
+                    ['Running synchronously; the GUI will resume when ' ...
+                    'the backend function returns.']);
                 report = freqnessgui.runSecondaryAnalysis( ...
                     app.NetworkSet,configuration,mniCoordinates, ...
                     @app.updateSecondaryProgress);
-                summary = sprintf( ...
-                    'Finished: %d participant output(s), %d figure(s).', ...
-                    report.nCompleted,numel(report.figureFiles));
                 clear runningCleanup
-                app.SecondaryValidationLabel.Text = summary;
-                app.SecondaryValidationLabel.FontColor = [0.125 0.545 0.365];
-                app.FooterStatusLabel.Text = summary;
+                app.showSecondaryReport(report);
             catch exception
                 clear runningCleanup
-                app.SecondaryValidationLabel.Text = exception.message;
-                app.SecondaryValidationLabel.FontColor = [0.78 0.24 0.16];
-                app.FooterStatusLabel.Text = exception.message;
-                uialert(app.UIFigure,exception.message, ...
-                    'Secondary-analysis error');
+                app.showSecondaryError(exception);
             end
+        end
+
+        function startSecondaryBackgroundAnalysis( ...
+                app,configuration,mniCoordinates)
+            app.SecondaryCancelRequested = false;
+            app.SecondaryRunConfiguration = configuration;
+            try
+                app.SecondaryCancellationFile = ...
+                    freqnessgui.prepareSecondaryCancellation( ...
+                    configuration.outputFolder);
+                app.setSecondaryRunningState(true,true);
+                [process,control] = ...
+                    freqnessgui.launchSecondaryAnalysisProcess( ...
+                    app.NetworkSet,configuration,mniCoordinates, ...
+                    app.SecondaryCancellationFile);
+                app.SecondaryProcess = process;
+                app.SecondaryProcessControl = control;
+                pollTimer = timer( ...
+                    'Name','FREQNESS secondary-analysis monitor', ...
+                    'ExecutionMode','fixedSpacing', ...
+                    'Period',0.25, ...
+                    'BusyMode','drop', ...
+                    'TimerFcn',@(~,~)app.pollSecondaryProcess());
+                app.SecondaryProcessTimer = pollTimer;
+                app.SecondaryLastProgressSequence = 0;
+                app.updateSecondaryProgress(0, ...
+                    ['Background MATLAB process started. The GUI remains responsive; ' ...
+                    'press Cancel Analysis to stop safely.']);
+                start(pollTimer);
+            catch exception
+                if app.isSecondaryProcessAlive()
+                    try
+                        app.SecondaryProcess.destroyForcibly();
+                        app.SecondaryProcess.waitFor();
+                    catch
+                        % Continue cleanup and report the startup error.
+                    end
+                end
+                app.cleanupSecondaryProcessState();
+                app.setSecondaryRunningState(false);
+                app.showSecondaryError(exception);
+            end
+        end
+
+        function requestSecondaryCancellation(app)
+            if ~app.IsRunning || ~app.SecondaryRunInBackground || ...
+                    app.SecondaryCancelRequested
+                return
+            end
+            app.SecondaryCancelRequested = true;
+            app.SecondaryRunButton.Text = 'Cancelling...';
+            app.SecondaryRunButton.Enable = 'off';
+            app.updateSecondaryProgress(1, ...
+                ['Cancellation requested. Completed atomic outputs will be ' ...
+                'retained; pending work will be marked cancelled.']);
+            try
+                freqnessgui.requestSecondaryCancellation( ...
+                    app.SecondaryCancellationFile);
+            catch exception
+                app.updateSecondaryProgress(1,sprintf( ...
+                    'Could not create the cancellation marker: %s', ...
+                    exception.message));
+            end
+            app.SecondaryCancelTic = tic;
+        end
+
+        function pollSecondaryProcess(app)
+            if isempty(app.SecondaryProcess)
+                return
+            end
+            app.relaySecondaryProcessProgress();
+            processIsAlive = app.isSecondaryProcessAlive();
+            if app.SecondaryCancelRequested && processIsAlive && ...
+                    ~isempty(app.SecondaryCancelTic)
+                cancellationWait = toc(app.SecondaryCancelTic);
+                if cancellationWait > 2
+                    try
+                        app.SecondaryProcess.destroyForcibly();
+                    catch
+                        % Poll again; the process may have just stopped.
+                    end
+                elseif cancellationWait > 0.75
+                    try
+                        app.SecondaryProcess.destroy();
+                    catch
+                        % Poll again; the process may have just stopped.
+                    end
+                end
+                processIsAlive = app.isSecondaryProcessAlive();
+            end
+            if processIsAlive
+                return
+            end
+            cancellationRequested = app.SecondaryCancelRequested;
+            configuration = app.SecondaryRunConfiguration;
+            control = app.SecondaryProcessControl;
+            workerResult = struct();
+            if isstruct(control) && isfield(control,'resultFile') && ...
+                    isfile(control.resultFile)
+                try
+                    loaded = load(control.resultFile,'workerResult');
+                    workerResult = loaded.workerResult;
+                catch
+                    workerResult = struct();
+                end
+            end
+            if cancellationRequested && ...
+                    (~isfield(workerResult,'status') || ...
+                    ~strcmp(workerResult.status,'completed'))
+                try
+                    manifest = freqnessgui.markSecondaryAnalysisCancelled( ...
+                        configuration, ...
+                        'Cancelled by the user from the FREQ-NESS GUI.');
+                catch manifestException
+                    app.cleanupSecondaryProcessState();
+                    app.setSecondaryRunningState(false);
+                    app.showSecondaryError(manifestException);
+                    return
+                end
+                app.cleanupSecondaryProcessState();
+                app.setSecondaryRunningState(false);
+                app.showSecondaryCancellation(manifest);
+                return
+            end
+            if ~isfield(workerResult,'status')
+                message = app.secondaryProcessFailureMessage(control);
+                app.cleanupSecondaryProcessState();
+                app.setSecondaryRunningState(false);
+                app.showSecondaryError(MException( ...
+                    'FREQNESS:GUI:BackgroundProcessFailed','%s',message));
+                return
+            end
+            switch workerResult.status
+                case {'completed','cancelled'}
+                    report = workerResult.report;
+                    app.cleanupSecondaryProcessState();
+                    app.setSecondaryRunningState(false);
+                    app.showSecondaryReport(report);
+                otherwise
+                    errorInfo = workerResult.error;
+                    app.cleanupSecondaryProcessState();
+                    app.setSecondaryRunningState(false);
+                    app.showSecondaryError(MException( ...
+                        errorInfo.identifier,'%s',errorInfo.message));
+            end
+        end
+
+        function relaySecondaryProcessProgress(app)
+            control = app.SecondaryProcessControl;
+            if ~isstruct(control) || ~isfield(control,'progressFile') || ...
+                    ~isfile(control.progressFile)
+                return
+            end
+            try
+                loaded = load(control.progressFile,'progress');
+                progress = loaded.progress;
+            catch
+                return
+            end
+            if ~isstruct(progress) || ~isfield(progress,'sequence') || ...
+                    progress.sequence <= app.SecondaryLastProgressSequence
+                return
+            end
+            app.SecondaryLastProgressSequence = progress.sequence;
+            app.updateSecondaryProgress(progress.fraction,progress.message);
+        end
+
+        function isAlive = isSecondaryProcessAlive(app)
+            isAlive = false;
+            if isempty(app.SecondaryProcess)
+                return
+            end
+            try
+                isAlive = logical(app.SecondaryProcess.isAlive());
+            catch
+                % A process handle that can no longer be queried is finished.
+            end
+        end
+
+        function message = secondaryProcessFailureMessage(~,control)
+            message = ['The background MATLAB process stopped before it ' ...
+                'reported a result.'];
+            if ~isstruct(control) || ~isfield(control,'logFile') || ...
+                    ~isfile(control.logFile)
+                return
+            end
+            try
+                logText = strtrim(fileread(control.logFile));
+            catch
+                return
+            end
+            if isempty(logText)
+                return
+            end
+            maxCharacters = 1200;
+            if numel(logText) > maxCharacters
+                logText = logText(end-maxCharacters+1:end);
+            end
+            message = sprintf('%s\n\nWorker log:\n%s',message,logText);
+        end
+
+        function showSecondaryReport(app,report)
+            if isfield(report,'status') && strcmp(report.status,'cancelled')
+                loaded = load(report.manifestFile,'manifest');
+                app.showSecondaryCancellation(loaded.manifest);
+                return
+            end
+            summary = sprintf( ...
+                'Finished: %d participant output(s), %d figure(s).', ...
+                report.nCompleted,numel(report.figureFiles));
+            app.SecondaryValidationLabel.Text = summary;
+            app.SecondaryValidationLabel.FontColor = [0.125 0.545 0.365];
+            app.FooterStatusLabel.Text = summary;
+        end
+
+        function showSecondaryCancellation(app,manifest)
+            statuses = {manifest.participants.status};
+            nCompleted = sum(strcmp(statuses,'completed'));
+            nCancelled = sum(strcmp(statuses,'cancelled'));
+            summary = sprintf( ...
+                'Cancelled: %d completed output(s) retained; %d cancelled.', ...
+                nCompleted,nCancelled);
+            app.SecondaryValidationLabel.Text = summary;
+            app.SecondaryValidationLabel.FontColor = [0.72 0.42 0.05];
+            app.FooterStatusLabel.Text = summary;
+            app.updateSecondaryProgress(1,summary);
+            app.SecondaryValidationLabel.Text = summary;
+            app.SecondaryValidationLabel.FontColor = [0.72 0.42 0.05];
+        end
+
+        function showSecondaryError(app,exception)
+            app.SecondaryValidationLabel.Text = exception.message;
+            app.SecondaryValidationLabel.FontColor = [0.78 0.24 0.16];
+            app.FooterStatusLabel.Text = exception.message;
+            uialert(app.UIFigure,exception.message, ...
+                'Secondary-analysis error');
         end
 
         function updateSecondaryProgress(app,fraction,message)
@@ -1533,11 +1808,24 @@ classdef FREQNESSApp < handle
             drawnow limitrate
         end
 
-        function setSecondaryRunningState(app,isRunning)
+        function setSecondaryRunningState(app,isRunning,isBackground)
+            if nargin < 3
+                isBackground = false;
+            end
             app.IsRunning = isRunning;
+            app.SecondaryRunInBackground = isRunning && isBackground;
             if isRunning
-                app.SecondaryRunButton.Enable = 'off';
-                app.SecondaryRunButton.Text = 'Running...';
+                app.SecondaryBackgroundCheckBox.Enable = 'off';
+                if isBackground
+                    app.SecondaryRunButton.Enable = 'on';
+                    app.SecondaryRunButton.Text = 'Cancel Analysis';
+                    app.SecondaryRunButton.BackgroundColor = [0.78 0.24 0.16];
+                    app.SecondaryRunButton.Tooltip = ...
+                        'Cancel the background analysis and retain completed outputs.';
+                else
+                    app.SecondaryRunButton.Enable = 'off';
+                    app.SecondaryRunButton.Text = 'Running...';
+                end
                 app.SecondaryValidateButton.Enable = 'off';
                 app.SecondaryTree.Enable = 'off';
                 app.SecondaryParticipantButton.Enable = 'off';
@@ -1549,6 +1837,12 @@ classdef FREQNESSApp < handle
                     'Starting secondary analysis...'};
             else
                 app.SecondaryRunButton.Text = 'Run Analysis';
+                app.SecondaryRunButton.BackgroundColor = [0.055 0.415 0.690];
+                app.SecondaryRunButton.Tooltip = ...
+                    'Run the selected analysis and persist its outputs.';
+                if freqnessgui.secondaryBackgroundAvailable()
+                    app.SecondaryBackgroundCheckBox.Enable = 'on';
+                end
                 app.SecondaryTree.Enable = 'on';
                 app.NetworkBrowseButton.Enable = 'on';
                 app.DatasetBrowseButton.Enable = 'on';
@@ -1561,6 +1855,67 @@ classdef FREQNESSApp < handle
                 end
                 app.updateSecondaryReadiness();
             end
+        end
+
+        function cleanupSecondaryProcessState(app)
+            if ~isempty(app.SecondaryProcessTimer) && ...
+                    isvalid(app.SecondaryProcessTimer)
+                try
+                    stop(app.SecondaryProcessTimer);
+                catch
+                    % The timer may already have stopped itself.
+                end
+                delete(app.SecondaryProcessTimer);
+            end
+            app.SecondaryProcessTimer = [];
+            app.SecondaryProcess = [];
+            if ~isempty(app.SecondaryCancellationFile) && ...
+                    isfile(app.SecondaryCancellationFile)
+                delete(app.SecondaryCancellationFile);
+            end
+            if isstruct(app.SecondaryProcessControl) && ...
+                    isfield(app.SecondaryProcessControl,'controlFolder') && ...
+                    isfolder(app.SecondaryProcessControl.controlFolder)
+                try
+                    rmdir(app.SecondaryProcessControl.controlFolder,'s');
+                catch
+                    % Temporary control files can be removed on the next run.
+                end
+            end
+            app.SecondaryProcessControl = [];
+            app.SecondaryLastProgressSequence = 0;
+            app.SecondaryCancellationFile = '';
+            app.SecondaryRunConfiguration = [];
+            app.SecondaryCancelRequested = false;
+            app.SecondaryCancelTic = [];
+        end
+
+        function shutdownSecondaryExecution(app)
+            configuration = app.SecondaryRunConfiguration;
+            if app.isSecondaryProcessAlive()
+                try
+                    freqnessgui.requestSecondaryCancellation( ...
+                        app.SecondaryCancellationFile);
+                catch
+                    % Continue with direct process cancellation.
+                end
+                try
+                    app.SecondaryProcess.destroyForcibly();
+                    app.SecondaryProcess.waitFor();
+                catch
+                    % Application shutdown must continue.
+                end
+                if ~isempty(configuration)
+                    try
+                        freqnessgui.markSecondaryAnalysisCancelled( ...
+                            configuration, ...
+                            'Cancelled because the FREQ-NESS GUI was closed.');
+                    catch
+                        % Do not block application shutdown on manifest I/O.
+                    end
+                end
+            end
+            app.cleanupSecondaryProcessState();
         end
 
         function field = addTextSetting(~,parent,row,labelText,defaultValue,tooltipText)

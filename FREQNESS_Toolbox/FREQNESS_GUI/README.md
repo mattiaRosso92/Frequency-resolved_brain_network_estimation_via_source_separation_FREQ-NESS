@@ -54,6 +54,13 @@ the current GUI session.
    - The Run Analysis button combines the selected participant results for
      one group-capable backend call, then persists the group output and each
      participant's extracted numerical output independently.
+   - Background execution is enabled by default when the GUI can launch a
+     separate MATLAB process. Page 2 stays responsive and streams progress
+     from that process; the Run button becomes Cancel Analysis while active.
+   - Cancellation retains already-finalized atomic outputs, marks remaining
+     participants as `cancelled`, and never reports an interrupted run as a
+     numerical failure. Clearing the background checkbox retains a synchronous
+     fallback for installations where a second MATLAB process is undesirable.
 
 ## Output contract
 
@@ -75,6 +82,7 @@ FREQ_Analyses_1/
         sub-001_Visualizer.mat
         sub-002_Visualizer.mat
         FREQNESS_AnalysisManifest.mat
+        FREQNESS_Background.log
         Figures/
     EntropyLandscape/
         Group_EntropyLandscape.mat
@@ -108,10 +116,13 @@ Each secondary-analysis function folder contains:
   output, participant metadata, and complete GUI configuration;
 - `FREQNESS_AnalysisManifest.mat`: execution status and paths for every output;
 - `Figures/`: captured MATLAB figures in editable FIG and PNG formats.
+- `FREQNESS_Background.log`: console output from the most recent background
+  MATLAB process, retained to support diagnosis if that process stops early.
 
 Outputs are written through temporary files and finalized atomically, so an
 interrupted or failed run does not replace an existing completed MAT-file with
-a partially written result.
+a partially written result. A cancelled manifest distinguishes completed and
+cancelled participant outputs, allowing the user to review what was retained.
 
 ## Drag and drop
 
@@ -124,4 +135,6 @@ The data-import, participant-wise network estimation, and secondary-analysis
 paths are functional. The Secondary Analyses page imports network-result
 context, provides grouped function selection, builds and validates
 function-specific configurations, runs the existing numerical functions, and
-persists participant, group, figure, and manifest outputs.
+persists participant, group, figure, and manifest outputs. Secondary analyses
+can run in a responsive background MATLAB process with live progress, safe
+cancellation, synchronous fallback, and automatic process cleanup.

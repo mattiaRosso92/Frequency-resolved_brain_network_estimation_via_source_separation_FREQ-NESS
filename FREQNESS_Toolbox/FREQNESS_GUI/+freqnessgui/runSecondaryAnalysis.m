@@ -1,4 +1,5 @@
-function report = runSecondaryAnalysis(networkSet,configuration,MNI,progressFcn)
+function report = runSecondaryAnalysis( ...
+        networkSet,configuration,MNI,progressFcn,cancellationFcn)
 %RUNSECONDARYANALYSIS Execute and persist one configured secondary analysis.
 
 if nargin < 3
@@ -6,6 +7,14 @@ if nargin < 3
 end
 if nargin < 4 || isempty(progressFcn)
     progressFcn = @(~,~)[];
+end
+if nargin < 5 || isempty(cancellationFcn)
+    cancellationFcn = @()false;
+end
+if ~isa(progressFcn,'function_handle') || ...
+        ~isa(cancellationFcn,'function_handle')
+    error('FREQNESS:GUI:InvalidSecondaryConfig', ...
+        'Progress and cancellation callbacks must be function handles.');
 end
 if ~isstruct(networkSet) || ~isfield(networkSet,'folder') || ...
         ~isfolder(networkSet.folder)
@@ -74,8 +83,10 @@ figuresBefore = findall(groot,'Type','figure');
 figureCleanup = onCleanup(@()closeNewFigures(figuresBefore));
 
 try
+    checkCancellation(cancellationFcn,module.name);
     [participantFREQ,participantMetadata,inputFiles] = ...
-        loadParticipantResults(networkSet,selectedIds,progressFcn);
+        loadParticipantResults(networkSet,selectedIds,progressFcn, ...
+        cancellationFcn,module.name);
     for participanti = 1:nParticipants
         participantResults(participanti).inputFile = inputFiles{participanti};
     end
@@ -85,6 +96,7 @@ try
     saveManifest(manifestFile,manifest);
 
     groupFREQ = freqnessgui.combineParticipantFREQ(participantFREQ);
+    checkCancellation(cancellationFcn,module.name);
     events = [];
     if strcmp(module.id,'induced_responses')
         events = freqnessgui.loadSecondaryEvents( ...
@@ -96,6 +108,7 @@ try
         sourceData = freqnessgui.loadSecondarySourceData( ...
             networkSet,participantMetadata,groupFREQ);
     end
+    checkCancellation(cancellationFcn,module.name);
 
     progressFcn(0.22,sprintf( ...
         'Running %s for %d participant(s); frequencies: %s Hz.', ...
@@ -111,9 +124,11 @@ try
         [outputValues{:}] = feval(call.functionName,call.arguments{:});
         groupOutput = cell2struct(outputValues,call.outputNames,2);
     end
+    checkCancellation(cancellationFcn,module.name);
 
     progressFcn(0.72,'Numerical analysis completed; saving figures.');
     figureFiles = saveNewFigures(figuresBefore,figureFolder);
+    checkCancellation(cancellationFcn,module.name);
     completedAt = timestamp();
     groupPayload = struct( ...
         'groupOutput',groupOutput, ...
@@ -124,6 +139,7 @@ try
     saveAtomic(manifest.groupOutputFile,groupPayload);
 
     for participanti = 1:nParticipants
+        checkCancellation(cancellationFcn,module.name);
         participantOutput = freqnessgui.extractParticipantOutput( ...
             module.id,groupOutput,participanti,nParticipants);
         participant = participantMetadata{participanti};
@@ -141,6 +157,7 @@ try
         progressFcn(0.78+0.20*participanti/nParticipants,sprintf( ...
             'Participant #%d/%d saved: %s.',participanti,nParticipants, ...
             selectedIds{participanti}));
+        checkCancellation(cancellationFcn,module.name);
     end
 
     manifest.status = 'completed';
@@ -151,14 +168,23 @@ try
     saveManifest(manifestFile,manifest);
     progressFcn(1,manifest.message);
 catch exception
+    isCancellation = strcmp(exception.identifier, ...
+        'FREQNESS:GUI:AnalysisCancelled');
+    if isCancellation
+        terminalStatus = 'cancelled';
+        terminalMessage = sprintf('%s cancelled by the user.',module.name);
+    else
+        terminalStatus = 'failed';
+        terminalMessage = exception.message;
+    end
     for participanti = 1:nParticipants
         if strcmp(participantResults(participanti).status,'pending')
-            participantResults(participanti).status = 'failed';
-            participantResults(participanti).message = exception.message;
+            participantResults(participanti).status = terminalStatus;
+            participantResults(participanti).message = terminalMessage;
         end
     end
-    manifest.status = 'failed';
-    manifest.message = exception.message;
+    manifest.status = terminalStatus;
+    manifest.message = terminalMessage;
     manifest.updatedAt = timestamp();
     manifest.participants = participantResults;
     try
@@ -166,8 +192,10 @@ catch exception
     catch
         % Preserve the original analysis exception.
     end
-    progressFcn(1,sprintf('%s failed: %s',module.name,exception.message));
-    rethrow(exception)
+    progressFcn(1,terminalMessage);
+    if ~isCancellation
+        rethrow(exception)
+    end
 end
 
 clear figureCleanup
@@ -181,16 +209,19 @@ report.figureFiles = manifest.figureFiles;
 report.participants = participantResults;
 report.nCompleted = sum(strcmp(statuses,'completed'));
 report.nFailed = sum(strcmp(statuses,'failed'));
+report.nCancelled = sum(strcmp(statuses,'cancelled'));
+report.status = manifest.status;
 
 end
 
 function [participantFREQ,metadata,inputFiles] = loadParticipantResults( ...
-        networkSet,selectedIds,progressFcn)
+        networkSet,selectedIds,progressFcn,cancellationFcn,moduleName)
 nParticipants = numel(selectedIds);
 participantFREQ = cell(1,nParticipants);
 metadata = cell(1,nParticipants);
 inputFiles = cell(1,nParticipants);
 for participanti = 1:nParticipants
+    checkCancellation(cancellationFcn,moduleName);
     participantId = selectedIds{participanti};
     resultIndex = find(strcmp(networkSet.participantIds,participantId),1);
     if isempty(resultIndex)
@@ -222,6 +253,14 @@ for participanti = 1:nParticipants
     progressFcn(0.03+0.15*participanti/nParticipants,sprintf( ...
         'Loaded participant #%d/%d: %s.',participanti,nParticipants, ...
         participantId));
+    checkCancellation(cancellationFcn,moduleName);
+end
+end
+
+function checkCancellation(cancellationFcn,moduleName)
+if cancellationFcn()
+    error('FREQNESS:GUI:AnalysisCancelled', ...
+        '%s was cancelled by the user.',moduleName);
 end
 end
 
