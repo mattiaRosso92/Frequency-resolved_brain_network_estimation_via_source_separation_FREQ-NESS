@@ -44,10 +44,21 @@ classdef FREQNESSApp < handle
         RescaleCheckBox
         RecomputeCheckBox
         NetworkOutputField
+        CoreBackgroundCheckBox
         RunButton
         SecondaryPageButton
         RunStatusLabel
         ProgressTextArea
+        CoreProcess
+        CoreProcessTimer
+        CoreProcessControl
+        CoreLastProgressSequence = 0
+        CoreCancellationFile = ''
+        CoreCancelRequested = false
+        CoreCancelTic
+        CoreRunInBackground = false
+        CoreRunDataset
+        CoreRunConfiguration
 
         NetworkDropLabel
         NetworkPathField
@@ -117,6 +128,7 @@ classdef FREQNESSApp < handle
         end
 
         function delete(app)
+            app.shutdownCoreExecution();
             app.shutdownSecondaryExecution();
             if ~isempty(app.UIFigure) && isvalid(app.UIFigure)
                 app.UIFigure.CloseRequestFcn = '';
@@ -473,8 +485,8 @@ classdef FREQNESSApp < handle
                 'FontWeight','bold', ...
                 'BackgroundColor',[1 1 1]);
             outputPanel.Layout.Column = 3;
-            outputGrid = uigridlayout(outputPanel,[8 1]);
-            outputGrid.RowHeight = {20,34,48,28,48,44,32,'1x'};
+            outputGrid = uigridlayout(outputPanel,[9 1]);
+            outputGrid.RowHeight = {20,34,48,28,48,24,44,32,'1x'};
             outputGrid.Padding = [10 8 10 8];
             outputGrid.RowSpacing = 5;
 
@@ -504,6 +516,20 @@ classdef FREQNESSApp < handle
                 'VerticalAlignment','center');
             app.RunStatusLabel.Layout.Row = 5;
 
+            backgroundAvailable = freqnessgui.backgroundProcessAvailable();
+            app.CoreBackgroundCheckBox = uicheckbox(outputGrid, ...
+                'Text','Run in background (keeps the GUI responsive)', ...
+                'Value',backgroundAvailable, ...
+                'Enable','on', ...
+                'Tooltip',['Recommended for network estimation. Clear this ' ...
+                'box to run synchronously in the current MATLAB session.']);
+            if ~backgroundAvailable
+                app.CoreBackgroundCheckBox.Text = ...
+                    'Background execution unavailable in this MATLAB installation';
+                app.CoreBackgroundCheckBox.Enable = 'off';
+            end
+            app.CoreBackgroundCheckBox.Layout.Row = 6;
+
             app.RunButton = uibutton(outputGrid,'push', ...
                 'Text','Run Network Estimation', ...
                 'Enable','off', ...
@@ -511,22 +537,22 @@ classdef FREQNESSApp < handle
                 'FontWeight','bold', ...
                 'FontColor',[1 1 1], ...
                 'BackgroundColor',colors.blue, ...
-                'ButtonPushedFcn',@(~,~)app.runCoreAnalysis());
-            app.RunButton.Layout.Row = 6;
+                'ButtonPushedFcn',@(~,~)app.handleCoreRunButton());
+            app.RunButton.Layout.Row = 7;
 
             app.SecondaryPageButton = uibutton(outputGrid,'push', ...
                 'Text','Continue to Secondary Analyses  →', ...
                 'FontWeight','bold', ...
                 'FontColor',colors.blue, ...
                 'ButtonPushedFcn',@(~,~)app.openSecondaryPage());
-            app.SecondaryPageButton.Layout.Row = 7;
+            app.SecondaryPageButton.Layout.Row = 8;
 
             app.ProgressTextArea = uitextarea(outputGrid, ...
                 'Editable','off', ...
                 'Value',{'Progress messages will appear here.'}, ...
                 'FontName','Courier New', ...
                 'FontSize',10);
-            app.ProgressTextArea.Layout.Row = 8;
+            app.ProgressTextArea.Layout.Row = 9;
 
             app.applyFrequencyRange([app.Config.network.frequencies(1), ...
                 app.Config.network.frequencies(end)]);
@@ -1816,6 +1842,7 @@ classdef FREQNESSApp < handle
             app.SecondaryRunInBackground = isRunning && isBackground;
             if isRunning
                 app.SecondaryBackgroundCheckBox.Enable = 'off';
+                app.CoreBackgroundCheckBox.Enable = 'off';
                 if isBackground
                     app.SecondaryRunButton.Enable = 'on';
                     app.SecondaryRunButton.Text = 'Cancel Analysis';
@@ -1842,6 +1869,7 @@ classdef FREQNESSApp < handle
                     'Run the selected analysis and persist its outputs.';
                 if freqnessgui.secondaryBackgroundAvailable()
                     app.SecondaryBackgroundCheckBox.Enable = 'on';
+                    app.CoreBackgroundCheckBox.Enable = 'on';
                 end
                 app.SecondaryTree.Enable = 'on';
                 app.NetworkBrowseButton.Enable = 'on';
@@ -2430,6 +2458,16 @@ classdef FREQNESSApp < handle
             end
         end
 
+        function handleCoreRunButton(app)
+            if app.IsRunning
+                if app.CoreRunInBackground
+                    app.requestCoreCancellation();
+                end
+                return
+            end
+            app.runCoreAnalysis();
+        end
+
         function runCoreAnalysis(app)
             if isempty(app.Dataset) || app.IsRunning
                 return
@@ -2444,32 +2482,275 @@ classdef FREQNESSApp < handle
             end
 
             app.Config = config;
-            app.setRunningState(true);
+            useBackground = app.CoreBackgroundCheckBox.Value && ...
+                freqnessgui.backgroundProcessAvailable();
+            if useBackground
+                app.startCoreBackgroundAnalysis(app.Dataset,config);
+            else
+                app.runCoreSynchronously(app.Dataset,config);
+            end
+        end
+
+        function runCoreSynchronously(app,dataset,config)
+            app.setRunningState(true,false);
             runningCleanup = onCleanup(@()app.setRunningState(false));
 
             try
+                app.updateProgress(0, ...
+                    ['Running synchronously; the GUI will resume when ' ...
+                    'network estimation returns.']);
                 report = freqnessgui.runNetworkEstimation( ...
-                    app.Dataset,config,@app.updateProgress);
-                app.importNetworkFolder(report.outputFolder);
-
-                if report.nFailed == 0
-                    summary = sprintf( ...
-                        'Finished: %d completed, %d retained.', ...
-                        report.nCompleted,report.nSkipped);
-                else
-                    summary = sprintf( ...
-                        'Finished with failures: %d completed, %d retained, %d failed.', ...
-                        report.nCompleted,report.nSkipped,report.nFailed);
-                end
-                app.RunStatusLabel.Text = summary;
-                app.FooterStatusLabel.Text = summary;
+                    dataset,config,@app.updateProgress);
+                clear runningCleanup
+                app.showCoreReport(report);
             catch exception
-                app.RunStatusLabel.Text = 'Network estimation stopped.';
-                app.FooterStatusLabel.Text = exception.message;
-                uialert(app.UIFigure,exception.message,'Network estimation error');
+                clear runningCleanup
+                app.showCoreError(exception);
+            end
+        end
+
+        function startCoreBackgroundAnalysis(app,dataset,config)
+            app.CoreCancelRequested = false;
+            app.CoreRunDataset = dataset;
+            app.CoreRunConfiguration = config;
+            try
+                app.CoreCancellationFile = ...
+                    freqnessgui.prepareAnalysisCancellation( ...
+                    config.outputFolder);
+                app.setRunningState(true,true);
+                [process,control] = ...
+                    freqnessgui.launchNetworkEstimationProcess( ...
+                    dataset,config,app.CoreCancellationFile);
+                app.CoreProcess = process;
+                app.CoreProcessControl = control;
+                pollTimer = timer( ...
+                    'Name','FREQNESS network-estimation monitor', ...
+                    'ExecutionMode','fixedSpacing', ...
+                    'Period',0.25, ...
+                    'BusyMode','drop', ...
+                    'TimerFcn',@(~,~)app.pollCoreProcess());
+                app.CoreProcessTimer = pollTimer;
+                app.CoreLastProgressSequence = 0;
+                app.updateProgress(0, ...
+                    ['Background MATLAB process started. The GUI remains responsive; ' ...
+                    'press Cancel Estimation to stop safely.']);
+                start(pollTimer);
+            catch exception
+                if app.isCoreProcessAlive()
+                    try
+                        app.CoreProcess.destroyForcibly();
+                        app.CoreProcess.waitFor();
+                    catch
+                        % Continue cleanup and report the startup error.
+                    end
+                end
+                app.cleanupCoreProcessState();
+                app.setRunningState(false);
+                app.showCoreError(exception);
+            end
+        end
+
+        function requestCoreCancellation(app)
+            if ~app.IsRunning || ~app.CoreRunInBackground || ...
+                    app.CoreCancelRequested
+                return
+            end
+            app.CoreCancelRequested = true;
+            app.RunButton.Text = 'Cancelling...';
+            app.RunButton.Enable = 'off';
+            app.updateProgress(1, ...
+                ['Cancellation requested. Completed and retained participant ' ...
+                'outputs will remain available.']);
+            try
+                freqnessgui.requestAnalysisCancellation( ...
+                    app.CoreCancellationFile);
+            catch exception
+                app.updateProgress(1,sprintf( ...
+                    'Could not create the cancellation marker: %s', ...
+                    exception.message));
+            end
+            app.CoreCancelTic = tic;
+        end
+
+        function pollCoreProcess(app)
+            if isempty(app.CoreProcess)
+                return
+            end
+            app.relayCoreProcessProgress();
+            processIsAlive = app.isCoreProcessAlive();
+            if app.CoreCancelRequested && processIsAlive && ...
+                    ~isempty(app.CoreCancelTic)
+                cancellationWait = toc(app.CoreCancelTic);
+                if cancellationWait > 2
+                    try
+                        app.CoreProcess.destroyForcibly();
+                    catch
+                        % Poll again; the process may have just stopped.
+                    end
+                elseif cancellationWait > 0.75
+                    try
+                        app.CoreProcess.destroy();
+                    catch
+                        % Poll again; the process may have just stopped.
+                    end
+                end
+                processIsAlive = app.isCoreProcessAlive();
+            end
+            if processIsAlive
+                return
             end
 
-            clear runningCleanup
+            cancellationRequested = app.CoreCancelRequested;
+            dataset = app.CoreRunDataset;
+            configuration = app.CoreRunConfiguration;
+            control = app.CoreProcessControl;
+            workerResult = struct();
+            if isstruct(control) && isfield(control,'resultFile') && ...
+                    isfile(control.resultFile)
+                try
+                    loaded = load(control.resultFile,'workerResult');
+                    workerResult = loaded.workerResult;
+                catch
+                    workerResult = struct();
+                end
+            end
+            if cancellationRequested && ...
+                    (~isfield(workerResult,'status') || ...
+                    ~strcmp(workerResult.status,'completed'))
+                try
+                    manifest = freqnessgui.markNetworkEstimationCancelled( ...
+                        dataset,configuration, ...
+                        'Network estimation cancelled from the FREQ-NESS GUI.');
+                catch manifestException
+                    app.cleanupCoreProcessState();
+                    app.setRunningState(false);
+                    app.showCoreError(manifestException);
+                    return
+                end
+                app.cleanupCoreProcessState();
+                app.setRunningState(false);
+                app.showCoreCancellation(manifest);
+                return
+            end
+            if ~isfield(workerResult,'status')
+                message = app.coreProcessFailureMessage(control);
+                app.cleanupCoreProcessState();
+                app.setRunningState(false);
+                app.showCoreError(MException( ...
+                    'FREQNESS:GUI:BackgroundProcessFailed','%s',message));
+                return
+            end
+            switch workerResult.status
+                case {'completed','cancelled'}
+                    report = workerResult.report;
+                    app.cleanupCoreProcessState();
+                    app.setRunningState(false);
+                    app.showCoreReport(report);
+                otherwise
+                    errorInfo = workerResult.error;
+                    app.cleanupCoreProcessState();
+                    app.setRunningState(false);
+                    app.showCoreError(MException( ...
+                        errorInfo.identifier,'%s',errorInfo.message));
+            end
+        end
+
+        function relayCoreProcessProgress(app)
+            control = app.CoreProcessControl;
+            if ~isstruct(control) || ~isfield(control,'progressFile') || ...
+                    ~isfile(control.progressFile)
+                return
+            end
+            try
+                loaded = load(control.progressFile,'progress');
+                progress = loaded.progress;
+            catch
+                return
+            end
+            if ~isstruct(progress) || ~isfield(progress,'sequence') || ...
+                    progress.sequence <= app.CoreLastProgressSequence
+                return
+            end
+            app.CoreLastProgressSequence = progress.sequence;
+            app.updateProgress(progress.fraction,progress.message);
+        end
+
+        function isAlive = isCoreProcessAlive(app)
+            isAlive = false;
+            if isempty(app.CoreProcess)
+                return
+            end
+            try
+                isAlive = logical(app.CoreProcess.isAlive());
+            catch
+                % A process handle that can no longer be queried is finished.
+            end
+        end
+
+        function message = coreProcessFailureMessage(~,control)
+            message = ['The background MATLAB process stopped before it ' ...
+                'reported a network-estimation result.'];
+            if ~isstruct(control) || ~isfield(control,'logFile') || ...
+                    ~isfile(control.logFile)
+                return
+            end
+            try
+                logText = strtrim(fileread(control.logFile));
+            catch
+                return
+            end
+            if isempty(logText)
+                return
+            end
+            maxCharacters = 1200;
+            if numel(logText) > maxCharacters
+                logText = logText(end-maxCharacters+1:end);
+            end
+            message = sprintf('%s\n\nWorker log:\n%s',message,logText);
+        end
+
+        function showCoreReport(app,report)
+            if isfield(report,'status') && strcmp(report.status,'cancelled')
+                loaded = load(report.manifestFile,'manifest');
+                app.showCoreCancellation(loaded.manifest);
+                return
+            end
+            app.importNetworkFolder(report.outputFolder);
+            if report.nFailed == 0
+                summary = sprintf( ...
+                    'Finished: %d completed, %d retained.', ...
+                    report.nCompleted,report.nSkipped);
+            else
+                summary = sprintf( ...
+                    'Finished with failures: %d completed, %d retained, %d failed.', ...
+                    report.nCompleted,report.nSkipped,report.nFailed);
+            end
+            app.RunStatusLabel.Text = summary;
+            app.RunStatusLabel.FontColor = [0.125 0.545 0.365];
+            app.FooterStatusLabel.Text = summary;
+        end
+
+        function showCoreCancellation(app,manifest)
+            statuses = {manifest.participants.status};
+            nCompleted = sum(strcmp(statuses,'completed'));
+            nRetained = sum(strcmp(statuses,'skipped'));
+            nCancelled = sum(strcmp(statuses,'cancelled'));
+            summary = sprintf( ...
+                'Cancelled: %d completed, %d retained, %d cancelled.', ...
+                nCompleted,nRetained,nCancelled);
+            app.RunStatusLabel.Text = summary;
+            app.RunStatusLabel.FontColor = [0.72 0.42 0.05];
+            app.FooterStatusLabel.Text = summary;
+            app.updateProgress(1,summary);
+            app.RunStatusLabel.Text = summary;
+            app.RunStatusLabel.FontColor = [0.72 0.42 0.05];
+        end
+
+        function showCoreError(app,exception)
+            app.RunStatusLabel.Text = 'Network estimation stopped.';
+            app.RunStatusLabel.FontColor = [0.78 0.24 0.16];
+            app.FooterStatusLabel.Text = exception.message;
+            uialert(app.UIFigure,exception.message,'Network estimation error');
         end
 
         function updateProgress(app,fraction,message)
@@ -2490,27 +2771,119 @@ classdef FREQNESSApp < handle
             drawnow limitrate
         end
 
-        function setRunningState(app,isRunning)
+        function setRunningState(app,isRunning,isBackground)
+            if nargin < 3
+                isBackground = false;
+            end
             app.IsRunning = isRunning;
+            app.CoreRunInBackground = isRunning && isBackground;
             if isRunning
-                app.RunButton.Enable = 'off';
-                app.RunButton.Text = 'Running...';
+                app.CoreBackgroundCheckBox.Enable = 'off';
+                if isBackground
+                    app.RunButton.Enable = 'on';
+                    app.RunButton.Text = 'Cancel Estimation';
+                    app.RunButton.BackgroundColor = [0.78 0.24 0.16];
+                    app.RunButton.Tooltip = ...
+                        'Cancel estimation and retain finalized participant outputs.';
+                else
+                    app.RunButton.Enable = 'off';
+                    app.RunButton.Text = 'Running...';
+                end
                 app.DatasetBrowseButton.Enable = 'off';
                 app.MNIBrowseButton.Enable = 'off';
                 app.NetworkBrowseButton.Enable = 'off';
+                app.SecondaryBackgroundCheckBox.Enable = 'off';
+                app.SecondaryValidateButton.Enable = 'off';
+                app.SecondaryRunButton.Enable = 'off';
+                app.SecondaryTree.Enable = 'off';
+                app.SecondaryParticipantButton.Enable = 'off';
                 app.ProgressTextArea.Value = {'Starting network estimation...'};
             else
                 app.RunButton.Text = 'Run Network Estimation';
+                app.RunButton.BackgroundColor = [0.055 0.415 0.690];
+                app.RunButton.Tooltip = '';
+                if freqnessgui.backgroundProcessAvailable()
+                    app.CoreBackgroundCheckBox.Enable = 'on';
+                    app.SecondaryBackgroundCheckBox.Enable = 'on';
+                end
                 app.DatasetBrowseButton.Enable = 'on';
                 app.MNIBrowseButton.Enable = 'on';
                 app.NetworkBrowseButton.Enable = 'on';
+                app.SecondaryTree.Enable = 'on';
+                if ~isempty(app.NetworkSet)
+                    app.SecondaryParticipantButton.Enable = 'on';
+                end
                 if ~isempty(app.Dataset) && app.Dataset.isValid
                     app.RunButton.Enable = 'on';
                 else
                     app.RunButton.Enable = 'off';
                 end
+                app.updateSecondaryReadiness();
             end
             drawnow
+        end
+
+        function cleanupCoreProcessState(app)
+            if ~isempty(app.CoreProcessTimer) && ...
+                    isvalid(app.CoreProcessTimer)
+                try
+                    stop(app.CoreProcessTimer);
+                catch
+                    % The timer may already have stopped itself.
+                end
+                delete(app.CoreProcessTimer);
+            end
+            app.CoreProcessTimer = [];
+            app.CoreProcess = [];
+            if ~isempty(app.CoreCancellationFile) && ...
+                    isfile(app.CoreCancellationFile)
+                delete(app.CoreCancellationFile);
+            end
+            if isstruct(app.CoreProcessControl) && ...
+                    isfield(app.CoreProcessControl,'controlFolder') && ...
+                    isfolder(app.CoreProcessControl.controlFolder)
+                try
+                    rmdir(app.CoreProcessControl.controlFolder,'s');
+                catch
+                    % Temporary control files can be removed on the next run.
+                end
+            end
+            app.CoreProcessControl = [];
+            app.CoreLastProgressSequence = 0;
+            app.CoreCancellationFile = '';
+            app.CoreRunDataset = [];
+            app.CoreRunConfiguration = [];
+            app.CoreCancelRequested = false;
+            app.CoreCancelTic = [];
+        end
+
+        function shutdownCoreExecution(app)
+            dataset = app.CoreRunDataset;
+            configuration = app.CoreRunConfiguration;
+            if app.isCoreProcessAlive()
+                try
+                    freqnessgui.requestAnalysisCancellation( ...
+                        app.CoreCancellationFile);
+                catch
+                    % Continue with direct process cancellation.
+                end
+                try
+                    app.CoreProcess.destroyForcibly();
+                    app.CoreProcess.waitFor();
+                catch
+                    % Application shutdown must continue.
+                end
+                if ~isempty(dataset) && ~isempty(configuration)
+                    try
+                        freqnessgui.markNetworkEstimationCancelled( ...
+                            dataset,configuration, ...
+                            'Cancelled because the FREQ-NESS GUI was closed.');
+                    catch
+                        % Do not block application shutdown on manifest I/O.
+                    end
+                end
+            end
+            app.cleanupCoreProcessState();
         end
     end
 end

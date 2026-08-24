@@ -36,6 +36,12 @@ the current GUI session.
      centre frequency increases.
    - Optional inputs mirror `FREQNESS_NetworkEstimation`.
    - Participants are processed independently and persisted immediately.
+   - Background execution is enabled by default when a separate MATLAB
+     process is available, keeping Page 1 responsive while participant and
+     frequency progress is streamed back to the GUI.
+   - Run Network Estimation becomes Cancel Estimation during a background
+     run. Completed or retained participant files remain untouched, while
+     pending participants are recorded as `cancelled` in the manifest.
 
 ### Page 2 — Secondary analyses
 
@@ -75,6 +81,7 @@ FREQ_Networks_1/
     sub-001_FREQ.mat
     sub-002_FREQ.mat
     FREQNESS_Manifest.mat
+    FREQNESS_Background.log
 
 FREQ_Analyses_1/
     Visualizer/
@@ -106,8 +113,9 @@ Each participant result contains:
 - `configuration`: the complete configuration used for the run.
 
 `FREQNESS_Manifest.mat` indexes every participant and records whether its run
-completed, failed, or was skipped because an existing output was retained.
-This permits safe resumption of long analyses.
+completed, failed, was cancelled, or was skipped because an existing output
+was retained. `FREQNESS_Background.log` retains the most recent worker console
+output. Together these permit safe resumption and diagnosis of long analyses.
 
 Each secondary-analysis function folder contains:
 
@@ -132,9 +140,9 @@ Native OS file/folder drag-and-drop is enabled by the vendored MIT-licensed
 ## Current milestone
 
 The data-import, participant-wise network estimation, and secondary-analysis
-paths are functional. The Secondary Analyses page imports network-result
+paths are functional. Both analysis pages support responsive background
+MATLAB processes, live progress, cancellation, synchronous fallback, and
+automatic process cleanup. The Secondary Analyses page imports network-result
 context, provides grouped function selection, builds and validates
 function-specific configurations, runs the existing numerical functions, and
-persists participant, group, figure, and manifest outputs. Secondary analyses
-can run in a responsive background MATLAB process with live progress, safe
-cancellation, synchronous fallback, and automatic process cleanup.
+persists participant, group, figure, and manifest outputs.

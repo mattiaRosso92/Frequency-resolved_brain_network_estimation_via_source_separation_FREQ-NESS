@@ -419,6 +419,42 @@ verifyTrue(testCase,all(strcmp( ...
     {loadedManifest.manifest.participants.status},'cancelled')));
 end
 
+function testNetworkCancellationPersistsCancelledManifest(testCase)
+temporaryRoot = tempname;
+mkdir(temporaryRoot);
+cleanup = onCleanup(@()rmdir(temporaryRoot,'s')); %#ok<NASGU>
+datasetFolder = fullfile(temporaryRoot,'Dataset_CoreCancel');
+mkdir(datasetFolder);
+for participanti = 1:2
+    sourceData = participanti*randn(4,200); %#ok<NASGU>
+    save(fullfile(datasetFolder, ...
+        sprintf('sub-%03d.mat',participanti)),'sourceData');
+end
+dataset = freqnessgui.inspectDataset(datasetFolder);
+configuration = freqnessgui.defaultConfig();
+configuration.datasetFolder = dataset.folder;
+configuration.outputFolder = dataset.networkFolder;
+configuration.network.frequencies = [2 4 8];
+configuration.network.samplingRate = 100;
+configuration.network.ncomps = 2;
+cancellationFile = freqnessgui.prepareAnalysisCancellation( ...
+    configuration.outputFolder);
+progressFcn = @(~,message)cancelAtNetworkStart(message,cancellationFile);
+
+report = freqnessgui.runNetworkEstimation( ...
+    dataset,configuration,progressFcn,@()isfile(cancellationFile));
+verifyEqual(testCase,report.status,'cancelled');
+verifyEqual(testCase,report.nCompleted,0);
+verifyEqual(testCase,report.nSkipped,0);
+verifyEqual(testCase,report.nFailed,0);
+verifyEqual(testCase,report.nCancelled,2);
+
+loadedManifest = load(report.manifestFile,'manifest');
+verifyEqual(testCase,loadedManifest.manifest.status,'cancelled');
+verifyTrue(testCase,all(strcmp( ...
+    {loadedManifest.manifest.participants.status},'cancelled')));
+end
+
 function FREQ = syntheticFREQ(scaleFactor)
 FREQ = struct();
 FREQ.evals = scaleFactor*(reshape(1:12,4,3)+1);
@@ -457,6 +493,12 @@ end
 function cancelAfterFirstParticipant(message,cancellationFile)
 if contains(message,'Loaded participant #1/') && ~isfile(cancellationFile)
     freqnessgui.requestSecondaryCancellation(cancellationFile);
+end
+end
+
+function cancelAtNetworkStart(message,cancellationFile)
+if startsWith(message,'Network estimation:') && ~isfile(cancellationFile)
+    freqnessgui.requestAnalysisCancellation(cancellationFile);
 end
 end
 

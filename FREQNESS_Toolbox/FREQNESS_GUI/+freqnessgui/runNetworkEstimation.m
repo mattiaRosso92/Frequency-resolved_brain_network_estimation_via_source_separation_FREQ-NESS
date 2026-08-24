@@ -1,8 +1,17 @@
-function report = runNetworkEstimation(dataset,config,progressFcn)
+function report = runNetworkEstimation( ...
+        dataset,config,progressFcn,cancellationFcn)
 %RUNNETWORKESTIMATION Estimate and persist one FREQ result per participant.
 
 if nargin < 3 || isempty(progressFcn)
     progressFcn = @(~,~)[];
+end
+if nargin < 4 || isempty(cancellationFcn)
+    cancellationFcn = @()false;
+end
+if ~isa(progressFcn,'function_handle') || ...
+        ~isa(cancellationFcn,'function_handle')
+    error('FREQNESS:GUI:InvalidNetworkConfig', ...
+        'Progress and cancellation callbacks must be function handles.');
 end
 
 freqnessgui.validateNetworkConfig(config,dataset);
@@ -23,6 +32,13 @@ nParticipants = numel(participants);
 resultTemplate = struct('id','','sourceFile','','outputFile','', ...
     'status','pending','message','');
 results = repmat(resultTemplate,nParticipants,1);
+for participanti = 1:nParticipants
+    participantInfo = participants(participanti);
+    results(participanti).id = participantInfo.id;
+    results(participanti).sourceFile = participantInfo.path;
+    results(participanti).outputFile = fullfile( ...
+        outputFolder,[participantInfo.id '_FREQ.mat']);
+end
 
 manifest = struct();
 manifest.schemaVersion = 1;
@@ -32,20 +48,25 @@ manifest.datasetFolder = dataset.folder;
 manifest.outputFolder = outputFolder;
 manifest.createdAt = char(datetime('now','Format','yyyy-MM-dd HH:mm:ss Z'));
 manifest.updatedAt = manifest.createdAt;
+manifest.status = 'running';
+manifest.message = 'Preparing participant network estimation.';
 manifest.config = config;
 manifest.participants = results;
+saveManifest(outputFolder,manifest);
 
 frequencyText = formatFrequencyList(config.network.frequencies);
 progressFcn(0,sprintf( ...
     'Network estimation: %d participant(s), %d frequencies (%s Hz).', ...
     nParticipants,numel(config.network.frequencies),frequencyText));
 
+wasCancelled = false;
 for participanti = 1:nParticipants
+    if cancellationFcn()
+        wasCancelled = true;
+        break
+    end
     participantInfo = participants(participanti);
-    outputFile = fullfile(outputFolder,[participantInfo.id '_FREQ.mat']);
-    results(participanti).id = participantInfo.id;
-    results(participanti).sourceFile = participantInfo.path;
-    results(participanti).outputFile = outputFile;
+    outputFile = results(participanti).outputFile;
 
     progressFcn((participanti-1)/nParticipants,sprintf( ...
         'Participant #%d/%d: %s.',participanti,nParticipants,participantInfo.id));
@@ -63,6 +84,7 @@ for participanti = 1:nParticipants
     end
 
     try
+        checkCancellation(cancellationFcn);
         loaded = load(participantInfo.path);
         variableNames = fieldnames(loaded);
         if numel(variableNames) ~= 1
@@ -80,6 +102,7 @@ for participanti = 1:nParticipants
         progressFcn((participanti-1)/nParticipants,sprintf( ...
             'Participant #%d/%d — analysing frequencies: %s Hz.', ...
             participanti,nParticipants,frequencyText));
+        checkCancellation(cancellationFcn);
         FREQ = FREQNESS_NetworkEstimation(data,network.frequencies, ...
             network.samplingRate, ...
             'duration',network.duration, ...
@@ -89,6 +112,7 @@ for participanti = 1:nParticipants
             'ncomps',network.ncomps, ...
             'bad_segments',network.badSegments, ...
             'rescale',network.rescale);
+        checkCancellation(cancellationFcn);
 
         participant = struct();
         participant.schemaVersion = 1;
@@ -115,19 +139,44 @@ for participanti = 1:nParticipants
         progressFcn(participanti/nParticipants,sprintf( ...
             'Participant #%d/%d completed.',participanti,nParticipants));
     catch exception
-        results(participanti).status = 'failed';
-        results(participanti).message = exception.message;
-        progressFcn(participanti/nParticipants,sprintf( ...
-            'Participant #%d/%d failed: %s', ...
-            participanti,nParticipants,exception.message));
+        if strcmp(exception.identifier,'FREQNESS:GUI:AnalysisCancelled')
+            wasCancelled = true;
+        else
+            results(participanti).status = 'failed';
+            results(participanti).message = exception.message;
+            progressFcn(participanti/nParticipants,sprintf( ...
+                'Participant #%d/%d failed: %s', ...
+                participanti,nParticipants,exception.message));
+        end
     end
 
     manifest.participants = results;
     manifest.updatedAt = char(datetime('now','Format','yyyy-MM-dd HH:mm:ss Z'));
     saveManifest(outputFolder,manifest);
+    if wasCancelled
+        break
+    end
 end
 
-progressFcn(1,'Network estimation finished.');
+if wasCancelled
+    cancellationMessage = 'Network estimation cancelled by the user.';
+    for participanti = 1:nParticipants
+        if strcmp(results(participanti).status,'pending')
+            results(participanti).status = 'cancelled';
+            results(participanti).message = cancellationMessage;
+        end
+    end
+    manifest.status = 'cancelled';
+    manifest.message = cancellationMessage;
+    progressFcn(1,cancellationMessage);
+else
+    manifest.status = 'completed';
+    manifest.message = 'Network estimation finished.';
+    progressFcn(1,manifest.message);
+end
+manifest.participants = results;
+manifest.updatedAt = char(datetime('now','Format','yyyy-MM-dd HH:mm:ss Z'));
+saveManifest(outputFolder,manifest);
 
 statuses = {results.status};
 report = struct();
@@ -137,7 +186,16 @@ report.participants = results;
 report.nCompleted = sum(strcmp(statuses,'completed'));
 report.nSkipped = sum(strcmp(statuses,'skipped'));
 report.nFailed = sum(strcmp(statuses,'failed'));
+report.nCancelled = sum(strcmp(statuses,'cancelled'));
+report.status = manifest.status;
 
+end
+
+function checkCancellation(cancellationFcn)
+if cancellationFcn()
+    error('FREQNESS:GUI:AnalysisCancelled', ...
+        'Network estimation was cancelled by the user.');
+end
 end
 
 function saveManifest(outputFolder,manifest)
