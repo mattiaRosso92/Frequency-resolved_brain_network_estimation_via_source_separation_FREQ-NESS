@@ -106,6 +106,12 @@ def _component_indices(
     return one_based, one_based - 1
 
 
+def _component_text(component_numbers: NDArray[np.int64]) -> str:
+    if component_numbers.size == 1:
+        return str(int(component_numbers[0]))
+    return "[" + " ".join(str(int(value)) for value in component_numbers) + "]"
+
+
 def _canonical_inputs(
     FREQ: Any,
 ) -> tuple[FloatArray, FloatArray, FloatArray, FloatArray]:
@@ -194,10 +200,14 @@ def FREQNESS_BackProjection(
     reconstructs the data's projection onto that retained GED subspace.
     """
     requested_frequency = _frequency_value(freq2project)
+    if comps2project is None or np.asarray(comps2project).size == 0:
+        print(
+            "\nFREQNESS BackProjection: no components specified. Defaulting to component #1."
+        )
     frequencies, eigenvectors, time_series, scale_factors = _canonical_inputs(
         FREQ
     )
-    _, component_indices = _component_indices(
+    component_numbers, component_indices = _component_indices(
         comps2project,
         eigenvectors.shape[1],
     )
@@ -221,6 +231,11 @@ def FREQNESS_BackProjection(
     nvoxels = eigenvectors.shape[0]
     ntime = time_series.shape[1]
     nsubjects = eigenvectors.shape[3]
+    print(
+        "\nFREQNESS BackProjection: backprojecting component(s) "
+        f"{_component_text(component_numbers)} at {actual_frequency:.3f} Hz "
+        f"for {nsubjects} participants."
+    )
     back_projection = np.empty((nvoxels, ntime, nsubjects), dtype=float)
 
     for subject in range(nsubjects):

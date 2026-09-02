@@ -208,7 +208,10 @@ def FREQNESS_MainPipeline(
     names = _condition_names(root, len(all_data))
     results: list[FREQNESSPipelineConditionResult] = []
 
-    for condition, data in zip(names, all_data, strict=True):
+    for condition_index, (condition, data) in enumerate(
+        zip(names, all_data, strict=True), start=1
+    ):
+        print(f"\nANALYSING CONDITION/GROUP #{condition_index}")
         condition_result = FREQNESSPipelineConditionResult(name=condition)
         results.append(condition_result)
         if data is None:

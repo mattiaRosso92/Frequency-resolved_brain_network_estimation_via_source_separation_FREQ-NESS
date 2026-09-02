@@ -1,4 +1,17 @@
-If you use this software in academic work, please cite the associated publication appropriately:
+# FREQ-NESS
+
+## Download the toolbox
+
+**[Download the latest FREQ-NESS Toolbox release](https://github.com/mattiaRosso92/Frequency-resolved_brain_network_estimation_via_source_separation_FREQ-NESS/releases/latest/download/FREQNESS.zip)**
+
+The recommended release archive extracts to the short folder name `FREQNESS`,
+which avoids Windows path-length problems caused by the repository's long
+name. See the [toolbox instructions](FREQNESS_Toolbox/README.md) for MATLAB and
+Python setup.
+
+## Citation
+
+If you use this toolbox, please cite:
 
 Rosso, M., Fernández‐Rubio, G., Keller, P. E., Brattico, E., Vuust, P., Kringelbach, M. L., & Bonetti, L. (2025). 
 FREQ‐NESS Reveals the Dynamic Reconfiguration of Frequency‐Resolved Brain Networks During Auditory Stimulation. 
@@ -11,7 +24,7 @@ This repository contains two folders:
 
 1) FREQNESS_AdvancedScience_2025: Code and functions used for the FREQNESS paper published in Advanced Science (Rosso et al., 2025)
 
-2) FREQNESS_Toolbox: Please, refer to "FREQNESS_Toolbox/FREQNESS_MainPipeline.m", whose header contains  detailed information on how to use this Matlab toolbox
+2) FREQNESS_Toolbox: MATLAB and Python implementations, main pipelines, documentation, examples, spatial coordinates, and supporting functions
 
 % ========================================================================
 

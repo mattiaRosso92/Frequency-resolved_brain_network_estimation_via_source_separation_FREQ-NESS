@@ -4,7 +4,9 @@ import pytest
 from freqness import FREQNESS_EntropyLandscape, FREQNESS_NetworkEstimation
 
 
-def test_network_estimation_mirrors_matlab_output_dimensions() -> None:
+def test_network_estimation_mirrors_matlab_output_dimensions(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
     rng = np.random.default_rng(7)
     data = rng.standard_normal((4, 256, 2))
 
@@ -16,6 +18,17 @@ def test_network_estimation_mirrors_matlab_output_dimensions() -> None:
         ncomps=3,
         bad_segments=[1, 25],
     )
+
+    progress = capsys.readouterr().out
+    assert (
+        "FREQNESS Network Estimation: estimating frequency-resolved networks "
+        "for 2 participants." in progress
+    )
+    assert "FREQNESS Network Estimation: participant #1" in progress
+    assert "FREQNESS Network Estimation: participant #2" in progress
+    assert "Removing 2 bad timepoints" in progress
+    assert progress.count("Estimating network at 5 Hz") == 2
+    assert progress.count("Estimating network at 10 Hz") == 2
 
     assert result.evals.shape == (4, 2, 2)
     assert result.evecs.shape == (4, 3, 2, 2)

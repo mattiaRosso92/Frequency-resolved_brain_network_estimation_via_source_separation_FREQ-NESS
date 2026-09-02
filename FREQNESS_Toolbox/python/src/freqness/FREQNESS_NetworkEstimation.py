@@ -261,6 +261,10 @@ def FREQNESS_NetworkEstimation(
     n_samples = _duration_samples(duration, n_time, sampling_rate)
     subject_data = subject_data[:, :n_samples, :]
     good_samples, bad_one_based = _good_sample_indices(bad_segments, n_samples)
+    print(
+        "\nFREQNESS Network Estimation: estimating frequency-resolved "
+        f"networks for {n_subjects} participants."
+    )
     scale_factors = _prepare_scale_factors(subject_data, bool(rescale))
 
     n_frequencies = frequencies.size
@@ -276,6 +280,14 @@ def FREQNESS_NetworkEstimation(
     )
 
     for subject in range(n_subjects):
+        print(f"FREQNESS Network Estimation: participant #{subject + 1}")
+        if bad_one_based.size:
+            percentage_removed = 100.0 * bad_one_based.size / n_samples
+            print(
+                f"Removing {bad_one_based.size} bad timepoints "
+                f"({percentage_removed:g}% of the input data)."
+            )
+
         broadband = subject_data[:, :, subject]
         covariance_r = np.atleast_2d(
             np.cov(broadband[:, good_samples], rowvar=True, ddof=1)
@@ -291,6 +303,7 @@ def FREQNESS_NetworkEstimation(
         for frequency_index, (frequency, width) in enumerate(
             zip(frequencies, widths, strict=True)
         ):
+            print(f"Estimating network at {frequency:g} Hz")
             narrowband, _, _ = filterFGx(
                 broadband,
                 sampling_rate,

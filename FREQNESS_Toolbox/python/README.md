@@ -155,6 +155,17 @@ is deliberately kept in the pipeline, leaving NetworkRemoval as a focused
 subtraction function. The pipeline keeps numerical outputs in memory; only
 the Visualizer's established NIfTI export can write files, when enabled.
 
+Long-running Python functions mirror the MATLAB console messages, including
+condition, participant, frequency, modelling, backprojection, removal, and
+NIfTI-export progress.
+
+For interactive use, open `FREQNESS_NotebookPipeline.ipynb` in Jupyter or VS
+Code. The notebook guides one selected condition through every main-pipeline
+analysis and keeps intermediate outputs visible. `FREQNESS_MainPipeline.py`
+remains the recommended interface for unattended processing of every dataset
+folder, while `src/freqness/FREQNESS_MainPipeline.py` provides the reusable
+package engine and configuration API.
+
 From the `python` directory, run only the core section with:
 
 ```text

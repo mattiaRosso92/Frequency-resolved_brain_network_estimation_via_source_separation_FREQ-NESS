@@ -1,0 +1,41 @@
+name: Package FREQ-NESS release
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  package-release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the released version
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name }}
+
+      - name: Build Windows-safe toolbox archive
+        shell: bash
+        run: |
+          mkdir -p release/FREQNESS
+          rsync -a FREQNESS_Toolbox/ release/FREQNESS/ \
+            --exclude '.DS_Store' \
+            --exclude '__pycache__' \
+            --exclude '.pytest_cache' \
+            --exclude '.venv' \
+            --exclude '*.egg-info' \
+            --exclude 'build' \
+            --exclude 'dist' \
+            --exclude 'python/.gitignore' \
+            --exclude 'python/tests'
+          cd release
+          zip -r ../FREQNESS.zip FREQNESS
+
+      - name: Attach toolbox archive to the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        shell: bash
+        run: gh release upload "$RELEASE_TAG" FREQNESS.zip --clobber

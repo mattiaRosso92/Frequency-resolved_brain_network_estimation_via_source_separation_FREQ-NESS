@@ -205,6 +205,9 @@ def FREQNESS_Startup(
     effects.
     """
     root = _resolve_toolbox_root(path_home)
+    print("\nFREQNESS Startup: loading data and MNI coordinates.")
+    print("\nFREQNESS successfully initialized.")
+    print(f"Base directory: {root}\n")
     all_data = _load_groups(root / "FREQNESS_Data")
     mni = _load_mni_coordinates(root / "FREQNESS_MNI_Coordinates")
     return all_data, mni, root

@@ -635,6 +635,7 @@ def _nifti_output(
                 image = nib.Nifti1Image(volume, template.affine, template.header.copy())
                 image.set_data_dtype(np.float32)
                 nib.save(image, str(path))
+                print(f"Saving NIFTI image: {path}")
                 paths.append(path)
 
             if nsubs > 1:
@@ -654,6 +655,7 @@ def _nifti_output(
                 image = nib.Nifti1Image(volume, template.affine, template.header.copy())
                 image.set_data_dtype(np.float32)
                 nib.save(image, str(path))
+                print(f"Saving NIFTI image: {path}")
                 paths.append(path)
     return paths
 
@@ -724,6 +726,9 @@ def FREQNESS_Visualizer(
             landscape_indices,
             landscape_frequencies,
         ) = _canonical_landscape_inputs(FREQ, Landscape)
+        print(
+            f"\nFREQNESS Visualizer: visualizing {eigenvalues.shape[2]} participants."
+        )
         selected_eigenvalues = eigenvalues[
             :landscape_ncomps, landscape_indices, :
         ]
@@ -760,6 +765,9 @@ def FREQNESS_Visualizer(
         pattern_indices,
         pattern_frequencies,
     ) = _canonical_inputs(FREQ, Landscape, Patterns)
+    print(
+        f"\nFREQNESS Visualizer: visualizing {eigenvalues.shape[2]} participants."
+    )
 
     selected_eigenvalues = eigenvalues[
         :landscape_ncomps, landscape_indices, :

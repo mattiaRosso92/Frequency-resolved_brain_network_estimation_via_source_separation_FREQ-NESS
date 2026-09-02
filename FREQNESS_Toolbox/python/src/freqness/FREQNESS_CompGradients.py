@@ -160,7 +160,7 @@ def FREQNESS_CompGradients(
     plot_all, show = validate_plot_flags(plot_all, show)
     threshold_sd = validate_threshold(threshold_sd)
     all_patterns = pattern_array(FREQ)
-    nvoxels, ncomponents, nfrequencies, _ = all_patterns.shape
+    nvoxels, ncomponents, nfrequencies, nsubjects = all_patterns.shape
     coordinates = mni_array(MNI, nvoxels)
     frequencies, has_frequencies = frequency_axis(FREQ, nfrequencies)
     if not has_frequencies:
@@ -168,7 +168,15 @@ def FREQNESS_CompGradients(
     frequency = _frequency_index(
         FREQ, frequencies, has_frequencies, freq2model
     )
+    if comps2model is None or np.asarray(comps2model).size == 0:
+        print("Component range not specified. Defaulting to all components.")
     selected_components = _component_indices(comps2model, ncomponents)
+    print(
+        "\nFREQNESS Component Gradients: modelling spatial gradients across "
+        f"components {selected_components[0] + 1} to "
+        f"{selected_components[-1] + 1} at {frequencies[frequency]:.1f} Hz "
+        f"for {nsubjects} participants."
+    )
 
     patterns = all_patterns[:, :, frequency, :]
     patterns, retained = threshold_patterns(patterns, threshold_sd)
