@@ -43,3 +43,17 @@ def test_startup_rejects_multiple_variables(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="exactly one data matrix"):
         FREQNESS_Startup(tmp_path)
 
+
+def test_startup_warns_when_data_root_has_no_dataset_folders(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "FREQNESS_Data").mkdir()
+    (tmp_path / "FREQNESS_MNI_Coordinates").mkdir()
+
+    with pytest.warns(UserWarning, match="No dataset folders found"):
+        all_data, mni, path_home = FREQNESS_Startup(tmp_path)
+
+    assert all_data == []
+    assert mni is None
+    assert path_home == tmp_path
+
