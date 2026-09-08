@@ -34,11 +34,16 @@ function [FREQ] = FREQNESS_NetworkEstimation(data, frex, srate, varargin)
 %  - 'duration'        : Duration of the recording to analyze (seconds).
 %                        Default: full data duration.
 %
-%  - 'fwidth'          : Full-width at half-maximum (FWHM) of the frequency filter.
-%                        Default: computed based on reference values.
+%  - 'fwidth'          : Full-width at half-maximum (FWHM) of the frequency
+%                        filter in Hz. A scalar applies the same width to
+%                        every frequency; a vector supplies one width per
+%                        frequency. Default: [] (automatic physical widths).
 %
 %  - 'filter'          : Filter design method. Options:
-%                        'logarithmic' (default) or 'linear'.
+%                        'logarithmic' (default) varies Q smoothly from 7
+%                        to 3.5 over the numerical frequency range;
+%                        'linear' uses constant Q = 5. This option is used
+%                        only when 'fwidth' is empty.
 %
 %  - 'regularisation'  : Shrinkage factor for covariance matrix regularization.
 %                        Default: 0.01.
@@ -66,6 +71,7 @@ function [FREQ] = FREQNESS_NetworkEstimation(data, frex, srate, varargin)
 %                     component dimensions as FREQ.evecs.
 %      - FREQ.ts    : Retained component time series
 %                     [ncomps x nTime x nFrex x nSubs].
+%      - FREQ.fwhm  : Filter FWHM values used, in Hz [1 x nFrex].
 %                    Additional fields support second-order functions.
 %
 % ------------------------------------------------------------------------
@@ -206,31 +212,9 @@ end
 frex = sort(frex,'ascend');
 nfrex = length(frex);
 
-% Handle missing filter width (based on Rosso et al., 2025 - Advanced Science)
+% Compute automatic physical-frequency widths when none are supplied.
 if isempty(fwidth)
-
-    ref_frex = 2.439; % set a reference frequency
-    ref_fwhm = 0.35;  % set a reference filter width
-    nfrex_above = 80; % how many frequencies above the reference
-    nfrex_below = 6;  % how many frequencies below the reference
-    % Compute the vector of frequencies
-    frex_above = linspace(ref_frex, ref_frex * (nfrex_above / 2), nfrex_above);
-    frex_below = linspace(ref_frex / 2, ref_frex / (2 * nfrex_below), nfrex_below);
-    frex_all = [frex_below(end:-1:1), frex_above];
-    % Compute the vector of filter width (log-spaced)
-    fwhm_above = logspace(log10(ref_fwhm), log10(ref_fwhm * (nfrex_above)), nfrex_above);
-    fwhm_below = logspace(log10(ref_fwhm), log10(ref_fwhm / (nfrex_below)), nfrex_below + 1);
-    fwidth_all = [fwhm_below(end:-1:2), fwhm_above];
-    % Match user-requested frequencies with the reference frequencies from Rosso et al. (2025)
-    [~, idx] = min(abs(frex_all - frex(1))); % matching the lowest user-defined frequency
-    fwidth = fwidth_all(idx);
-
-    % Compute filter widths
-    if strcmpi(filter, 'logarithmic')
-        fwidth_all = logspace(log10(fwidth), log10(fwidth * nfrex), nfrex);
-    else
-        fwidth_all = linspace(fwidth, fwidth * nfrex, nfrex);
-    end
+    fwidth_all = FREQNESS_ComputeFilterWidths(frex,filter);
 
 else
 

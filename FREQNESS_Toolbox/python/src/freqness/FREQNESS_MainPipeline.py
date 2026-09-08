@@ -67,7 +67,12 @@ ALL_ANALYSES = (
 
 @dataclass(slots=True)
 class FREQNESSPipelineConfig:
-    """Settings corresponding to the editable MATLAB pipeline section."""
+    """Settings corresponding to the editable MATLAB pipeline section.
+
+    ``network_options`` is forwarded to ``FREQNESS_NetworkEstimation``. Its
+    automatic widths use the physical logarithmic schedule by default; pass
+    ``filter='linear'`` for constant Q = 5, or ``fwidth`` for explicit widths.
+    """
 
     toolbox_root: str | Path | None = None
     frex: FloatArray = field(
