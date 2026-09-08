@@ -57,6 +57,15 @@ gradient modelling.
 Individual functions are available in `FREQNESS_Functions`. See
 `README_Toolbox.rtf` and the function headers for detailed MATLAB guidance.
 
+When MATLAB `FREQNESS_NetworkEstimation` receives no explicit `fwidth`, its
+default `logarithmic` schedule varies spectral selectivity smoothly from
+Q = 7 at the lowest requested frequency to Q = 3.5 at the highest. The
+`linear` option uses constant Q = 5 (`FWHM = frequency / 5`). These automatic
+widths depend on frequencies in Hz and their numerical range, not on the
+number or spacing of frequency bins. A scalar `fwidth` still applies one
+constant width to every filter, while a vector supplies one explicit width
+per frequency.
+
 ## Python quick start
 
 Python 3.10 or newer is required. Open a terminal in the extracted `python`
