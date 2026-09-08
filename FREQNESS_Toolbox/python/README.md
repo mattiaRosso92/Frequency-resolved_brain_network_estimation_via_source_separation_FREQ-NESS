@@ -1,7 +1,7 @@
 # FREQ-NESS for Python
 
 This directory contains the Python implementation of the FREQ-NESS toolbox.
-The existing MATLAB implementation remains unchanged in the parent directory.
+It follows the MATLAB implementation in the parent directory.
 
 The first public API preserves the established FREQ-NESS function names:
 
@@ -9,6 +9,7 @@ The first public API preserves the established FREQ-NESS function names:
 from freqness import (
     FREQNESS_BackProjection,
     FREQNESS_CompGradients,
+    FREQNESS_ComputeFilterWidths,
     FREQNESS_CrossCoupling,
     FREQNESS_EntropyLandscape,
     FREQNESS_ExponentialDK,
@@ -88,6 +89,15 @@ compGradCoeff, compGoodFit = FREQNESS_CompGradients(
 # Run the complete folder-based workflow, or select exact function sections.
 pipeline = FREQNESS_MainPipeline()
 ```
+
+When `FREQNESS_NetworkEstimation` receives no explicit `fwidth`, its default
+`logarithmic` schedule varies spectral selectivity smoothly from Q = 7 at the
+lowest requested frequency to Q = 3.5 at the highest. The `linear` option uses
+constant Q = 5 (`FWHM = frequency / 5`). These automatic widths depend on
+frequencies in Hz and their numerical range, not on the number or spacing of
+frequency bins. A scalar `fwidth` still applies one constant width to every
+filter, while a vector supplies one explicit width per frequency. The same
+schedule is independently available through `FREQNESS_ComputeFilterWidths`.
 
 The spatial-pattern view plots all valid MNI locations as small black points.
 Requested frequencies follow a low-to-high `viridis` colour gradient, while

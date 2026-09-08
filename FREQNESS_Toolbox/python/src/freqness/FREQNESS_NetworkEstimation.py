@@ -26,6 +26,7 @@ import numpy as np
 from numpy.typing import ArrayLike, NDArray
 from scipy.linalg import eigh
 
+from .FREQNESS_ComputeFilterWidths import FREQNESS_ComputeFilterWidths
 from .filterFGx import filterFGx
 
 
@@ -103,50 +104,7 @@ def _filter_widths(
             raise ValueError("fwidth must contain positive finite values")
         return widths
 
-    reference_frequency = 2.439
-    reference_fwhm = 0.35
-    n_above = 80
-    n_below = 6
-    frequencies_above = np.linspace(
-        reference_frequency, reference_frequency * (n_above / 2), n_above
-    )
-    frequencies_below = np.linspace(
-        reference_frequency / 2,
-        reference_frequency / (2 * n_below),
-        n_below,
-    )
-    reference_frequencies = np.concatenate(
-        [frequencies_below[::-1], frequencies_above]
-    )
-    fwhm_above = np.logspace(
-        np.log10(reference_fwhm),
-        np.log10(reference_fwhm * n_above),
-        n_above,
-    )
-    fwhm_below = np.logspace(
-        np.log10(reference_fwhm),
-        np.log10(reference_fwhm / n_below),
-        n_below + 1,
-    )
-    reference_widths = np.concatenate([fwhm_below[:0:-1], fwhm_above])
-    lowest_index = int(
-        np.argmin(np.abs(reference_frequencies - frequencies[0]))
-    )
-    lowest_width = reference_widths[lowest_index]
-
-    if filter_type.lower() == "logarithmic":
-        return np.logspace(
-            np.log10(lowest_width),
-            np.log10(lowest_width * n_frequencies),
-            n_frequencies,
-        )
-    if filter_type.lower() == "linear":
-        return np.linspace(
-            lowest_width,
-            lowest_width * n_frequencies,
-            n_frequencies,
-        )
-    raise ValueError("filter must be 'logarithmic' or 'linear'")
+    return FREQNESS_ComputeFilterWidths(frequencies, filter_type)
 
 
 def _duration_samples(duration: float | None, n_time: int, srate: float) -> int:
@@ -235,6 +193,10 @@ def FREQNESS_NetworkEstimation(
     MATLAB function's automatic scale factor after its warning condition. The
     returned ``evals`` always contains the complete normalized eigenspectrum;
     ``ncomps`` controls only retained eigenvectors, patterns, and time series.
+    When ``fwidth`` is omitted, ``filter='logarithmic'`` uses a physical
+    log-Q schedule from Q = 7 to Q = 3.5 over the requested frequency range,
+    while ``filter='linear'`` uses constant Q = 5. A scalar or per-frequency
+    ``fwidth`` continues to override the automatic schedule.
     """
     if not np.isscalar(srate) or not np.isfinite(srate) or srate <= 0:
         raise ValueError("srate must be a positive finite scalar")

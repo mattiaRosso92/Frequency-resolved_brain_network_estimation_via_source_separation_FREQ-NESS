@@ -56,7 +56,7 @@ SAMPLING_RATE = 250.0
 # Optional arguments can be added here without changing the pipeline engine:
 NETWORK_OPTIONS = {
     # "duration": 20,
-    # "fwidth": 0.1,
+    # "fwidth": None,  # scalar or one explicit width per frequency
     # "filter": "logarithmic",
     # "regularisation": 0.01,
     # "ncomps": 30,
