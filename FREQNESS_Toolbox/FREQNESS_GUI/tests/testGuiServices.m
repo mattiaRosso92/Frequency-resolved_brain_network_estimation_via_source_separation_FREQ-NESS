@@ -142,12 +142,24 @@ end
 function testFWHMPreviewMatchesSupportedForms(testCase)
 frequencies = 1.2:1.2:6;
 automatic = freqnessgui.computeFWHM(frequencies,[],'logarithmic');
-verifySize(testCase,automatic,size(frequencies));
-verifyGreaterThan(testCase,automatic,zeros(size(automatic)));
+verifyEqual(testCase,automatic, ...
+    FREQNESS_ComputeFilterWidths(frequencies,'logarithmic'),'AbsTol',0);
 verifyEqual(testCase,freqnessgui.computeFWHM( ...
     frequencies,0.5,'linear'),0.5*ones(size(frequencies)));
 verifyEqual(testCase,freqnessgui.computeFWHM( ...
     frequencies,1:numel(frequencies),'linear'),1:numel(frequencies));
+end
+
+function testFWHMPreviewIsFrequencyDensityInvariant(testCase)
+frequenciesSparse = 1:1:100;
+frequenciesDense = 1:0.25:100;
+
+previewSparse = freqnessgui.computeFWHM( ...
+    frequenciesSparse,[],'logarithmic');
+previewDense = freqnessgui.computeFWHM( ...
+    frequenciesDense,[],'logarithmic');
+
+verifyEqual(testCase,previewSparse,previewDense(1:4:end),'AbsTol',0);
 end
 
 function testFilterResponsesMatchFilterFGxGaussian(testCase)
