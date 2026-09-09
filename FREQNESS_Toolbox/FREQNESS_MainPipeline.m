@@ -158,8 +158,8 @@ srate  = 250;             % sampling rate (Hz) of your data
 
 % Optional network-estimation settings
 network_duration       = [];            % seconds; leave [] to use all data
-network_fwidth         = [];            % scalar or one value per frequency
-network_filter         = 'logarithmic'; % or 'linear'
+network_fwidth         = [];            % [] for automatic widths; scalar or one value per frequency otherwise
+network_filter         = 'logarithmic'; % automatic mode: Q = 7 to 3.5; 'linear' uses constant Q = 5
 network_regularisation = 0.01;          % covariance shrinkage factor
 network_ncomps         = 30;            % components retained per frequency
 network_bad_segments   = [];            % sample indices excluded from covariance

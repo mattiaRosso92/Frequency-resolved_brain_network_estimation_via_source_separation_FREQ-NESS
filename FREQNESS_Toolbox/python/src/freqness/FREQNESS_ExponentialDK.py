@@ -346,10 +346,20 @@ def FREQNESS_ExponentialDK(
 
     values = _eigenspectrum_array(FREQ)
     neigenvalues, nfrequencies, nsubjects = values.shape
+    if which_comp is None:
+        print(
+            "Component not specified. Defaulting to analyzing the 1st component."
+        )
     component_index = _component_index(which_comp, neigenvalues)
     x_axis, xlabel, has_frequencies = _frequency_axis(FREQ, nfrequencies)
     fit_indices = _fit_indices(x_axis, has_frequencies, range2fit)
     component_spectrum = values[component_index, :, :]
+    fitted_axis = x_axis[fit_indices]
+
+    print(
+        "\nFREQNESS ExponentialDK: modelling eigenvalue decay from "
+        f"{fitted_axis[0]:.1f} to {fitted_axis[-1]:.1f} Hz for {nsubjects} participants."
+    )
 
     decay_coefficients = np.full((nsubjects, 1), np.nan, dtype=float)
     amplitudes = np.full((nsubjects, 1), np.nan, dtype=float)

@@ -7,7 +7,10 @@ from scipy.io import savemat
 from freqness import FREQNESS_Startup
 
 
-def test_startup_loads_groups_and_transposes_mni(tmp_path: Path) -> None:
+def test_startup_loads_groups_and_transposes_mni(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
     data_root = tmp_path / "FREQNESS_Data"
     group_a = data_root / "Group_A"
     group_b = data_root / "Group_B"
@@ -24,6 +27,11 @@ def test_startup_loads_groups_and_transposes_mni(tmp_path: Path) -> None:
 
     with pytest.warns(UserWarning, match="No .mat files"):
         all_data, mni, path_home = FREQNESS_Startup(tmp_path)
+
+    progress = capsys.readouterr().out
+    assert "FREQNESS Startup: loading data and MNI coordinates." in progress
+    assert "FREQNESS successfully initialized." in progress
+    assert f"Base directory: {tmp_path}" in progress
 
     assert path_home == tmp_path
     assert len(all_data) == 2
@@ -42,4 +50,18 @@ def test_startup_rejects_multiple_variables(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="exactly one data matrix"):
         FREQNESS_Startup(tmp_path)
+
+
+def test_startup_warns_when_data_root_has_no_dataset_folders(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "FREQNESS_Data").mkdir()
+    (tmp_path / "FREQNESS_MNI_Coordinates").mkdir()
+
+    with pytest.warns(UserWarning, match="No dataset folders found"):
+        all_data, mni, path_home = FREQNESS_Startup(tmp_path)
+
+    assert all_data == []
+    assert mni is None
+    assert path_home == tmp_path
 

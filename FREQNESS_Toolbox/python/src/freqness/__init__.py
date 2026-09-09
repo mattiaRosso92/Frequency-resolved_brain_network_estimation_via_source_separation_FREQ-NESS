@@ -23,6 +23,7 @@ from .FREQNESS_CrossCoupling import (
     FREQNESSCrossCouplingResult,
 )
 from .FREQNESS_CompGradients import FREQNESS_CompGradients
+from .FREQNESS_ComputeFilterWidths import FREQNESS_ComputeFilterWidths
 from .FREQNESS_EntropyLandscape import FREQNESS_EntropyLandscape
 from .FREQNESS_ExponentialDK import (
     FREQNESS_ExponentialDK,
@@ -79,6 +80,7 @@ __all__ = [
     "FREQNESS_CrossCoupling",
     "FREQNESSCrossCouplingResult",
     "FREQNESS_CompGradients",
+    "FREQNESS_ComputeFilterWidths",
     "FREQNESS_EntropyLandscape",
     "FREQNESS_ExponentialDK",
     "FREQNESSExponentialGoodFit",
@@ -121,4 +123,4 @@ __all__ = [
     "VISUALIZER",
 ]
 
-__version__ = "0.1.0.dev0"
+__version__ = "2.0.0"

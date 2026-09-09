@@ -206,6 +206,11 @@ def FREQNESS_EntropyLandscape(
     nfrequencies = eigenspectrum.shape[1]
     frequencies, xlabel = _frequency_axis(FREQ, nfrequencies)
 
+    print(
+        "\nFREQNESS Entropy Landscape: computing Rényi entropy (H2) and "
+        f"effective dimensionality (ED) for {eigenspectrum.shape[2]} participants."
+    )
+
     tiny = np.finfo(float).tiny
     sums = np.sum(eigenspectrum, axis=0, keepdims=True)
     probabilities = eigenspectrum / np.maximum(sums, tiny)

@@ -106,8 +106,8 @@ FREQ = FREQNESS_NetworkEstimation(testData,testFrex,testSrate);
 % testFrex  = [7:.3:13];  % Frequencies (Hz, ascending order)
 % testSrate = 250;        % Sampling rate (Hz)
 % testTime   = 20;     % duration of the signal to analyze, in seconds (equal or less than the input data matrix)
-% testFwhm   = .1;     % full width at half the maximum of a Gaussian filter, only set for the lowest frequency 
-% testFilter = 'logarithmic'; % defines the filter width for all the remaining frequencies: set the spacing as 'logarithmic' or 'linear'
+% testFwhm   = [];     % [] for automatic widths; a scalar applies the same FWHM to every frequency; a vector supplies one value per frequency
+% testFilter = 'logarithmic'; % automatic mode: Q varies from 7 to 3.5; set to 'linear' for constant Q = 5
 % testRegularization    = .01;     % shrinkage factor for regularization of covariance matrices (0.01 is recommended)
 % testNcomps = 30;   % number of signal components (and associated brain networks) to retain (equal or less than the input data matrix)
 % 
@@ -125,7 +125,8 @@ FREQ = FREQNESS_NetworkEstimation(testData,testFrex,testSrate);
 % 
 % 
 % FREQ = FREQNESS_NetworkEstimation(testData, testFrex, testSrate, ...
-%                                 'duration', testTime, 'filter', testFilter, 'regularisation', testRegularization, 'ncomps', testNcomps); %% Call with optional parameters
+%                                 'duration', testTime, 'fwidth', testFwhm, ...
+%                                 'filter', testFilter, 'regularisation', testRegularization, 'ncomps', testNcomps); %% Call with optional parameters
 
 
 %% FREQNESS VISUALIZATION

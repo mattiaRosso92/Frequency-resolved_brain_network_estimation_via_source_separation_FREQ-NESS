@@ -176,6 +176,24 @@ def test_empty_dataset_is_retained_and_skipped(
     assert not result.conditions[1].outputs
 
 
+def test_pipeline_warns_when_data_root_has_no_dataset_folders(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "FREQNESS_Data").mkdir()
+    (tmp_path / "FREQNESS_MNI_Coordinates").mkdir()
+
+    with pytest.warns(UserWarning, match="No dataset folders found"):
+        result = FREQNESS_MainPipeline(
+            FREQNESSPipelineConfig(
+                toolbox_root=tmp_path,
+                analyses=(NETWORK_ESTIMATION,),
+                show=False,
+            )
+        )
+
+    assert result.conditions == []
+
+
 def test_backprojection_and_network_removal_sections_are_independent(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

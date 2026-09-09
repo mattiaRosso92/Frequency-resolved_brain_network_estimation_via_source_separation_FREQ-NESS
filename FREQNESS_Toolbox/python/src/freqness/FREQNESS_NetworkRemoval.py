@@ -29,6 +29,7 @@ from .FREQNESS_BackProjection import (
     FREQNESS_BackProjection,
     _canonical_inputs,
     _component_indices,
+    _component_text,
     _frequency_value,
 )
 
@@ -76,6 +77,10 @@ def FREQNESS_NetworkRemoval(
     ``data == dataClean + removedActivity`` within floating-point precision.
     """
     requested_frequency = _frequency_value(freq2remove, "freq2remove")
+    if comps2remove is None or np.asarray(comps2remove).size == 0:
+        print(
+            "\nFREQNESS NetworkRemoval: no components specified. Defaulting to component #1."
+        )
     frequencies, eigenvectors, time_series, _ = _canonical_inputs(FREQ)
     component_numbers, _ = _component_indices(
         comps2remove,
@@ -145,6 +150,11 @@ def FREQNESS_NetworkRemoval(
             stacklevel=2,
         )
 
+    print(
+        "FREQNESS NetworkRemoval: removed component(s) "
+        f"{_component_text(component_numbers)}. Maximum subtraction error: "
+        f"{reconstruction_error:.3g}."
+    )
     if was_two_dimensional:
         return data_clean[:, :, 0], removed_activity[:, :, 0]
     return data_clean, removed_activity

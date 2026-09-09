@@ -410,6 +410,10 @@ def FREQNESS_InducedResponses(
         raise ValueError("baseline_window must fall entirely within epoch_window")
 
     time_series, frequencies, widths, sampling_rate = _canonical_inputs(FREQ)
+    if which_comp is None or np.asarray(which_comp).size == 0:
+        print(
+            "\nFREQNESS InducedResponses: no components specified. Defaulting to component #1."
+        )
     component_numbers, component_indices = _component_indices(
         which_comp,
         time_series.shape[0],
@@ -444,6 +448,11 @@ def FREQNESS_InducedResponses(
     ntrials = np.zeros(nsubjects, dtype=np.int64)
     power_trials: list[FloatArray] | None = [] if keep_trials else None
 
+    print(
+        "\nFREQNESS InducedResponses: computing induced responses for "
+        f"{ncomponents} component(s), {nfrequencies} frequencies, and "
+        f"{nsubjects} participants."
+    )
     for subject in range(nsubjects):
         subject_events = all_events[subject]
         valid = (
@@ -466,6 +475,10 @@ def FREQNESS_InducedResponses(
             )
         valid_events.append(kept_events)
         ntrials[subject] = kept_events.size
+        print(
+            f"FREQNESS InducedResponses: participant #{subject + 1} "
+            f"({kept_events.size} trials)."
+        )
         epoch_indices = (
             kept_events[:, np.newaxis] - 1 + epoch_offsets[np.newaxis, :]
         )

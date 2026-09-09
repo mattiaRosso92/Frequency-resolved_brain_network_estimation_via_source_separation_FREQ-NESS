@@ -75,6 +75,14 @@ def _load_groups(data_directory: Path) -> list[NumericArray | None]:
     groups: list[NumericArray | None] = []
     group_directories = sorted(path for path in data_directory.iterdir() if path.is_dir())
 
+    if not group_directories:
+        warnings.warn(
+            f"No dataset folders found in {data_directory}. Add one folder per "
+            "condition containing participant .mat files.",
+            UserWarning,
+            stacklevel=2,
+        )
+
     for group_directory in group_directories:
         participant_files = sorted(group_directory.glob("*.mat"))
         if not participant_files:
@@ -197,6 +205,9 @@ def FREQNESS_Startup(
     effects.
     """
     root = _resolve_toolbox_root(path_home)
+    print("\nFREQNESS Startup: loading data and MNI coordinates.")
+    print("\nFREQNESS successfully initialized.")
+    print(f"Base directory: {root}\n")
     all_data = _load_groups(root / "FREQNESS_Data")
     mni = _load_mni_coordinates(root / "FREQNESS_MNI_Coordinates")
     return all_data, mni, root

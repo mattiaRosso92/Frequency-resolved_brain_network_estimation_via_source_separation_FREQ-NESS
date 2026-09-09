@@ -67,7 +67,12 @@ ALL_ANALYSES = (
 
 @dataclass(slots=True)
 class FREQNESSPipelineConfig:
-    """Settings corresponding to the editable MATLAB pipeline section."""
+    """Settings corresponding to the editable MATLAB pipeline section.
+
+    ``network_options`` is forwarded to ``FREQNESS_NetworkEstimation``. Its
+    automatic widths use the physical logarithmic schedule by default; pass
+    ``filter='linear'`` for constant Q = 5, or ``fwidth`` for explicit widths.
+    """
 
     toolbox_root: str | Path | None = None
     frex: FloatArray = field(
@@ -208,7 +213,10 @@ def FREQNESS_MainPipeline(
     names = _condition_names(root, len(all_data))
     results: list[FREQNESSPipelineConditionResult] = []
 
-    for condition, data in zip(names, all_data, strict=True):
+    for condition_index, (condition, data) in enumerate(
+        zip(names, all_data, strict=True), start=1
+    ):
+        print(f"\nANALYSING CONDITION/GROUP #{condition_index}")
         condition_result = FREQNESSPipelineConditionResult(name=condition)
         results.append(condition_result)
         if data is None:
