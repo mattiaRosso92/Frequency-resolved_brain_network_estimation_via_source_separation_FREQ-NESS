@@ -27,6 +27,7 @@ from numpy.typing import ArrayLike, NDArray
 
 from ._gradient_utils import (
     FREQNESSGradientGoodFit,
+    activation_centroids,
     frequency_axis,
     mni_array,
     model_subjects,
@@ -103,10 +104,11 @@ def FREQNESS_FreqGradients(
     """Fit spatial gradients across frequency for one component.
 
     Spatial patterns are normalized and thresholded independently for every
-    frequency and participant. For each MNI dimension, both linear and
-    quadratic models predict the one-based frequency-bin index from the
-    coordinates of suprathreshold voxels; BIC selects the reported model.
-    Coefficients are returned in the explicit order ``[b0, b1, b2]``.
+    frequency and participant. Their absolute activation coefficients weight
+    one XYZ centroid per frequency. For each MNI dimension, both linear and
+    quadratic models predict centroid position from physical frequency in Hz;
+    BIC selects the reported model. Coefficients are returned in the explicit
+    order ``[b0, b1, b2]``.
 
     ``threshold_sd=1`` preserves the MATLAB selection rule. It is exposed as
     a keyword so future sensitivity analyses can change it without modifying
@@ -137,9 +139,10 @@ def FREQNESS_FreqGradients(
 
     patterns = all_patterns[:, component, :, :]
     patterns, retained = threshold_patterns(patterns, threshold_sd)
+    centers = activation_centroids(patterns, coordinates)
     coefficients, diagnostics = model_subjects(
-        patterns,
-        coordinates,
+        centers,
+        frequencies,
         selected_frequencies,
         threshold_sd,
         retained,
@@ -152,6 +155,8 @@ def FREQNESS_FreqGradients(
     diagnostics.figures = plot_gradients(
         patterns,
         coordinates,
+        centers,
+        frequencies,
         selected_frequencies,
         labels,
         "Frequency",
