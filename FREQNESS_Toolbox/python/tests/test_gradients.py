@@ -33,7 +33,12 @@ def gradient_data():
     for subject in range(2):
         for component in range(ncomponents):
             for frequency in range(frequencies.size):
-                center = -25.0 + 11.0 * frequency + 8.0 * component + 0.5 * subject
+                center = (
+                    -25.0
+                    + 1.5 * frequencies[frequency]
+                    + 8.0 * component
+                    + 0.5 * subject
+                )
                 patterns[:, component, frequency, subject] = (
                     np.exp(-0.5 * ((x - center) / 2.5) ** 2) + 0.01
                 )
@@ -63,7 +68,7 @@ def test_frequency_gradients_recover_linear_x_gradient(gradient_data):
     assert good_fit.threshold_sd == 1.0
     assert good_fit.retained_voxels.shape == (5, 2)
     np.testing.assert_array_equal(good_fit.bestOrder[0], [1.0, 1.0])
-    np.testing.assert_allclose(coefficients[0, 1], 1.0 / 11.0, atol=0.005)
+    np.testing.assert_allclose(coefficients[0, 1], 1.5, atol=0.02)
     np.testing.assert_allclose(coefficients[0, 2], 0.0, atol=1e-12)
     assert np.all(good_fit.R2_best[0] > 0.98)
     assert len(good_fit.figures) == 1
@@ -83,13 +88,13 @@ def test_component_gradients_recover_linear_x_gradient(gradient_data):
     assert good_fit.threshold_sd == 2.0
     assert good_fit.retained_voxels.shape == (4, 2)
     np.testing.assert_array_equal(good_fit.bestOrder[0], [1.0, 1.0])
-    np.testing.assert_allclose(coefficients[0, 1], 1.0 / 8.0, atol=0.01)
+    np.testing.assert_allclose(coefficients[0, 1], 8.0, atol=0.05)
     np.testing.assert_allclose(coefficients[0, 2], 0.0, atol=1e-12)
     assert np.all(good_fit.R2_best[0] > 0.96)
 
 
 def test_coefficients_are_b0_b1_b2_and_quadratic_can_win():
-    x = np.array([0.0, 1.0, np.sqrt(2.0), np.sqrt(3.0), 2.0])
+    x = np.array([1.0, 4.0, 9.0, 16.0, 25.0])
     MNI = np.column_stack([x, np.zeros_like(x), np.zeros_like(x)])
     patterns = np.eye(5)[:, None, :, None]
     FREQ = {"pats": patterns, "frex": np.arange(1.0, 6.0)}
@@ -102,7 +107,7 @@ def test_coefficients_are_b0_b1_b2_and_quadratic_can_win():
     )
 
     assert good_fit.bestOrder[0, 0] == 2
-    np.testing.assert_allclose(coefficients[0, :, 0], [1.0, 0.0, 1.0], atol=1e-12)
+    np.testing.assert_allclose(coefficients[0, :, 0], [0.0, 0.0, 1.0], atol=1e-12)
     assert good_fit.R2_best[0, 0] == pytest.approx(1.0)
     assert np.isnan(good_fit.bestOrder[1:, 0]).all()
 
@@ -199,6 +204,20 @@ def test_all_zero_maps_return_nan_fits_and_zero_retained_counts():
     assert np.isnan(coefficients).all()
     assert np.isnan(good_fit.R2_best).all()
     assert not np.any(good_fit.retained_voxels)
+
+
+def test_centroid_gradient_is_invariant_to_pattern_sign_and_scale(gradient_data):
+    FREQ, MNI = gradient_data
+    baseline, _ = FREQNESS_FreqGradients(FREQ, MNI, show=False)
+
+    transformed = SimpleNamespace(
+        pats=-7.5 * FREQ.pats,
+        frex=FREQ.frex,
+        evals=FREQ.evals,
+    )
+    result, _ = FREQNESS_FreqGradients(transformed, MNI, show=False)
+
+    np.testing.assert_allclose(result, baseline, atol=1e-12, equal_nan=True)
 
 
 def test_plot_all_adds_one_figure_per_participant(gradient_data):

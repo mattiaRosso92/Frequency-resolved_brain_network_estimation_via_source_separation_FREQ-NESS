@@ -203,7 +203,7 @@ def _least_squares_fit(
 
 
 def fit_gradient(x: FloatArray, y: FloatArray) -> _Fit:
-    """Fit linear/quadratic models and choose order by BIC."""
+    """Fit linear/quadratic centroid trajectories and choose order by BIC."""
     empty = _Fit(np.full(3, np.nan), np.nan, np.nan, np.nan, np.nan)
     finite = np.isfinite(x) & np.isfinite(y)
     x = np.asarray(x[finite], dtype=float)
@@ -217,7 +217,7 @@ def fit_gradient(x: FloatArray, y: FloatArray) -> _Fit:
     linear_coefficients, linear_sse, linear_r2 = linear
 
     quadratic = None
-    if x.size >= 3 and np.unique(x).size >= 3:
+    if x.size >= 4 and np.unique(x).size >= 4:
         quadratic = _least_squares_fit(x, y, 2)
     quadratic_r2 = np.nan if quadratic is None else quadratic[2]
 
@@ -256,36 +256,55 @@ def fit_gradient(x: FloatArray, y: FloatArray) -> _Fit:
     )
 
 
-def collect_level_data(
+def activation_centroids(
     patterns: FloatArray,
     coordinates: FloatArray,
+) -> FloatArray:
+    """Return activation-weighted XYZ centroids for every level and subject."""
+    centers = np.full((3, patterns.shape[1], patterns.shape[2]), np.nan)
+    for subject in range(patterns.shape[2]):
+        for level in range(patterns.shape[1]):
+            weights = patterns[:, level, subject]
+            valid = np.isfinite(weights) & (weights > 0)
+            if not np.any(valid):
+                continue
+            total_weight = float(np.sum(weights[valid]))
+            if not np.isfinite(total_weight) or total_weight <= 0:
+                continue
+            centers[:, level, subject] = (
+                weights[valid] @ coordinates[valid, :]
+            ) / total_weight
+    return centers
+
+
+def collect_centroid_data(
+    centers: FloatArray,
+    level_values: FloatArray,
     level_indices: IntArray,
     dimension: int,
 ) -> tuple[FloatArray, FloatArray]:
-    """Collect unweighted coordinate/one-based-level pairs."""
-    x_parts: list[FloatArray] = []
-    y_parts: list[FloatArray] = []
-    for level in level_indices:
-        valid = np.isfinite(patterns[:, level])
-        if np.any(valid):
-            x_parts.append(coordinates[valid, dimension])
-            y_parts.append(
-                np.full(np.count_nonzero(valid), level + 1, dtype=float)
-            )
-    if not x_parts:
-        return np.empty(0, dtype=float), np.empty(0, dtype=float)
-    return np.concatenate(x_parts), np.concatenate(y_parts)
+    """Collect predictor/centroid pairs for one MNI dimension."""
+    selected_values = np.asarray(level_values[level_indices], dtype=float)
+    if centers.ndim == 2:
+        centroid_values = centers[dimension, level_indices]
+        predictors = selected_values
+    else:
+        centroid_values = centers[dimension, level_indices, :]
+        predictors = np.repeat(selected_values, centers.shape[2])
+        centroid_values = centroid_values.reshape(-1)
+    finite = np.isfinite(predictors) & np.isfinite(centroid_values)
+    return predictors[finite], np.asarray(centroid_values[finite], dtype=float)
 
 
 def model_subjects(
-    patterns: FloatArray,
-    MNI: FloatArray,
+    centers: FloatArray,
+    level_values: FloatArray,
     level_indices: IntArray,
     threshold_sd: float,
     retained_voxels: IntArray,
 ) -> tuple[FloatArray, FREQNESSGradientGoodFit]:
-    """Fit X/Y/Z gradients independently for every participant."""
-    nsubjects = patterns.shape[2]
+    """Fit XYZ centroid trajectories independently for every participant."""
+    nsubjects = centers.shape[2]
     coefficients = np.full((3, 3, nsubjects), np.nan, dtype=float)
     linear = np.full((3, nsubjects), np.nan, dtype=float)
     quadratic = np.full((3, nsubjects), np.nan, dtype=float)
@@ -294,8 +313,11 @@ def model_subjects(
 
     for subject in range(nsubjects):
         for dimension in range(3):
-            x, y = collect_level_data(
-                patterns[:, :, subject], MNI, level_indices, dimension
+            x, y = collect_centroid_data(
+                centers[:, :, subject],
+                level_values,
+                level_indices,
+                dimension,
             )
             fit = fit_gradient(x, y)
             coefficients[dimension, :, subject] = fit.coefficients
@@ -316,20 +338,15 @@ def model_subjects(
 
 
 def group_fits(
-    patterns: FloatArray,
-    MNI: FloatArray,
+    centers: FloatArray,
+    level_values: FloatArray,
     level_indices: IntArray,
 ) -> list[_Fit]:
-    """Fit aggregated participant data for visualization only."""
-    group_patterns = np.concatenate(
-        [patterns[:, :, subject] for subject in range(patterns.shape[2])],
-        axis=0,
-    )
-    group_coordinates = np.tile(MNI, (patterns.shape[2], 1))
+    """Fit equally weighted participant centroid data for visualization."""
     fits: list[_Fit] = []
     for dimension in range(3):
-        x, y = collect_level_data(
-            group_patterns, group_coordinates, level_indices, dimension
+        x, y = collect_centroid_data(
+            centers, level_values, level_indices, dimension
         )
         fits.append(fit_gradient(x, y))
     return fits
@@ -342,6 +359,8 @@ def _evaluate(coefficients: FloatArray, x: FloatArray) -> FloatArray:
 def plot_gradients(
     patterns: FloatArray,
     MNI: FloatArray,
+    centers: FloatArray,
+    level_values: FloatArray,
     level_indices: IntArray,
     level_labels: Sequence[str],
     ylabel: str,
@@ -372,7 +391,8 @@ def plot_gradients(
             level_labels,
             ylabel,
             f"{title} - Group level",
-            group_fits(patterns, MNI, level_indices),
+            group_fits(centers, level_values, level_indices),
+            level_values,
             jitter=True,
         )
     )
@@ -380,8 +400,11 @@ def plot_gradients(
         for subject in range(patterns.shape[2]):
             fits = []
             for dimension in range(3):
-                x, y = collect_level_data(
-                    patterns[:, :, subject], MNI, level_indices, dimension
+                x, y = collect_centroid_data(
+                    centers[:, :, subject],
+                    level_values,
+                    level_indices,
+                    dimension,
                 )
                 fits.append(fit_gradient(x, y))
             figures.append(
@@ -393,6 +416,7 @@ def plot_gradients(
                     ylabel,
                     f"{title} - Participant #{subject + 1}",
                     fits,
+                    level_values,
                     jitter=False,
                 )
             )
@@ -407,6 +431,7 @@ def _plot_one(
     ylabel: str,
     title: str,
     fits: Sequence[_Fit],
+    level_values: FloatArray,
     *,
     jitter: bool,
 ) -> Any:
@@ -447,14 +472,25 @@ def _plot_one(
 
         fit = fits[dimension]
         if np.all(np.isfinite(fit.coefficients)):
-            x_fit, _ = collect_level_data(
-                patterns, coordinates, level_indices, dimension
+            predictor_values = np.asarray(
+                level_values[level_indices], dtype=float
             )
-            if x_fit.size:
-                x_line = np.linspace(float(np.min(x_fit)), float(np.max(x_fit)), 300)
-                y_line = _evaluate(fit.coefficients, x_line)
-                visible = (y_line >= selected_min) & (y_line <= selected_max)
-                y_line = np.where(visible, y_line, np.nan)
+            level_positions = level_indices.astype(float) + 1.0
+            order = np.argsort(predictor_values)
+            predictor_values = predictor_values[order]
+            level_positions = level_positions[order]
+            unique_values, unique_indices = np.unique(
+                predictor_values, return_index=True
+            )
+            level_positions = level_positions[unique_indices]
+            if unique_values.size >= 2:
+                model_axis = np.linspace(
+                    float(unique_values[0]), float(unique_values[-1]), 300
+                )
+                x_line = _evaluate(fit.coefficients, model_axis)
+                y_line = np.interp(
+                    model_axis, unique_values, level_positions
+                )
                 axis.plot(x_line, y_line, color="black", linewidth=2)
         axis.axhline(selected_min, color="black", linestyle="--", linewidth=1)
         if selected_max != selected_min:

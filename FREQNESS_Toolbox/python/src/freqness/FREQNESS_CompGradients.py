@@ -27,6 +27,7 @@ from numpy.typing import ArrayLike, NDArray
 
 from ._gradient_utils import (
     FREQNESSGradientGoodFit,
+    activation_centroids,
     field_value,
     frequency_axis,
     mni_array,
@@ -148,8 +149,9 @@ def FREQNESS_CompGradients(
 ) -> tuple[FloatArray, FREQNESSGradientGoodFit]:
     """Fit spatial gradients across components at one frequency.
 
-    Both linear and quadratic models predict the one-based component index
-    from suprathreshold MNI coordinates. BIC selects the reported model and
+    Absolute suprathreshold activation coefficients weight one XYZ centroid
+    per component. Both linear and quadratic models predict centroid position
+    from the one-based component number. BIC selects the reported model and
     coefficients are returned as ``[b0, b1, b2]``. If ``freq2model`` is
     omitted, the peak mean absolute first-component eigenvalue selects the
     frequency, matching the MATLAB workflow.
@@ -180,9 +182,11 @@ def FREQNESS_CompGradients(
 
     patterns = all_patterns[:, :, frequency, :]
     patterns, retained = threshold_patterns(patterns, threshold_sd)
+    centers = activation_centroids(patterns, coordinates)
+    component_numbers = np.arange(1, ncomponents + 1, dtype=float)
     coefficients, diagnostics = model_subjects(
-        patterns,
-        coordinates,
+        centers,
+        component_numbers,
         selected_components,
         threshold_sd,
         retained,
@@ -195,6 +199,8 @@ def FREQNESS_CompGradients(
     diagnostics.figures = plot_gradients(
         patterns,
         coordinates,
+        centers,
+        component_numbers,
         selected_components,
         [f"Comp {component}" for component in range(1, ncomponents + 1)],
         "Component",

@@ -14,9 +14,10 @@ function [gradCoeff, goodFit] = FREQNESS_FreqGradients(FREQ, MNI, varargin)
 %
 % ========================================================================
 %  This function visualizes and models spatial gradients of the spatial
-%  activation patterns produced by FREQNESS. This is useful to test whether 
-%  the activation coefficients in the networks are distributed across the X,Y,Z
-%  dimensions as a function of their frequency, following spatial gradients. 
+%  activation patterns produced by FREQNESS. For every frequency and
+%  participant, absolute suprathreshold activation coefficients weight one
+%  MNI center of mass. The X,Y,Z center coordinates are then modelled as a
+%  function of physical frequency.
 %
 %  These operations are carried out on the FREQ.pats output produced by 
 %  FREQNESS_NetworkEstimation(). The input can consist of either a 2D or
@@ -44,8 +45,8 @@ function [gradCoeff, goodFit] = FREQNESS_FreqGradients(FREQ, MNI, varargin)
 %  - frex2model : optional argument to select a range of frequencies of which 
 %                 you intend to model the gradient. E.g., frex2model = [8
 %                 12] will fit the best polynomial model to all frequencies
-%                 between 8 and 12 Hz, as a function the X,Y,Z coordinates
-%                 of their dominant activation coefficients.
+%                 between 8 and 12 Hz, modelling their X,Y,Z
+%                 activation-weighted center coordinates.
 %                 When no input is given, the function will fit to all 
 %                 frequencies in the FREQ.frex field.  
 %
@@ -70,8 +71,8 @@ function [gradCoeff, goodFit] = FREQNESS_FreqGradients(FREQ, MNI, varargin)
 %  OUTPUT ARGUMENTS:
 % ------------------------------------------------------------------------
 %
-%  - gradCoeff : Polynomial coefficients modelling the gradient for each
-%                individual participant. Size: [3 x 3 x nSubs], where:
+%  - gradCoeff : Polynomial coefficients modelling center position from
+%                frequency for each participant. Size: [3 x 3 x nSubs], where:
 %                dim = 1,2,3 -> X,Y,Z; coefficients = [b0 b1 b2].
 %                When the best fitting model is linear, b2 = 0.
 %
@@ -212,6 +213,9 @@ for subi = 1:nsubs
     end
 end
 
+% Compute one activation-weighted MNI centroid per frequency and participant
+centers = compute_activation_centers(patterns,MNI);
+
 %% Create group-level variables
 
 % Initialize for concatenation
@@ -306,23 +310,23 @@ sgtitle(['Spatial gradient across frequencies - Component #' num2str(which_comp)
 %% Model spatial gradients and overlay fits on scatterplots
 
 % -------------------------------------------------------------------------
-% Here we parametrize spatial gradients by fitting polynomial models
-% to the same variables used in the plots:
-%   y = frequency index (one row per frex)
-%   x = spatial coordinates (X, Y, Z)
+% Here we parametrize spatial gradients by fitting polynomial models to one
+% activation-weighted MNI centroid per frequency and participant:
+%   y = centroid coordinate (X, Y, or Z; mm)
+%   x = physical frequency (Hz)
 %
 % We:
 %   1) Select the frequency range specified by frex2model (if given),
 %      using FREQ.frex (in Hz) to find the closest indices.
-%   2) For each dimension (X, Y, Z), collect all suprathreshold voxels
+%   2) For each dimension (X, Y, Z), collect the participant centroids
 %      across the selected frequencies.
 %   3) Fit 1st- and 2nd-order polynomials:
-%           freqIdx ~ poly(coord)
+%           centroid ~ poly(frequency)
 %      and compute R^2 for both.
 %   4) Use BIC only to select the best model; we then store:
 %         - gradCoeff(dim,coeff,subi) for each participant
 %         - goodFit.R2_* and goodFit.bestOrder per participant
-%   5) Overlay a group-level polynomial (based on concatenated data) on the
+%   5) Overlay a group-level polynomial (with equal participant weighting) on the
 %      existing scatterplots, and add dashed y-lines marking the modelled
 %      frequency range.
 % -------------------------------------------------------------------------
@@ -348,92 +352,36 @@ goodFit_group.R2_quadratic  = nan(3,1);
 goodFit_group.R2_best       = nan(3,1);
 goodFit_group.bestOrder     = nan(3,1);
 
-% Coordinate matrices in the same format as cat_pats (group-level)
-coordMats_group = {cat_x, cat_y, cat_z};
-
 for dim = 1:3  % 1 = X, 2 = Y, 3 = Z (group-level modelling)
-    
-    coordVec   = [];
-    freqIdxVec = [];
-    
-    % Collect coord/frequency index pairs across selected frequencies
-    for frexi = idx_range2model
-        this_pat = cat_pats(:,frexi);
-        mask     = ~isnan(this_pat);  % suprathreshold voxels only
-        
-        if any(mask)
-            coordVec   = [coordVec;   coordMats_group{dim}(mask,frexi)];
-            freqIdxVec = [freqIdxVec; frexi*ones(sum(mask),1)];
-        end
+    nSelected = numel(idx_range2model);
+    predictorVec = repmat(frex(idx_range2model),nsubs,1);
+    centerVec = nan(nSelected*nsubs,1);
+    for subi = 1:nsubs
+        this_center = centers(dim,idx_range2model,subi);
+        rows = (subi-1)*nSelected+(1:nSelected);
+        centerVec(rows) = this_center(:);
     end
-    
-    nDat = numel(freqIdxVec);
-    if nDat < 3 || numel(unique(coordVec)) < 3 || numel(unique(freqIdxVec)) < 2
-        % Not enough data to fit a quadratic model reliably
+
+    [gradCoeff_group(dim,:), goodFit_group.R2_linear(dim), ...
+        goodFit_group.R2_quadratic(dim), goodFit_group.R2_best(dim), ...
+        goodFit_group.bestOrder(dim)] = fit_center_gradient(predictorVec,centerVec);
+
+    if isnan(goodFit_group.bestOrder(dim))
         continue
-    end
-    
-    % Total variance for R^2
-    sst = sum( (freqIdxVec - mean(freqIdxVec)).^2 );
-    
-    % ----- Linear model: freqIdx = b1*coord + b0 -----
-    p_lin = polyfit(coordVec, freqIdxVec, 1);  % [b1 b0]
-    y_lin = polyval(p_lin, coordVec);
-    sse_lin = sum((freqIdxVec - y_lin).^2);
-    r2_lin  = 1 - sse_lin/sst;
-    
-    % ----- Quadratic model: freqIdx = b2*coord^2 + b1*coord + b0 -----
-    p_quad = polyfit(coordVec, freqIdxVec, 2); % [b2 b1 b0]
-    y_quad = polyval(p_quad, coordVec);
-    sse_quad = sum((freqIdxVec - y_quad).^2);
-    r2_quad  = 1 - sse_quad/sst;
-    
-    % Store R^2 (group-level)
-    goodFit_group.R2_linear(dim)    = r2_lin;
-    goodFit_group.R2_quadratic(dim) = r2_quad;
-    
-    % ----- Model selection via BIC (group-level, for visualization only) -----
-    k_lin   = 2;  % parameters: slope + intercept
-    k_quad  = 3;  % parameters: quad + slope + intercept
-    bic_lin  = nDat*log(max(sse_lin,eps)/nDat)  + k_lin*log(nDat);
-    bic_quad = nDat*log(max(sse_quad,eps)/nDat) + k_quad*log(nDat);
-    
-    if bic_quad < bic_lin
-        % Quadratic wins
-        gradCoeff_group(dim,:)      = p_quad;    % [b2 b1 b0]
-        goodFit_group.R2_best(dim)  = r2_quad;
-        goodFit_group.bestOrder(dim)= 2;
-    else
-        % Linear wins (pad quadratic term with 0)
-        gradCoeff_group(dim,:)      = [0 p_lin]; % [0 b1 b0]
-        goodFit_group.R2_best(dim)  = r2_lin;
-        goodFit_group.bestOrder(dim)= 1;
     end
     
     % ----- Overlay selected group-level model on the corresponding subplot -----
     
-    % Coordinate range for plotting the model
-    coordMin = min(coordVec);
-    coordMax = max(coordVec);
-    coordLine = linspace(coordMin, coordMax, 200);
-    
-    % Evaluate model in frequency-index space
-    if goodFit_group.bestOrder(dim) == 2
-        modelIdx = polyval(gradCoeff_group(dim,:), coordLine);          % [b2 b1 b0]
-    else
-        modelIdx = polyval(gradCoeff_group(dim,2:3), coordLine);        % [b1 b0]
-    end
-    
-    % Bound model within the selected frequency index range
+    % Evaluate centroid position at each selected physical frequency
+    modelCoord = polyval(gradCoeff_group(dim,:),frex(idx_range2model));
     minIdx = min(idx_range2model);
     maxIdx = max(idx_range2model);
-    modelIdx(modelIdx < minIdx | modelIdx > maxIdx) = nan;
     
     % Select subplot (same as your scatter layout)
     subplot(1,3,dim); hold on
     
     % Plot fitted model as a black line
-    plot(coordLine, modelIdx, 'k-', 'LineWidth', 2);
+    plot(modelCoord, idx_range2model, 'k-', 'LineWidth', 2);
     
     % Add dashed lines delimiting the modelled frequency range
     yline(minIdx, 'k--', 'LineWidth', 1);
@@ -446,73 +394,13 @@ end
 % -------------------------------------------------------------------------
 
 for subi = 1:nsubs
-    
-    this_pats = patterns(:,:,subi);         % [nVox x nFrex]
-    sub_x = repmat(MNI(:,1), [1, nfrex]);
-    sub_y = repmat(MNI(:,2), [1, nfrex]);
-    sub_z = repmat(MNI(:,3), [1, nfrex]);
-    coordMats_sub = {sub_x, sub_y, sub_z};
-    
     for dim = 1:3  % X, Y, Z
-        
-        coordVec_sub   = [];
-        freqIdxVec_sub = [];
-        
-        % Collect coord/frequency index pairs across selected frequencies
-        for frexi = idx_range2model
-            this_pat_freq = this_pats(:,frexi);
-            mask_sub      = ~isnan(this_pat_freq);  % suprathreshold voxels only
-            
-            if any(mask_sub)
-                coordVec_sub   = [coordVec_sub;   coordMats_sub{dim}(mask_sub,frexi)];
-                freqIdxVec_sub = [freqIdxVec_sub; frexi*ones(sum(mask_sub),1)];
-            end
-        end
-        
-        nDat_sub = numel(freqIdxVec_sub);
-        if nDat_sub < 3 || numel(unique(coordVec_sub)) < 3 || ...
-                numel(unique(freqIdxVec_sub)) < 2
-            % Not enough data to fit a quadratic model reliably
-            continue
-        end
-        
-        % Total variance for R^2
-        sst_sub = sum( (freqIdxVec_sub - mean(freqIdxVec_sub)).^2 );
-        
-        % ----- Linear model: freqIdx = b1*coord + b0 -----
-        p_lin_sub = polyfit(coordVec_sub, freqIdxVec_sub, 1);  % [b1 b0]
-        y_lin_sub = polyval(p_lin_sub, coordVec_sub);
-        sse_lin_sub = sum((freqIdxVec_sub - y_lin_sub).^2);
-        r2_lin_sub  = 1 - sse_lin_sub/sst_sub;
-        
-        % ----- Quadratic model: freqIdx = b2*coord^2 + b1*coord + b0 -----
-        p_quad_sub = polyfit(coordVec_sub, freqIdxVec_sub, 2); % [b2 b1 b0]
-        y_quad_sub = polyval(p_quad_sub, coordVec_sub);
-        sse_quad_sub = sum((freqIdxVec_sub - y_quad_sub).^2);
-        r2_quad_sub  = 1 - sse_quad_sub/sst_sub;
-        
-        % Store R^2 (subject-wise)
-        goodFit.R2_linear(dim,subi)    = r2_lin_sub;
-        goodFit.R2_quadratic(dim,subi) = r2_quad_sub;
-        
-        % ----- Model selection via BIC (subject-wise) -----
-        k_lin_sub   = 2;
-        k_quad_sub  = 3;
-        bic_lin_sub  = nDat_sub*log(max(sse_lin_sub,eps)/nDat_sub)  + k_lin_sub*log(nDat_sub);
-        bic_quad_sub = nDat_sub*log(max(sse_quad_sub,eps)/nDat_sub) + k_quad_sub*log(nDat_sub);
-        
-        if bic_quad_sub < bic_lin_sub
-            % Quadratic wins
-            gradCoeff(dim,:,subi)       = p_quad_sub;    % [b2 b1 b0]
-            goodFit.R2_best(dim,subi)   = r2_quad_sub;
-            goodFit.bestOrder(dim,subi) = 2;
-        else
-            % Linear wins (pad quadratic term with 0)
-            gradCoeff(dim,:,subi)       = [0 p_lin_sub]; % [0 b1 b0]
-            goodFit.R2_best(dim,subi)   = r2_lin_sub;
-            goodFit.bestOrder(dim,subi) = 1;
-        end
-        
+        this_center = centers(dim,idx_range2model,subi);
+        centerVec = this_center(:);
+        [gradCoeff(dim,:,subi), goodFit.R2_linear(dim,subi), ...
+            goodFit.R2_quadratic(dim,subi), goodFit.R2_best(dim,subi), ...
+            goodFit.bestOrder(dim,subi)] = ...
+            fit_center_gradient(frex(idx_range2model),centerVec);
     end
 end
 
@@ -552,7 +440,6 @@ if plot_all
         end
         
         % ----- Subject-specific polynomial curves for plotting, from stored coeffs -----
-        coordMats_sub = {sub_x, sub_y, sub_z};
         coordLine_sub = cell(3,1);
         modelIdx_sub  = cell(3,1);
         
@@ -565,47 +452,10 @@ if plot_all
                 continue
             end
             
-            coordVec_sub   = [];
-            freqIdxVec_sub = [];
-            
-            % Collect coord/frequency index pairs across selected frequencies
-            for frexi = idx_range2model
-                this_pat_freq = this_pats(:,frexi);
-                mask_sub      = ~isnan(this_pat_freq);  % suprathreshold voxels only
-                
-                if any(mask_sub)
-                    coordVec_sub   = [coordVec_sub;   coordMats_sub{dim}(mask_sub,frexi)];
-                    freqIdxVec_sub = [freqIdxVec_sub; frexi*ones(sum(mask_sub),1)];
-                end
-            end
-            
-            nDat_sub = numel(freqIdxVec_sub);
-            if nDat_sub < 3
-                coordLine_sub{dim} = [];
-                modelIdx_sub{dim}  = [];
-                continue
-            end
-            
-            % Coordinate range for plotting the subject's model
-            coordMin_sub = min(coordVec_sub);
-            coordMax_sub = max(coordVec_sub);
-            coordLine    = linspace(coordMin_sub, coordMax_sub, 200);
-            
-            % Evaluate model in frequency-index space using stored coefficients
+            % Evaluate centroid position from physical frequency
             coeff_sub     = squeeze(gradCoeff(dim,:,subi));   % [b2 b1 b0]
-            bestOrder_sub = goodFit.bestOrder(dim,subi);      % 1 or 2
-            
-            if bestOrder_sub == 2
-                modelIdx = polyval(coeff_sub, coordLine);          % [b2 b1 b0]
-            else
-                modelIdx = polyval(coeff_sub(2:3), coordLine);     % [b1 b0]
-            end
-            
-            % Bound model within the selected frequency index range
-            modelIdx(modelIdx < minIdx | modelIdx > maxIdx) = nan;
-            
-            coordLine_sub{dim} = coordLine;
-            modelIdx_sub{dim}  = modelIdx;
+            coordLine_sub{dim} = polyval(coeff_sub,frex(idx_range2model));
+            modelIdx_sub{dim}  = idx_range2model;
         end
         
         % ----- Produce subject-specific plot with overlaid fits -----
@@ -696,6 +546,86 @@ end
 
 
 end 
+
+%% Helper Function: Compute Activation-Weighted Centers
+function centers = compute_activation_centers(patterns,MNI)
+
+centers = nan(3,size(patterns,2),size(patterns,3));
+for subi = 1:size(patterns,3)
+    for leveli = 1:size(patterns,2)
+        weights = patterns(:,leveli,subi);
+        valid = isfinite(weights) & weights>0;
+        total_weight = sum(weights(valid));
+        if any(valid) && isfinite(total_weight) && total_weight>0
+            centers(:,leveli,subi) = ...
+                (MNI(valid,:)'*weights(valid))/total_weight;
+        end
+    end
+end
+
+end
+
+%% Helper Function: Fit Center Trajectory
+function [coeff,r2_linear,r2_quadratic,r2_best,best_order] = ...
+    fit_center_gradient(predictor,center)
+
+coeff = nan(1,3);
+[r2_linear,r2_quadratic,r2_best,best_order] = deal(nan);
+predictor = predictor(:);
+center = center(:);
+valid = isfinite(predictor) & isfinite(center);
+predictor = predictor(valid);
+center = center(valid);
+
+if numel(predictor)<3 || numel(unique(predictor))<2 || ...
+        numel(unique(center))<2
+    return
+end
+
+sst = sum((center-mean(center)).^2);
+if ~isfinite(sst) || sst<=0
+    return
+end
+
+p_linear = polyfit(predictor,center,1);
+predicted_linear = polyval(p_linear,predictor);
+sse_linear = sum((center-predicted_linear).^2);
+r2_linear = 1-sse_linear/sst;
+
+coeff = [0 p_linear];
+r2_best = r2_linear;
+best_order = 1;
+
+if numel(predictor)<4 || numel(unique(predictor))<4
+    return
+end
+
+p_quadratic = polyfit(predictor,center,2);
+predicted_quadratic = polyval(p_quadratic,predictor);
+sse_quadratic = sum((center-predicted_quadratic).^2);
+r2_quadratic = 1-sse_quadratic/sst;
+
+zero_tolerance = eps*max(sst,1)*numel(predictor)*32;
+linear_perfect = sse_linear<=zero_tolerance;
+quadratic_perfect = sse_quadratic<=zero_tolerance;
+if quadratic_perfect && ~linear_perfect
+    quadratic_wins = true;
+elseif linear_perfect
+    quadratic_wins = false;
+else
+    nDat = numel(predictor);
+    bic_linear = nDat*log(sse_linear/nDat)+2*log(nDat);
+    bic_quadratic = nDat*log(sse_quadratic/nDat)+3*log(nDat);
+    quadratic_wins = bic_quadratic<bic_linear;
+end
+
+if quadratic_wins
+    coeff = p_quadratic;
+    r2_best = r2_quadratic;
+    best_order = 2;
+end
+
+end
 
 %% Helper Function: Parse Name-Value Pairs
 function opts = parse_name_value_pairs(opts, varargin)
