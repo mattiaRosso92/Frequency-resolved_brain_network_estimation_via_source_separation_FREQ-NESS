@@ -18,6 +18,7 @@ from freqness import (
     FREQNESS_MainPipeline,
     FREQNESS_NetworkEstimation,
     FREQNESS_NetworkRemoval,
+    FREQNESS_SpatialComparison,
     FREQNESS_Startup,
     FREQNESS_Visualizer,
 )
@@ -84,6 +85,13 @@ compGradCoeff, compGoodFit = FREQNESS_CompGradients(
     freq2model=10,
     comps2model=[1, 3],
     show=False,
+)
+STATS = FREQNESS_SpatialComparison(
+    FREQ_condition_1,
+    FREQ_condition_2,
+    MNI,
+    frex2compare=[8, 12],
+    comps2compare=[1, 2],
 )
 
 # Run the complete folder-based workflow, or select exact function sections.
@@ -152,6 +160,16 @@ component indices for MATLAB compatibility. The legacy thresholds are exposed
 as `threshold_sd` (defaults: 1 for frequency gradients and 2 for component
 gradients), and retained-voxel counts are included in the fit diagnostics.
 
+`FREQNESS_SpatialComparison` quantitatively compares paired spatial patterns
+between two conditions. Requested frequencies are resolved against the shared
+`FREQ.frex` grid, while component numbers remain one-based. The default
+magnitude and within-participant L2 normalization make the comparison robust
+to arbitrary GED sign and scale. Voxel-wise paired statistics are corrected
+with a two-sided MNI-adjacency cluster-mass sign-flip test. Each permutation
+uses the maximum cluster mass across every frequency and component requested
+in the call, providing family-wise error control over the complete comparison.
+Use `frex2compare="all"` to analyze the full frequency grid.
+
 `FREQNESS_MainPipeline` mirrors the complete MATLAB pipeline across every
 folder in `FREQNESS_Data`. By default it runs the complete workflow and keeps
 numerical results in memory. Users can select one or more sections by exact
@@ -213,6 +231,7 @@ from freqness import (
     main_pipeline,
     remove_network,
     startup,
+    spatial_comparison,
     visualize,
 )
 ```
