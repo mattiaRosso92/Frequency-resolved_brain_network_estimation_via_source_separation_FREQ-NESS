@@ -45,7 +45,8 @@ FREQNESS/
 The bundled `FREQNESS_MNI_Coordinates` file corresponds to the 3559-voxel
 MNI152 8-mm grid. Replace it when using a different source space or voxel
 ordering. Matching coordinates are required for spatial visualizations and
-gradient modelling.
+gradient modelling. `FREQNESS_SpatialComparison` uses the same coordinates to
+perform paired voxel-wise comparisons with MNI-adjacency cluster correction.
 
 ## MATLAB quick start
 

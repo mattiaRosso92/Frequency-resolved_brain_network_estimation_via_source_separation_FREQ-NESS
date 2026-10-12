@@ -59,6 +59,11 @@ from .FREQNESS_NetworkEstimation import (
 )
 from .FREQNESS_NetworkRemoval import FREQNESS_NetworkRemoval
 from .FREQNESS_Startup import FREQNESS_Startup
+from .FREQNESS_SpatialComparison import (
+    FREQNESS_SpatialComparison,
+    FREQNESSSpatialCluster,
+    FREQNESSSpatialComparisonResult,
+)
 from .FREQNESS_Visualizer import FREQNESS_Visualizer, FREQNESSVisualization
 from .filterFGx import filterFGx
 
@@ -73,6 +78,7 @@ induced_responses = FREQNESS_InducedResponses
 main_pipeline = FREQNESS_MainPipeline
 remove_network = FREQNESS_NetworkRemoval
 startup = FREQNESS_Startup
+spatial_comparison = FREQNESS_SpatialComparison
 visualize = FREQNESS_Visualizer
 
 __all__ = [
@@ -95,6 +101,9 @@ __all__ = [
     "FREQNESS_NetworkEstimation",
     "FREQNESS_NetworkRemoval",
     "FREQNESS_Startup",
+    "FREQNESS_SpatialComparison",
+    "FREQNESSSpatialCluster",
+    "FREQNESSSpatialComparisonResult",
     "FREQNESSResult",
     "FREQNESS_Visualizer",
     "FREQNESSVisualization",
@@ -110,6 +119,7 @@ __all__ = [
     "main_pipeline",
     "remove_network",
     "startup",
+    "spatial_comparison",
     "visualize",
     "ALL_ANALYSES",
     "BACK_PROJECTION",
