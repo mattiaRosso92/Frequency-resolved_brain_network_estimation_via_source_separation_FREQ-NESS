@@ -57,6 +57,49 @@ selected network time series without requiring behavioral data.
    frequencies, and the analyses to run.
 3. Run the script. It initializes the toolbox automatically.
 
+The MATLAB pipeline is organized into three blocks:
+
+- **Block 0 — Startup and settings:** inspects participant filenames and matrix
+  dimensions, loads MNI coordinates, and defines the analysis settings.
+- **Block 1 — Network estimation and core export:** loads one participant at a
+  time, estimates its networks, saves the complete `FREQ` structure, and releases
+  the participant data and result before proceeding to the next file.
+- **Block 2 — Optional group analyses:** combines the saved participant results
+  and runs the established visualization and secondary-analysis sections.
+
+By default, `run_core = true` and `run_group_analyses = false`. Core results are
+saved under `FREQNESS_Results/CORE/<condition>/<participant>_FREQ.mat`. Each file
+contains `FREQ`, `PARTICIPANT` source-file metadata, and `NETWORK_SETTINGS`.
+The full component time series are retained for subsequent analyses. Files use
+MATLAB Version 7.3 to support large arrays.
+
+The MATLAB MainPipeline retains five components per frequency by default
+(`network_ncomps = 5`). This setting limits `FREQ.evecs`, `FREQ.pats`, and
+`FREQ.ts`; `FREQ.evals` always contains the complete eigenspectrum. The default
+of the standalone `FREQNESS_NetworkEstimation` function is unchanged.
+
+Set `overwrite_core = true` to replace saved results. Otherwise, existing files
+are reused only when the saved network settings, source path, dimensions, file
+size, and modification time match. These metadata checks do not compare the
+contents of the source file. Use another `path_results` to keep separate runs.
+
+Run Block 0 before running either analysis block separately. To run the group
+analyses from existing core files, set `run_core = false` and
+`run_group_analyses = true`, retaining the network settings used to create the
+files. Block 2 restores the participant dimension, keeps group outputs in the
+workspace, and requires memory for the combined results. Network removal also
+loads the original data for the current condition. NIfTI exports are separated
+by condition under `FREQNESS_Results/GROUP`.
+
+The original `[allData,MNI,path_home] = FREQNESS_Startup()` call still loads all
+datasets. Use `[~,MNI,path_home,folder_data] = FREQNESS_Startup(false)` to inspect
+files without loading participant arrays. Matrix contents, including finite
+values, are checked when each participant is loaded. The numerical functions
+continue to accept both single-participant and multi-participant arrays.
+
+The Python MainPipeline follows the same participant-wise workflow, using
+`<participant>_FREQ.npz` files. See the Python quick start below.
+
 Individual functions are available in `FREQNESS_Functions`. See
 `README_Toolbox.rtf` and the function headers for detailed MATLAB guidance.
 
@@ -68,6 +111,25 @@ These automatic widths depend on frequencies in Hz and their numerical range,
 not on the number or spacing of frequency bins. A scalar `fwidth` still
 applies one constant width to every filter, while a vector supplies one
 explicit width per frequency.
+
+## Updating from the previous MainPipeline
+
+Keep your participant files in their existing `FREQNESS_Data/<condition>` folders.
+Copy your analysis settings into Block 0 of the updated pipeline, then run it.
+The default CORE stage now loads, estimates, saves and releases one participant
+at a time. Results are created automatically under
+`FREQNESS_Results/CORE/<condition>`; they are no longer collected in the workspace.
+
+The new pipeline default is **five components** for `evecs`, `pats` and `ts`;
+`evals` retains all eigenvalues. To reproduce an earlier run, use its original
+component count and other settings.
+
+For the previous group analyses, enable `run_group_analyses` in MATLAB or
+`RUN_GROUP_ANALYSES` in the Python script. Set `run_core` / `RUN_CORE` to false
+to reuse matching CORE files. Group analyses combine results in memory, so
+memory use increases with participant count. Existing matching files are skipped;
+set `overwrite_core` / `OVERWRITE_CORE` to true to replace them, or choose a
+new results directory. Run Block 0 before an individual MATLAB analysis block.
 
 ## Python quick start
 
@@ -92,11 +154,16 @@ python3 -m venv .venv
 
 For a guided interactive workflow, open
 `python/FREQNESS_NotebookPipeline.ipynb` in Jupyter or VS Code and run its
-cells in order. It exposes intermediate results for one selected condition.
+cells in order. It exposes intermediate results for one selected participant
+within a chosen condition.
 
-For automated processing of every condition, edit the settings near the top
-of `python/FREQNESS_MainPipeline.py` and run the script. Both interfaces
-initialize the Python package themselves; users do not run
+For automated processing of every condition, edit Block 0 near the top of
+`python/FREQNESS_MainPipeline.py` and run the script. `RUN_CORE = True` and
+`RUN_GROUP_ANALYSES = False` are the defaults. `NETWORK_OPTIONS["ncomps"] = 5`
+retains five components while preserving the full eigenspectrum. Python saves
+complete FREQ arrays and metadata in `.npz` archives; these are not MATLAB
+`.mat` files. Load one with `FREQNESS_LoadCore(path)` for subsequent analyses.
+Both interfaces initialize the Python package themselves; users do not run
 `FREQNESS_Startup.py` separately. If `FREQNESS_Data` has no condition folders,
 the toolbox displays a warning and performs no analysis.
 

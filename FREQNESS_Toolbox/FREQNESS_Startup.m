@@ -1,4 +1,4 @@
-function [allData, MNI, path_home] = FREQNESS_Startup()
+function [allData, MNI, path_home, folder_data] = FREQNESS_Startup(load_data)
 % ========================================================================
 %  FREQNESS STARTUP FUNCTION
 % ========================================================================
@@ -17,6 +17,21 @@ function [allData, MNI, path_home] = FREQNESS_Startup()
 %  determining its installation directory and adding all required
 %  subfolders to the MATLAB path.
 %
+%  By default, all participant matrices are loaded into allData, with one
+%  cell per Group or Condition. Each matrix has dimensions:
+%
+%      voxels x time x participants
+%
+%  Set load_data to false to inspect participant files without loading
+%  their data matrices. In this case, allData contains empty cells and the
+%  fourth output, folder_data, lists the folders and their files_mat entries.
+%  The data_size field contains the common [nVoxels nTime] size per folder.
+%  MNI coordinates and toolbox paths are initialized in both modes.
+%
+%  Examples:
+%      [allData,MNI,path_home] = FREQNESS_Startup();
+%      [~,MNI,path_home,folder_data] = FREQNESS_Startup(false);
+%
 %  AUTHORS:
 %  Mattia Rosso & Leonardo Bonetti
 %  mattia.rosso@clin.au.dk
@@ -25,6 +40,15 @@ function [allData, MNI, path_home] = FREQNESS_Startup()
 %  Centre for Eudaimonia and Human Flourishing, Linacre College, University of Oxford
 %
 % ========================================================================
+
+%% Select whether to load participant data
+
+if nargin < 1
+    load_data = true;
+end
+if ~islogical(load_data) || ~isscalar(load_data)
+    error('load_data must be one logical value (true or false).');
+end
 
 %% Define main path based on the directory of this function
 path_home = fileparts(mfilename('fullpath'));
@@ -37,7 +61,11 @@ addpath(fullfile(path_home, 'FREQNESS_ExternalFunctions', 'nifti_tools'));
 addpath(fullfile(path_home, 'FREQNESS_Data'));
 addpath(fullfile(path_home, 'FREQNESS_MNI_Coordinates'));
 
-fprintf('\nFREQNESS Startup: loading data and MNI coordinates.\n');
+if load_data
+    fprintf('\nFREQNESS Startup: loading data and MNI coordinates.\n');
+else
+    fprintf('\nFREQNESS Startup: inspecting data files and loading MNI coordinates.\n');
+end
 fprintf('\nFREQNESS successfully initialized.\n');
 fprintf('Base directory: %s\n\n', path_home);
 
@@ -67,6 +95,8 @@ for foldi = 1:nfolds
         [~,file_order] = sort(lower({files_mat.name}));
         files_mat = files_mat(file_order);
     end
+    folder_data(foldi).files_mat = files_mat;
+    folder_data(foldi).data_size = [];
     nsubs(foldi) = numel(files_mat);
     % Check whether the files are missing
     if nsubs(foldi) == 0
@@ -74,41 +104,66 @@ for foldi = 1:nfolds
         allData{foldi} = [];
     else
 
-        % Store all participants in this folder
+        % Inspect or load each participant in this folder
         for subi = 1:nsubs(foldi)
 
-            % Load .mat file (must contain exactly one data matrix)
-            S  = load(fullfile(files_mat(subi).folder, files_mat(subi).name));
-            fn = fieldnames(S);
-            if numel(fn) ~= 1
-                error('File %s must contain exactly one data matrix.', files_mat(subi).name);
-            end
-            this_data = S.(fn{1});   % assign voxels-by-time data matrix
+            if load_data
+                % Load .mat file (must contain exactly one data matrix)
+                S  = load(fullfile(files_mat(subi).folder, files_mat(subi).name));
+                fn = fieldnames(S);
+                if numel(fn) ~= 1
+                    error('File %s must contain exactly one data matrix.', files_mat(subi).name);
+                end
+                this_data = S.(fn{1});   % assign voxels-by-time data matrix
 
-            if ~isnumeric(this_data) || ~isreal(this_data) || isempty(this_data) || ...
-                    ~ismatrix(this_data) || any(~isfinite(this_data(:)))
-                error(['File %s must contain one non-empty real numeric ' ...
-                    'voxels-by-time matrix with finite values.'],files_mat(subi).name);
+                if ~isnumeric(this_data) || ~isreal(this_data) || isempty(this_data) || ...
+                        ~ismatrix(this_data) || any(~isfinite(this_data(:)))
+                    error(['File %s must contain one non-empty real numeric ' ...
+                        'voxels-by-time matrix with finite values.'],files_mat(subi).name);
+                end
+                data_size = size(this_data);
+            else
+                % Read dimensions and class without importing the data matrix
+                file_info = whos('-file',fullfile(files_mat(subi).folder,files_mat(subi).name));
+                if numel(file_info) ~= 1
+                    error('File %s must contain exactly one data matrix.',files_mat(subi).name);
+                end
+                numeric_classes = {'double','single','int8','uint8','int16', ...
+                    'uint16','int32','uint32','int64','uint64'};
+                if ~ismember(file_info.class,numeric_classes) || file_info.complex || ...
+                        numel(file_info.size) ~= 2 || any(file_info.size == 0)
+                    error(['File %s must contain one non-empty real numeric ' ...
+                        'voxels-by-time matrix.'],files_mat(subi).name);
+                end
+                data_size = file_info.size;
             end
 
-            % On first subject, initialize 3D array
+            % On first subject, store dimensions and optionally allocate data
             if subi == 1
-                [nvoxs, ntime] = size(this_data);
-                groupData = nan(nvoxs, ntime, nsubs(foldi));
+                nvoxs = data_size(1);
+                ntime = data_size(2);
+                folder_data(foldi).data_size = data_size;
+                if load_data
+                    groupData = nan(nvoxs, ntime, nsubs(foldi));
+                end
             else
                 % Basic consistency check
-                if ~isequal(size(this_data), [nvoxs ntime])
+                if ~isequal(data_size, [nvoxs ntime])
                     error('Size mismatch in file %s relative to first subject in folder %s.', ...
                         files_mat(subi).name, this_folder);
                 end
             end
 
             % Assign into group matrix along 3rd dimension
-            groupData(:,:,subi) = this_data;
+            if load_data
+                groupData(:,:,subi) = this_data;
+            end
         end
 
         % Store in cell array (one entry per group / condition)
-        allData{foldi} = groupData;
+        if load_data
+            allData{foldi} = groupData;
+        end
 
     end
 
@@ -166,14 +221,14 @@ end
 if ~isempty(MNI)
     data_nvoxs = [];
     for foldi = 1:nfolds
-        if ~isempty(allData{foldi})
-            data_nvoxs(end+1) = size(allData{foldi},1); %#ok<AGROW>
+        if ~isempty(folder_data(foldi).data_size)
+            data_nvoxs(end+1) = folder_data(foldi).data_size(1); %#ok<AGROW>
         end
     end
 
     if ~isempty(data_nvoxs) && any(data_nvoxs ~= size(MNI,1))
         warning(['MNI coordinates ignored: the coordinate file contains %d rows, ' ...
-            'but the loaded datasets contain %s voxels. Replace the coordinate ' ...
+            'but the datasets contain %s voxels. Replace the coordinate ' ...
             'file with one matching the voxel order and source space of your data.'], ...
             size(MNI,1),mat2str(unique(data_nvoxs)));
         MNI = [];

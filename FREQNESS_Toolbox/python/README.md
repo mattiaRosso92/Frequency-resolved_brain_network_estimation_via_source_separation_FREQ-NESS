@@ -103,7 +103,7 @@ STAB = FREQNESS_StabilityIndex(
     plot_avg=True,
 )
 
-# Run the complete folder-based workflow, or select exact function sections.
+# Save participant CORE files; group analyses are enabled separately.
 pipeline = FREQNESS_MainPipeline()
 ```
 
@@ -195,27 +195,74 @@ use the complete time series. Multi-frequency analyses warn that raw-Hz indices
 are most directly compared within frequency, and windows touching the complete
 recording boundaries warn about possible FFT and analytic-signal edge effects.
 
-`FREQNESS_MainPipeline` mirrors the complete MATLAB pipeline across every
-folder in `FREQNESS_Data`. By default it runs the complete workflow and keeps
-numerical results in memory. Users can select one or more sections by exact
-function name when only a subset of analyses is needed. Network estimation is
-automatically computed as the prerequisite for selected secondary analyses.
-The BackProjection and NetworkRemoval sections use MATLAB-compatible,
-one-based component numbering. NetworkRemoval returns the cleaned data and
-removed activity in memory; when requested, the pipeline re-estimates the
-cleaned data and plots its first three network components. The re-estimation
-is deliberately kept in the pipeline, leaving NetworkRemoval as a focused
-subtraction function. The pipeline keeps numerical outputs in memory; only
-the Visualizer's established NIfTI export can write files, when enabled.
+`FREQNESS_MainPipeline` follows the same three blocks as MATLAB:
+
+1. **Block 0 — Startup and settings:** inspect participant files and load MNI
+   coordinates, without importing participant data.
+2. **Block 1 — CORE export:** load one participant, estimate networks, save the
+   complete FREQ result, and release both raw data and result before continuing.
+3. **Block 2 — Optional group analyses:** combine the saved participant results
+   and run the established secondary analyses. This block retains group arrays
+   in memory and is disabled by default.
+
+Edit `RUN_CORE`, `RUN_GROUP_ANALYSES`, `PATH_RESULTS`, `OVERWRITE_CORE` and the
+analysis settings in `FREQNESS_MainPipeline.py`. Their configuration-API
+counterparts are `run_core`, `run_group_analyses`, `path_results` and
+`overwrite_core`. Defaults are CORE enabled, group analyses disabled, and
+five retained components. `FREQ.evals` always keeps the full eigenspectrum;
+`evecs`, `pats` and `ts` keep the selected components. The standalone estimator's
+default remains unchanged.
+
+The pipeline automatically creates
+`FREQNESS_Results/CORE/<condition>/<participant>_FREQ.npz`. Startup does not
+create output folders. Each archive contains all `FREQ_*` fields, plus
+`PARTICIPANT` and `NETWORK_SETTINGS` JSON metadata. NPZ preserves singleton
+participant dimensions, supports large arrays, and needs no additional
+dependency or pickle. This Python format is not interchangeable with MATLAB's
+Version 7.3 output files. Input `.mat` files still need MATLAB v7 or earlier;
+v7.3 input support is not introduced by this change.
+
+```python
+from freqness import FREQNESS_LoadCore
+
+FREQ = FREQNESS_LoadCore(
+    "/path/to/FREQNESS_Results/CORE/Condition_1/participant_01_FREQ.npz"
+)
+```
+
+The returned pipeline object stores lightweight `conditions[i].core_files`
+paths. Its `conditions[i].outputs` contains selected group results only when
+`run_group_analyses=True`. To reproduce the previous in-memory group workflow,
+enable that flag and retain your previous `network_options`, including its
+component count. The new five-component default can change component-dependent
+analyses compared with an older run that retained more components.
+
+Existing files are reused only when network settings and source path, dimensions,
+file size and modification time match. These checks are not content hashes.
+Set `overwrite_core=True` to replace saved results, or choose another results
+folder to keep separate runs. To run only the group block, set `run_core=False`
+and `run_group_analyses=True` with the settings used to create the files.
+Group NIfTI exports are separated under `FREQNESS_Results/GROUP/<condition>`.
+Network removal loads the original data for the current condition only when
+that analysis is selected, and preserves its existing cleaned-data outputs.
+
+The original `FREQNESS_Startup(path)` three-output call still eagerly loads all
+datasets. Use
+`FREQNESS_Startup(path, load_data=False, return_folders=True)` for the matching
+MATLAB discovery workflow: a fourth output lists folder names, participant
+`files_mat` paths and their common `data_size`. Discovery uses case-insensitive
+folder/file order and defers real/finite-value checks until participant loading.
+Both single-participant and multi-participant estimator calls remain supported.
 
 Long-running Python functions mirror the MATLAB console messages, including
 condition, participant, frequency, modelling, backprojection, removal, and
 NIfTI-export progress.
 
 For interactive use, open `FREQNESS_NotebookPipeline.ipynb` in Jupyter or VS
-Code. The notebook guides one selected condition through every main-pipeline
-analysis and keeps intermediate outputs visible. `FREQNESS_MainPipeline.py`
-remains the recommended interface for unattended processing of every dataset
+Code. The notebook inspects all filenames, then guides one selected participant
+through every analysis and keeps intermediate outputs visible. Restart its
+kernel before switching participants to release those interactive outputs.
+`FREQNESS_MainPipeline.py` remains the recommended interface for unattended processing of every dataset
 folder, while `src/freqness/FREQNESS_MainPipeline.py` provides the reusable
 package engine and configuration API.
 
@@ -227,11 +274,12 @@ python FREQNESS_MainPipeline.py \
     --no-show
 ```
 
-Run only one secondary section, for example:
+Run only one secondary section from saved CORE files, for example:
 
 ```text
 python FREQNESS_MainPipeline.py \
     --analysis FREQNESS_EntropyLandscape \
+    --skip-core \
     --no-show
 ```
 

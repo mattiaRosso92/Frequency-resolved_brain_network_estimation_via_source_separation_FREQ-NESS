@@ -1,8 +1,14 @@
 """Complete Python counterpart of ../FREQNESS_MainPipeline.m.
 
-The full workflow is configured below. Change `ANALYSES_TO_RUN` to execute
-only a subset of analysis sections. Command-line `--analysis` selections
-provide the same control without editing this file.
+Block 0 defines the settings. Block 1 loads, estimates, saves and releases
+one participant at a time. Block 2 combines saved results for optional group
+analyses. The CORE block runs by default; group analyses are disabled.
+
+Keep RUN_CORE = True and RUN_GROUP_ANALYSES = False for the initial CORE run
+to limit memory use. Once CORE finishes, set RUN_CORE = False and
+RUN_GROUP_ANALYSES = True, keep the same estimation settings, and run again.
+Use ANALYSES_TO_RUN to select group sections. Command-line --analysis
+selections also enable the requested group sections.
 
 If you use this toolbox, please cite:
 Rosso, M., Fernández-Rubio, G., Keller, P. E., Brattico, E., Vuust, P.,
@@ -35,13 +41,18 @@ from freqness.FREQNESS_MainPipeline import main
 
 
 # ============================================================================
-# STARTUP AND SECTION SELECTION
+# BLOCK 0 - STARTUP AND ANALYSIS SETTINGS
 # ============================================================================
 
 TOOLBOX_ROOT = Path(__file__).resolve().parent.parent
 
-# Complete pipeline by default. To run a subset, use for example:
-# ANALYSES_TO_RUN = ("FREQNESS_NetworkEstimation",)
+# Core results are saved outside FREQNESS_Data, in one folder per condition.
+RUN_CORE = True
+RUN_GROUP_ANALYSES = False
+PATH_RESULTS = None  # None uses FREQNESS_Results inside TOOLBOX_ROOT
+OVERWRITE_CORE = False
+
+# Optional sections for Block 2. Group arrays remain in memory when enabled.
 # ANALYSES_TO_RUN = ("FREQNESS_EntropyLandscape",)
 ANALYSES_TO_RUN = ALL_ANALYSES
 
@@ -59,8 +70,9 @@ NETWORK_OPTIONS = {
     # "fwidth": None,  # scalar or one explicit width per frequency
     # "filter": "logarithmic",
     # "regularisation": 0.01,
-    # "ncomps": 30,
+    "ncomps": 5,  # components retained in evecs, pats and ts; evals retains all
     # "bad_segments": None,
+    # "rescale": False,
 }
 
 
@@ -71,7 +83,7 @@ NETWORK_OPTIONS = {
 PLOT_ALL = False
 LANDSCAPE_FREQUENCIES = FREQUENCIES
 LANDSCAPE_COMPONENTS = 10
-PATTERN_FREQUENCIES = np.array([2.0, 8.0])
+PATTERN_FREQUENCIES = np.array([2.4, 8.4])
 PATTERN_COMPONENTS = 1
 SAVE_NIFTI = True
 
@@ -142,6 +154,10 @@ VISUALIZER_OUTPUT_DIRECTORY = None
 
 CONFIG = FREQNESSPipelineConfig(
     toolbox_root=TOOLBOX_ROOT,
+    run_core=RUN_CORE,
+    run_group_analyses=RUN_GROUP_ANALYSES,
+    path_results=PATH_RESULTS,
+    overwrite_core=OVERWRITE_CORE,
     frex=FREQUENCIES,
     srate=SAMPLING_RATE,
     analyses=ANALYSES_TO_RUN,
@@ -170,10 +186,19 @@ CONFIG = FREQNESSPipelineConfig(
 )
 
 
+# ============================================================================
+# BLOCK 1 - NETWORK ESTIMATION AND CORE EXPORT
+# BLOCK 2 - OPTIONAL GROUP ANALYSES
+# ============================================================================
+# The package pipeline runs these blocks in order using the settings above.
+# Each complete FREQ is saved to CORE/<condition>/<participant>_FREQ.npz.
+# Existing files are reused only when input metadata and settings match.
+
+
 def run_configured_pipeline():
-    """Run every section listed in `ANALYSES_TO_RUN`."""
+    """Run the configured CORE and optional group-analysis blocks."""
     result = FREQNESS_MainPipeline(CONFIG)
-    completed = sum(bool(condition.outputs) for condition in result.conditions)
+    completed = sum(bool(condition.core_files) for condition in result.conditions)
     print(
         f"FREQ-NESS pipeline completed for {completed} non-empty "
         f"condition(s)."
@@ -185,4 +210,4 @@ if __name__ == "__main__":
     if len(sys.argv) == 1:
         run_configured_pipeline()
     else:
-        raise SystemExit(main(default_toolbox_root=TOOLBOX_ROOT))
+        raise SystemExit(main(default_toolbox_root=TOOLBOX_ROOT, default_config=CONFIG))

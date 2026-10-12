@@ -9,6 +9,7 @@ from freqness import (
     BACK_PROJECTION,
     ENTROPY_LANDSCAPE,
     FREQNESS_MainPipeline,
+    FREQNESS_LoadCore,
     FREQNESSPipelineConfig,
     FREQNESSResult,
     NETWORK_ESTIMATION,
@@ -38,7 +39,7 @@ def _toolbox(tmp_path: Path, *, empty_second: bool = False) -> Path:
 
 def _freq_result(scale: float = 1.0) -> FREQNESSResult:
     return FREQNESSResult(
-        evals=np.full((2, 2, 1), scale),
+        evals=np.full((3, 2, 1), scale),
         evecs=np.full((3, 2, 2, 1), scale),
         pats=np.full((3, 2, 2, 1), scale),
         ts=np.full((2, 20, 2, 1), scale),
@@ -57,8 +58,12 @@ def test_pipeline_defaults_mirror_matlab_settings():
 
     np.testing.assert_allclose(config.frex, np.arange(1.2, 24.0 + 0.6, 1.2))
     assert config.srate == 250
+    assert config.network_options["ncomps"] == 5
+    assert config.run_core is True
+    assert config.run_group_analyses is False
+    assert config.overwrite_core is False
     assert config.landscape_ncomps == 10
-    np.testing.assert_array_equal(config.pattern_frex, [2, 8])
+    np.testing.assert_array_equal(config.pattern_frex, [2.4, 8.4])
     np.testing.assert_array_equal(config.expdk_range2fit, [9, 20])
     np.testing.assert_array_equal(config.freqgrad_frex2model, [8, 12])
     np.testing.assert_array_equal(config.compgrad_comps2model, [1, 5])
@@ -71,7 +76,7 @@ def test_pipeline_defaults_mirror_matlab_settings():
     assert config.netrem_landscape_ncomps == 3
 
 
-def test_core_section_processes_every_dataset_and_keeps_outputs_in_memory(
+def test_core_section_saves_every_participant_and_returns_paths(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ):
@@ -82,7 +87,8 @@ def test_core_section_processes_every_dataset_and_keeps_outputs_in_memory(
     def fake_estimation(data, frex, srate, **options):
         calls.append(float(data[0, 0, 0]))
         assert srate == 250
-        assert not options
+        assert options["ncomps"] == 5
+        assert data.shape[-1] == 1
         return _freq_result(calls[-1])
 
     monkeypatch.setattr(
@@ -101,14 +107,15 @@ def test_core_section_processes_every_dataset_and_keeps_outputs_in_memory(
         "Dataset_1",
         "Dataset_2",
     ]
-    assert all(
-        isinstance(item.outputs[NETWORK_ESTIMATION], FREQNESSResult)
-        for item in result.conditions
-    )
+    assert all(not item.outputs for item in result.conditions)
+    for item in result.conditions:
+        assert len(item.core_files) == 1
+        assert item.core_files[0].is_file()
+        assert isinstance(FREQNESS_LoadCore(item.core_files[0]), FREQNESSResult)
     assert set(root.rglob("*.mat")) == original_mat_files
 
 
-def test_secondary_section_computes_core_prerequisite_without_exporting_it(
+def test_secondary_section_uses_saved_core_prerequisite(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ):
@@ -135,12 +142,13 @@ def test_secondary_section_computes_core_prerequisite_without_exporting_it(
         FREQNESSPipelineConfig(
             toolbox_root=root,
             analyses=(ENTROPY_LANDSCAPE,),
+            run_group_analyses=True,
             show=False,
         )
     )
 
     assert estimation_calls == 2
-    assert seen_shapes == [(2, 2, 1), (2, 2, 1)]
+    assert seen_shapes == [(3, 2, 1), (3, 2, 1)]
     for condition in result.conditions:
         assert set(condition.outputs) == {ENTROPY_LANDSCAPE}
         np.testing.assert_array_equal(
@@ -171,8 +179,8 @@ def test_empty_dataset_is_retained_and_skipped(
             )
         )
 
-    assert len(warning_record) == 2
-    assert result.conditions[0].outputs
+    assert len(warning_record) == 1
+    assert result.conditions[0].core_files
     assert not result.conditions[1].outputs
 
 
@@ -246,6 +254,7 @@ def test_backprojection_and_network_removal_sections_are_independent(
             toolbox_root=root,
             frex=np.array([2.0, 4.0]),
             analyses=(BACK_PROJECTION, NETWORK_REMOVAL),
+            run_group_analyses=True,
             show=False,
         )
     )
@@ -263,7 +272,7 @@ def test_backprojection_and_network_removal_sections_are_independent(
             removal["dataClean"] + removal["removedActivity"],
             estimation_inputs[0]
             if condition.name == "Dataset_1"
-            else estimation_inputs[2],
+            else estimation_inputs[1],
         )
 
 

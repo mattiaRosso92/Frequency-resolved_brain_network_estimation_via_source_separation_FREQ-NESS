@@ -57,8 +57,8 @@ clear
 close all
 clc
 
-% Setup directories and load the bundled MNI coordinates
-[~,MNI,path_home] = FREQNESS_Startup();
+% Setup directories and load MNI coordinates without importing other datasets
+[~,MNI,path_home] = FREQNESS_Startup(false);
 
 
 %% PERFORM FREQNESS (ONLY ESSENTIAL INPUTS)
