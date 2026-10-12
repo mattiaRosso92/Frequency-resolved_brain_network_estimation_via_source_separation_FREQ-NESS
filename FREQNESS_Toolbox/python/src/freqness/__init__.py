@@ -18,6 +18,7 @@ leonardo.bonetti@clin.au.dk; leonardo.bonetti@psych.ox.ac.uk
 """
 
 from .FREQNESS_BackProjection import FREQNESS_BackProjection
+from .FREQNESS_CoreIO import FREQNESS_LoadCore, FREQNESS_SaveCore
 from .FREQNESS_CrossCoupling import (
     FREQNESS_CrossCoupling,
     FREQNESSCrossCouplingResult,
@@ -99,6 +100,8 @@ __all__ = [
     "FREQNESSGradientGoodFit",
     "FREQNESS_InducedResponses",
     "FREQNESSInducedResponsesResult",
+    "FREQNESS_LoadCore",
+    "FREQNESS_SaveCore",
     "FREQNESS_MainPipeline",
     "FREQNESSPipelineConditionResult",
     "FREQNESSPipelineConfig",
