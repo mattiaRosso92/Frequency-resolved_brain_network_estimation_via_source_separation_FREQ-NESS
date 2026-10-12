@@ -68,6 +68,8 @@ def test_constant_sine_has_near_zero_stability_and_no_padded_zero():
     assert result.frequency_sliding_raw.shape == (1, 3999, 1, 1)
     assert result.time.shape == (3999,)
     assert result.time[0] == pytest.approx(0.01)
+    np.testing.assert_array_equal(result.time_window, [0, 40])
+    assert np.all(result.analysis_mask)
     assert result.mean_frequency[0, 0, 0] == pytest.approx(5.0, abs=1e-10)
     assert result.stability_index[0, 0, 0] < 1e-9
     assert result.frequency_sliding_raw[0, 0, 0, 0] == pytest.approx(
@@ -118,6 +120,74 @@ def test_sampling_rate_controls_window_in_seconds():
     assert result.median_window == pytest.approx(0.41)
 
 
+def test_fwhm_override_accepts_scalar_and_selected_frequency_vector():
+    FREQ = _synthetic_freq(modulated=True)
+
+    scalar = FREQNESS_StabilityIndex(
+        FREQ,
+        frex2model=[5, 10],
+        fwhm=3.0,
+        time_window=[1, 39],
+        show=False,
+    )
+    vector = FREQNESS_StabilityIndex(
+        FREQ,
+        frex2model=[5, 10],
+        fwhm=[3.0, 4.0],
+        time_window=[1, 39],
+        show=False,
+    )
+
+    np.testing.assert_array_equal(scalar.fwhm, [3, 3])
+    np.testing.assert_array_equal(vector.fwhm, [3, 4])
+    assert scalar.stability_index[0, 1, 0] != pytest.approx(
+        vector.stability_index[0, 1, 0],
+        abs=1e-12,
+    )
+
+
+def test_time_window_limits_only_summary_statistics():
+    FREQ = _synthetic_freq(modulated=True)
+
+    result = FREQNESS_StabilityIndex(
+        FREQ,
+        frex2model=5,
+        time_window=[5, 15],
+        keep_frequency_sliding=True,
+        show=False,
+    )
+
+    assert result.frequency_sliding is not None
+    assert result.frequency_sliding.shape[1] == FREQ["ts"].shape[1] - 1
+    expected_mask = (result.time >= 5) & (result.time <= 15)
+    np.testing.assert_array_equal(result.analysis_mask, expected_mask)
+    np.testing.assert_array_equal(result.time_window, [5, 15])
+    expected_index = np.std(
+        result.frequency_sliding[0, expected_mask, 0, 0],
+        ddof=1,
+    )
+    expected_mean = np.mean(result.frequency_sliding[0, expected_mask, 0, 0])
+    assert result.stability_index[0, 0, 0] == pytest.approx(expected_index)
+    assert result.mean_frequency[0, 0, 0] == pytest.approx(expected_mean)
+
+
+def test_multi_frequency_and_recording_edge_warnings_are_explicit():
+    FREQ = _synthetic_freq()
+
+    with pytest.warns(UserWarning, match="absolute Hz"):
+        FREQNESS_StabilityIndex(
+            FREQ,
+            time_window=[1, 39],
+            show=False,
+        )
+    with pytest.warns(UserWarning, match="beginning or end"):
+        FREQNESS_StabilityIndex(
+            FREQ,
+            frex2model=5,
+            show=False,
+        )
+
+
 def test_closest_frequency_warns_and_component_order_is_preserved():
     FREQ = _synthetic_freq(nsubjects=2)
 
@@ -147,6 +217,9 @@ def test_plot_flags_return_group_and_participant_figures():
 
     assert len(result.figures) == 6
     assert all(figure.axes[0].get_ylabel() == "Stability Index (Hz)" for figure in result.figures)
+    assert result.figures[0].axes[0].get_title().startswith(
+        "Network Stability Landscape"
+    )
 
 
 @pytest.mark.parametrize(
@@ -156,6 +229,10 @@ def test_plot_flags_return_group_and_participant_figures():
         ({"frex2model": [5, 7, 10]}, "one frequency or a two-element range"),
         ({"median_window": 0}, "positive finite duration"),
         ({"median_window": 100}, "instantaneous frequency contains"),
+        ({"fwhm": [-1, 2]}, "positive finite"),
+        ({"fwhm": [1, 2, 3]}, "one value per selected frequency"),
+        ({"time_window": [-1, 2]}, "within the FREQ.ts duration"),
+        ({"time_window": [1, 1.001]}, "at least two"),
         ({"keep_frequency_sliding": 1}, "must be a boolean"),
     ],
 )

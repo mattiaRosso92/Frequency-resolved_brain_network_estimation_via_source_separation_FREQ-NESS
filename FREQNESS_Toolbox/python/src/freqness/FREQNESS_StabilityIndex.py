@@ -51,6 +51,8 @@ class FREQNESSStabilityIndexResult:
     srate: float
     median_window: float
     median_samples: int
+    time_window: FloatArray
+    analysis_mask: NDArray[np.bool_]
     frequency_sliding: FloatArray | None
     frequency_sliding_raw: FloatArray | None
     figures: list[Figure]
@@ -225,6 +227,69 @@ def _frequency_indices(
     return np.arange(lower, upper + 1, dtype=np.int64)
 
 
+def _selected_widths(
+    stored_widths: FloatArray,
+    frequency_indices: IntArray,
+    fwhm: ArrayLike | None,
+) -> FloatArray:
+    if fwhm is None or np.asarray(fwhm).size == 0:
+        return stored_widths[frequency_indices].copy()
+    requested = np.asarray(fwhm)
+    if (
+        requested.ndim > 1
+        or not np.issubdtype(requested.dtype, np.number)
+        or np.iscomplexobj(requested)
+        or not np.all(np.isfinite(requested))
+        or np.any(requested <= 0)
+    ):
+        raise ValueError("fwhm must contain positive finite values in Hz")
+    requested = np.asarray(requested, dtype=float).reshape(-1)
+    if requested.size == 1:
+        return np.full(frequency_indices.size, requested[0], dtype=float)
+    if requested.size != frequency_indices.size:
+        raise ValueError(
+            "fwhm must be empty, one scalar, or contain one value per "
+            f"selected frequency ({frequency_indices.size} values)"
+        )
+    return requested.copy()
+
+
+def _analysis_window(
+    time_window: ArrayLike | None,
+    time: FloatArray,
+    duration: float,
+) -> tuple[FloatArray, NDArray[np.bool_]]:
+    if time_window is None or np.asarray(time_window).size == 0:
+        window = np.array([0.0, duration], dtype=float)
+    else:
+        requested = np.asarray(time_window)
+        if (
+            requested.size != 2
+            or not np.issubdtype(requested.dtype, np.number)
+            or np.iscomplexobj(requested)
+        ):
+            raise ValueError(
+                "time_window must contain two finite increasing values in seconds"
+            )
+        window = np.asarray(requested, dtype=float).reshape(-1)
+        if (
+            not np.all(np.isfinite(window))
+            or window[0] < 0
+            or window[0] >= window[1]
+            or window[1] > duration
+        ):
+            raise ValueError(
+                "time_window must contain two finite increasing values in seconds "
+                f"within the FREQ.ts duration [0, {duration:.4g}]"
+            )
+    mask = (time >= window[0]) & (time <= window[1])
+    if np.count_nonzero(mask) < 2:
+        raise ValueError(
+            "time_window must contain at least two instantaneous-frequency samples"
+        )
+    return window, mask
+
+
 def _moving_median(values: FloatArray, window: int) -> FloatArray:
     """Match MATLAB ``movmedian(values, window, 2)`` for finite 2D data."""
     data = np.asarray(values, dtype=float)
@@ -325,7 +390,9 @@ def FREQNESS_StabilityIndex(
     *,
     which_comp: ArrayLike | None = None,
     frex2model: ArrayLike | None = None,
+    fwhm: ArrayLike | None = None,
     median_window: float = 0.4,
+    time_window: ArrayLike | None = None,
     keep_frequency_sliding: bool = False,
     plot_avg: bool = False,
     plot_all: bool = False,
@@ -336,7 +403,8 @@ def FREQNESS_StabilityIndex(
     Component numbers deliberately remain one-based for MATLAB compatibility.
     The Stability Index is the sample standard deviation, in hertz, of the
     moving-median-smoothed instantaneous frequency. Lower values indicate more
-    stable oscillatory frequency over time.
+    stable oscillatory frequency over time. Filtering and phase processing use
+    the complete time series; ``time_window`` limits only the final summary.
     """
     keep_frequency_sliding = _boolean(
         keep_frequency_sliding,
@@ -368,7 +436,7 @@ def FREQNESS_StabilityIndex(
     )
     frequency_indices = _frequency_indices(frequencies, frex2model)
     selected_frequencies = frequencies[frequency_indices]
-    selected_widths = widths[frequency_indices]
+    selected_widths = _selected_widths(widths, frequency_indices, fwhm)
 
     median_samples = max(
         1,
@@ -392,6 +460,31 @@ def FREQNESS_StabilityIndex(
     )
     mean_frequency = np.full_like(stability_index, np.nan)
     time = np.arange(1, time_series.shape[1], dtype=float) / sampling_rate
+    selected_time_window, analysis_mask = _analysis_window(
+        time_window,
+        time,
+        time_series.shape[1] / sampling_rate,
+    )
+    if frequency_indices.size > 1:
+        warnings.warn(
+            "Stability Index is expressed in absolute Hz. Comparisons across "
+            "network frequencies should be interpreted cautiously because the "
+            "corresponding Gaussian FWHM values and expected absolute frequency "
+            "variability may differ. Within-frequency comparisons across "
+            "participants or conditions are more directly interpretable.",
+            UserWarning,
+            stacklevel=2,
+        )
+    if selected_time_window[0] <= time[0] or selected_time_window[1] >= time[-1]:
+        warnings.warn(
+            "The Stability Index window includes the beginning or end of "
+            "FREQ.ts. FFT-based filtering and analytic-signal estimation may "
+            "be less reliable near the recording boundaries. Consider "
+            "specifying an interior time_window when edge effects could "
+            "materially influence the analysis.",
+            UserWarning,
+            stacklevel=2,
+        )
 
     if keep_frequency_sliding:
         frequency_sliding = np.full(
@@ -430,19 +523,19 @@ def FREQNESS_StabilityIndex(
                 component_time_series,
                 sampling_rate,
                 float(frequencies[source_frequency]),
-                float(widths[source_frequency]),
+                float(selected_widths[output_frequency]),
             )
             phase = np.unwrap(np.angle(hilbert(filtered, axis=1)), axis=1)
             raw = sampling_rate * np.diff(phase, axis=1) / (2.0 * np.pi)
             smoothed = _moving_median(raw, median_samples)
 
             stability_index[:, output_frequency, subject] = np.std(
-                smoothed,
+                smoothed[:, analysis_mask],
                 axis=1,
                 ddof=1,
             )
             mean_frequency[:, output_frequency, subject] = np.mean(
-                smoothed,
+                smoothed[:, analysis_mask],
                 axis=1,
             )
             if frequency_sliding is not None:
@@ -465,7 +558,8 @@ def FREQNESS_StabilityIndex(
                     selected_frequencies,
                     group_mean[component],
                     group_sem[component],
-                    f"Stability Index - component #{component_numbers[component]}",
+                    "Network Stability Landscape - component "
+                    f"#{component_numbers[component]}",
                 )
             )
     if plot_all:
@@ -495,6 +589,8 @@ def FREQNESS_StabilityIndex(
         srate=sampling_rate,
         median_window=effective_window,
         median_samples=median_samples,
+        time_window=selected_time_window,
+        analysis_mask=analysis_mask,
         frequency_sliding=frequency_sliding,
         frequency_sliding_raw=frequency_sliding_raw,
         figures=figures,

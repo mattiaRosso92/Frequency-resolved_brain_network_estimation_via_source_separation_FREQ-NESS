@@ -49,8 +49,20 @@ function STAB = FREQNESS_StabilityIndex(FREQ,varargin)
 %                   The closest available frequencies in FREQ.frex are
 %                   used. Default: all frequencies in FREQ.frex.
 %
+%  - 'fwhm' : Gaussian-filter FWHM in Hz. A scalar applies one width to all
+%             selected frequencies; a vector supplies one width per
+%             selected frequency. Default: the corresponding FREQ.fwhm
+%             values stored by FREQNESS_NetworkEstimation.
+%
 %  - 'median_window' : moving-median duration in seconds. The window is
 %                      converted to samples using FREQ.srate. Default: .4.
+%
+%  - 'time_window' : two-element [start end] interval in seconds over which
+%                    the Stability Index and mean frequency are calculated.
+%                    Filtering, analytic-signal estimation, phase
+%                    differentiation, and moving-median smoothing are always
+%                    performed over the complete FREQ.ts duration. Default:
+%                    the complete available duration.
 %
 %  - 'keep_frequency_sliding' : logical flag. When true, the raw and
 %                               median-smoothed instantaneous-frequency
@@ -80,6 +92,8 @@ function STAB = FREQNESS_StabilityIndex(FREQ,varargin)
 %       • STAB.srate         -> sampling rate in Hz
 %       • STAB.median_window -> effective median duration in seconds
 %       • STAB.median_samples -> moving-median window in samples
+%       • STAB.time_window    -> interval used for summary calculation
+%       • STAB.analysis_mask  -> samples included in summary calculation
 %
 %    When keep_frequency_sliding is true:
 %
@@ -162,7 +176,9 @@ end
 opts = struct( ...
     'which_comp', [], ...
     'frex2model', [], ...
+    'fwhm', [], ...
     'median_window', .4, ...
+    'time_window', [], ...
     'keep_frequency_sliding', false, ...
     'plot_avg', false, ...
     'plot_all', false);
@@ -170,7 +186,9 @@ opts = parse_name_value_pairs(opts,varargin{:});
 
 which_comp = opts.which_comp;
 frex2model = opts.frex2model;
+fwhm_override = opts.fwhm;
 median_window = opts.median_window;
+time_window = opts.time_window;
 keep_frequency_sliding = opts.keep_frequency_sliding;
 plot_avg = opts.plot_avg;
 plot_all = opts.plot_all;
@@ -204,7 +222,7 @@ validate_logical_scalar(plot_avg,'plot_avg');
 validate_logical_scalar(plot_all,'plot_all');
 
 [idx_frex2model,frex2model_actual] = map_frequencies(frex,frex2model);
-fwhm2model = fwhm(idx_frex2model);
+fwhm2model = resolve_fwhm(fwhm,idx_frex2model,fwhm_override);
 ncomps = numel(which_comp);
 nfrex = numel(idx_frex2model);
 
@@ -213,6 +231,22 @@ nfrex = numel(idx_frex2model);
 stability_index = nan(ncomps,nfrex,nsubs);
 mean_frequency = nan(ncomps,nfrex,nsubs);
 time = (1:ntime-1)/srate;
+[time_window,analysis_mask] = resolve_time_window(time_window,time);
+
+if nfrex>1
+    warning(['Stability Index is expressed in absolute Hz. Comparisons across ' ...
+        'network frequencies should be interpreted cautiously because the ' ...
+        'corresponding Gaussian FWHM values and expected absolute frequency ' ...
+        'variability may differ. Within-frequency comparisons across ' ...
+        'participants or conditions are more directly interpretable.']);
+end
+if time_window(1)<=time(1) || time_window(2)>=time(end)
+    warning(['The Stability Index window includes the beginning or end of ' ...
+        'FREQ.ts. FFT-based filtering and analytic-signal estimation may be ' ...
+        'less reliable near the recording boundaries. Consider specifying ' ...
+        'an interior time_window when edge effects could materially influence ' ...
+        'the analysis.']);
+end
 
 if keep_frequency_sliding
     frequency_sliding = nan(ncomps,ntime-1,nfrex,nsubs);
@@ -237,14 +271,16 @@ for subi = 1:nsubs
         this_ts = reshape(ts(which_comp,:,idx_freq,subi),ncomps,ntime);
 
         filt_ts = filterFGx( ...
-            this_ts,srate,frex(idx_freq),fwhm(idx_freq),false);
+            this_ts,srate,frex(idx_freq),fwhm2model(frexi),false);
         analytic_signal = FREQNESS_AnalyticSignal(filt_ts.').';
         phase = unwrap(angle(analytic_signal),[],2);
         this_frequency_raw = srate*diff(phase,1,2)/(2*pi);
         this_frequency = movmedian(this_frequency_raw,median_samples,2);
 
-        stability_index(:,frexi,subi) = std(this_frequency,0,2);
-        mean_frequency(:,frexi,subi) = mean(this_frequency,2);
+        stability_index(:,frexi,subi) = ...
+            std(this_frequency(:,analysis_mask),0,2);
+        mean_frequency(:,frexi,subi) = ...
+            mean(this_frequency(:,analysis_mask),2);
 
         if keep_frequency_sliding
             frequency_sliding(:,:,frexi,subi) = this_frequency;
@@ -267,6 +303,8 @@ STAB.comps = which_comp;
 STAB.srate = srate;
 STAB.median_window = median_window_effective;
 STAB.median_samples = median_samples;
+STAB.time_window = time_window;
+STAB.analysis_mask = analysis_mask;
 
 if keep_frequency_sliding
     STAB.frequency_sliding = frequency_sliding;
@@ -293,7 +331,8 @@ if plot_avg
             'LineWidth',1.5,'CapSize',8)
         xlabel('Network frequency (Hz)')
         ylabel('Stability Index (Hz)')
-        title(sprintf('Stability Index - component #%d',which_comp(compi)))
+        title(sprintf('Network Stability Landscape - component #%d', ...
+            which_comp(compi)))
         grid on
 
     end
@@ -324,6 +363,50 @@ if plot_all
 
 end
 
+end
+
+
+%% Helper Function: Resolve Filter Widths
+function fwhm2model = resolve_fwhm(fwhm,idx_frex2model,fwhm_override)
+
+nfrex = numel(idx_frex2model);
+if isempty(fwhm_override)
+    fwhm2model = fwhm(idx_frex2model);
+elseif ~isnumeric(fwhm_override) || ~isreal(fwhm_override) || ...
+        ~isvector(fwhm_override) || any(~isfinite(fwhm_override)) || ...
+        any(fwhm_override<=0)
+    error('fwhm must contain positive finite values in Hz.');
+elseif isscalar(fwhm_override)
+    fwhm2model = repmat(fwhm_override,nfrex,1);
+elseif numel(fwhm_override)==nfrex
+    fwhm2model = fwhm_override(:);
+else
+    error(['fwhm must be empty, one scalar, or contain one value per ' ...
+        'selected frequency (%d values).'],nfrex);
+end
+end
+
+
+%% Helper Function: Resolve Analysis Time Window
+function [time_window,analysis_mask] = resolve_time_window(time_window,time)
+
+duration = time(end)+time(1);
+if isempty(time_window)
+    time_window = [0 duration];
+elseif ~isnumeric(time_window) || ~isreal(time_window) || ...
+        ~isvector(time_window) || numel(time_window)~=2 || ...
+        any(~isfinite(time_window)) || time_window(1)<0 || ...
+        time_window(1)>=time_window(2) || time_window(2)>duration
+    error(['time_window must contain two finite increasing values in seconds ' ...
+        'within the FREQ.ts duration [0, %.4g].'],duration);
+else
+    time_window = time_window(:)';
+end
+
+analysis_mask = time>=time_window(1) & time<=time_window(2);
+if sum(analysis_mask)<2
+    error('time_window must contain at least two instantaneous-frequency samples.');
+end
 end
 
 
