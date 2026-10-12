@@ -19,6 +19,7 @@ from freqness import (
     FREQNESS_NetworkEstimation,
     FREQNESS_NetworkRemoval,
     FREQNESS_SpatialComparison,
+    FREQNESS_StabilityIndex,
     FREQNESS_Startup,
     FREQNESS_Visualizer,
 )
@@ -92,6 +93,14 @@ STATS = FREQNESS_SpatialComparison(
     MNI,
     frex2compare=[8, 12],
     comps2compare=[1, 2],
+)
+STAB = FREQNESS_StabilityIndex(
+    FREQ,
+    frex2model=[2, 30],
+    which_comp=1,
+    time_window=[5, 115],
+    median_window=0.4,
+    plot_avg=True,
 )
 
 # Run the complete folder-based workflow, or select exact function sections.
@@ -169,6 +178,22 @@ with a two-sided MNI-adjacency cluster-mass sign-flip test. Each permutation
 uses the maximum cluster mass across every frequency and component requested
 in the call, providing family-wise error control over the complete comparison.
 Use `frex2compare="all"` to analyze the full frequency grid.
+
+`FREQNESS_StabilityIndex` quantifies the temporal stability of selected
+network oscillations. Each broadband component time series is filtered at its
+corresponding `FREQ.frex` frequency using the stored `FREQ.fwhm`, and
+instantaneous frequency is obtained from the derivative of unwrapped analytic
+phase. The Stability Index is the sample standard deviation, in hertz, of a
+moving-median-smoothed instantaneous-frequency trace; lower values indicate
+greater frequency stability. The default median duration is 400 ms and is
+converted to samples using `FREQ.srate`. By default, filters reuse the
+corresponding widths in `FREQ.fwhm`; the optional `fwhm` argument accepts one
+shared width or one width per selected frequency. The optional `time_window`
+limits only the final mean and standard-deviation calculation, while filtering,
+analytic-phase estimation, differentiation, and median smoothing continue to
+use the complete time series. Multi-frequency analyses warn that raw-Hz indices
+are most directly compared within frequency, and windows touching the complete
+recording boundaries warn about possible FFT and analytic-signal edge effects.
 
 `FREQNESS_MainPipeline` mirrors the complete MATLAB pipeline across every
 folder in `FREQNESS_Data`. By default it runs the complete workflow and keeps

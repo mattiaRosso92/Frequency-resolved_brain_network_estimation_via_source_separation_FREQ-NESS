@@ -47,6 +47,8 @@ MNI152 8-mm grid. Replace it when using a different source space or voxel
 ordering. Matching coordinates are required for spatial visualizations and
 gradient modelling. `FREQNESS_SpatialComparison` uses the same coordinates to
 perform paired voxel-wise comparisons with MNI-adjacency cluster correction.
+`FREQNESS_StabilityIndex` quantifies the temporal frequency stability of
+selected network time series without requiring behavioral data.
 
 ## MATLAB quick start
 
