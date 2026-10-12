@@ -64,6 +64,10 @@ from .FREQNESS_SpatialComparison import (
     FREQNESSSpatialCluster,
     FREQNESSSpatialComparisonResult,
 )
+from .FREQNESS_StabilityIndex import (
+    FREQNESS_StabilityIndex,
+    FREQNESSStabilityIndexResult,
+)
 from .FREQNESS_Visualizer import FREQNESS_Visualizer, FREQNESSVisualization
 from .filterFGx import filterFGx
 
@@ -79,6 +83,7 @@ main_pipeline = FREQNESS_MainPipeline
 remove_network = FREQNESS_NetworkRemoval
 startup = FREQNESS_Startup
 spatial_comparison = FREQNESS_SpatialComparison
+stability_index = FREQNESS_StabilityIndex
 visualize = FREQNESS_Visualizer
 
 __all__ = [
@@ -104,6 +109,8 @@ __all__ = [
     "FREQNESS_SpatialComparison",
     "FREQNESSSpatialCluster",
     "FREQNESSSpatialComparisonResult",
+    "FREQNESS_StabilityIndex",
+    "FREQNESSStabilityIndexResult",
     "FREQNESSResult",
     "FREQNESS_Visualizer",
     "FREQNESSVisualization",
@@ -120,6 +127,7 @@ __all__ = [
     "remove_network",
     "startup",
     "spatial_comparison",
+    "stability_index",
     "visualize",
     "ALL_ANALYSES",
     "BACK_PROJECTION",
