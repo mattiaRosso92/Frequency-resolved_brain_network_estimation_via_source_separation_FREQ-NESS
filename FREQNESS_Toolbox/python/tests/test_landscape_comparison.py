@@ -166,16 +166,27 @@ def test_raw_numeric_landscapes_require_frequencies_and_accept_lists():
     np.testing.assert_allclose(result.values.frex, [6, 12])
 
 
-def test_design_test_validation_and_plot_count():
+def test_design_test_recovery_and_plot_count():
     condition_a, condition_b = _paired_freq()
-    with pytest.raises(ValueError, match="test must be"):
-        FREQNESS_LandscapeComparison(
+    with pytest.warns(UserWarning, match="Using test='ranksum'"):
+        between = FREQNESS_LandscapeComparison(
             condition_a,
             condition_b,
             design="between",
             test="signrank",
             plot_results=False,
         )
+    assert between.test == "ranksum"
+
+    with pytest.warns(UserWarning, match="Using test='signrank'"):
+        within = FREQNESS_LandscapeComparison(
+            condition_a,
+            condition_b,
+            design="within",
+            test="ranksum",
+            plot_results=False,
+        )
+    assert within.test == "signrank"
 
     result = FREQNESS_LandscapeComparison(
         condition_a,

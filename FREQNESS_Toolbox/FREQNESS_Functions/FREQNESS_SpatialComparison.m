@@ -13,17 +13,19 @@ function STATS = FREQNESS_SpatialComparison(FREQ_A,FREQ_B,MNI,varargin)
 %  https://doi.org/10.1002/advs.202413195
 %
 % ========================================================================
-%  This function performs a paired spatial comparison of FREQ-NESS
-%  activation patterns. Voxel-wise paired statistics are combined with a
-%  non-parametric cluster-mass permutation test based on MNI adjacency.
+%  This function performs a within-subject or between-group spatial
+%  comparison of FREQ-NESS activation patterns. Voxel-wise statistics are
+%  combined with a non-parametric cluster-mass permutation test based on MNI
+%  adjacency.
 %  The maximum cluster mass is calculated across all requested frequencies
 %  and components in every permutation, controlling the family-wise error
 %  rate across the complete analysis requested in one call.
 %
-%  Participants must have the same order in FREQ_A and FREQ_B. By default,
-%  absolute activation patterns are L2-normalized within participant before
-%  comparison, making the analysis invariant to arbitrary GED signs and
-%  global pattern scale.
+%  For within-subject designs, participants must have the same order in
+%  FREQ_A and FREQ_B. Between-group designs may have unequal sample sizes.
+%  By default, absolute activation patterns are L2-normalized within
+%  participant before comparison, making the analysis invariant to
+%  arbitrary GED signs and global pattern scale.
 % ========================================================================
 
 % ------------------------------------------------------------------------
@@ -40,6 +42,13 @@ function STATS = FREQNESS_SpatialComparison(FREQ_A,FREQ_B,MNI,varargin)
 %                   the closest analyzed bins. Use 'all' for every bin.
 %
 %  - comps2compare : one-based component numbers. Default: 1.
+%
+%  - design : 'within' (default) or 'between'.
+%
+%  - test : 'ttest' (default), 'signrank', or 'ranksum'. An incompatible
+%           non-parametric choice is corrected with a warning: ranksum is
+%           replaced by signrank for within-subject designs, and signrank is
+%           replaced by ranksum for between-group designs.
 %
 %  - condition_labels : two labels for FREQ_A and FREQ_B. Default: {'A','B'}.
 %
@@ -71,9 +80,9 @@ function STATS = FREQNESS_SpatialComparison(FREQ_A,FREQ_B,MNI,varargin)
 % ------------------------------------------------------------------------
 %
 %  - STATS : structure containing resolved frequencies and components,
-%            mean differences, t statistics, paired Cohen's dz,
-%            uncorrected voxel-wise p values, cluster-corrected p values,
-%            significant masks, cluster labels, and cluster summaries.
+%            mean differences, test statistics, effect sizes, uncorrected
+%            voxel-wise p values, cluster-corrected p values, significant
+%            masks, cluster labels, and cluster summaries.
 %
 % ------------------------------------------------------------------------
 %  AUTHORS:
@@ -89,12 +98,14 @@ function STATS = FREQNESS_SpatialComparison(FREQ_A,FREQ_B,MNI,varargin)
 %% Map inputs from FREQ
 
 opts = struct('frex2compare', [], 'comps2compare', [], ...
+    'design', 'within', 'test', [], ...
     'condition_labels', {{'A','B'}}, 'map_mode', 'magnitude', ...
     'normalization', 'l2', 'cluster_forming_alpha', .001, ...
     'alpha', .05, 'connectivity', 6, 'frex_tolerance', [], ...
     'correction_scope', 'all_maps', 'n_permutations', 'auto', ...
     'random_seed', 0, 'plot_results', true);
 opts = parse_name_value_pairs(opts,varargin{:});
+[design,test] = validate_analysis_options(opts.design,opts.test);
 
 if isempty(opts.frex2compare)
     error(['frex2compare is a mandatory name-value input. Supply numeric ' ...
@@ -103,16 +114,23 @@ end
 
 [patterns_a,frex_a] = validate_freq(FREQ_A,'FREQ_A');
 [patterns_b,frex_b] = validate_freq(FREQ_B,'FREQ_B');
-if ~isequal(size(patterns_a),size(patterns_b))
-    error('FREQ_A.pats and FREQ_B.pats must have matching dimensions.');
+if ~isequal(size(patterns_a,1),size(patterns_b,1)) || ...
+        ~isequal(size(patterns_a,2),size(patterns_b,2)) || ...
+        ~isequal(size(patterns_a,3),size(patterns_b,3))
+    error(['FREQ_A.pats and FREQ_B.pats must have matching voxel, ' ...
+        'component, and frequency dimensions.']);
 end
 if numel(frex_a)~=numel(frex_b) || any(abs(frex_a-frex_b)>1e-10)
     error('FREQ_A.frex and FREQ_B.frex must contain the same grid.');
 end
 
-[nvoxs,nComp,~,nsubs] = size(patterns_a);
-if nsubs<2
-    error('At least two paired participants are required.');
+[nvoxs,nComp,~,n_a] = size(patterns_a);
+n_b = size(patterns_b,4);
+if strcmp(design,'within') && n_a~=n_b
+    error('Within-subject comparisons require matching participant counts.');
+end
+if n_a<2 || n_b<2
+    error('Each sample must contain at least two participants.');
 end
 if ~isnumeric(MNI) || ~isreal(MNI) || any(~isfinite(MNI(:))) || ...
         ~isequal(size(MNI),[nvoxs 3])
@@ -147,36 +165,58 @@ comps2compare = select_components(opts.comps2compare,nComp);
 maps_a = permute(patterns_a(:,comps2compare,idx_frex2compare,:),[1 3 2 4]);
 maps_b = permute(patterns_b(:,comps2compare,idx_frex2compare,:),[1 3 2 4]);
 [maps_a,maps_b,sign_flips_a,sign_flips_b] = ...
-    prepare_maps(maps_a,maps_b,map_mode,normalization);
+    prepare_maps(maps_a,maps_b,map_mode,normalization,design);
 
 fprintf(['\nFREQNESS Spatial Comparison: comparing %s and %s at %d frequencies ' ...
-    'and %d components across %d paired participants.\n'], ...
+    'and %d components using a %s-subject %s analysis (n=%d, n=%d).\n'], ...
     condition_labels{1},condition_labels{2},numel(frex2compare), ...
-    numel(comps2compare),nsubs);
+    numel(comps2compare),design,test,n_a,n_b);
 
-%% Compute observed paired statistics
+%% Compute observed statistics
 
-differences = maps_b-maps_a;
-[mean_difference,t_values,effect_size_dz,p_uncorrected] = ...
-    paired_statistics(differences);
+if strcmp(design,'within')
+    differences = maps_b-maps_a;
+    [mean_difference,statistic,effect_size,p_uncorrected, ...
+        statistic_name,effect_size_name] = ...
+        within_statistics(differences,test);
+else
+    [mean_difference,statistic,effect_size,p_uncorrected, ...
+        statistic_name,effect_size_name] = ...
+        between_statistics(maps_a,maps_b,test);
+end
 [adjacency,grid_spacing] = spatial_adjacency(MNI,opts.connectivity);
-degrees_freedom = nsubs-1;
-x_threshold = betaincinv(opts.cluster_forming_alpha,degrees_freedom/2,.5);
-t_threshold = sqrt(degrees_freedom*(1/x_threshold-1));
 
 %% Compute maximum-cluster permutation distribution
 
-[permutation_signs,exact_permutations] = ...
-    permutation_plan(nsubs,opts.n_permutations,opts.random_seed);
-n_permutations = size(permutation_signs,1);
-fprintf('Computing %d %s paired sign-flip permutations...\n', ...
-    n_permutations,ternary(exact_permutations,'exact','Monte Carlo'));
+if strcmp(design,'within')
+    [permutation_plan,exact_permutations] = ...
+        permutation_plan_within(n_a,opts.n_permutations,opts.random_seed);
+    permutation_description = 'paired sign-flip';
+else
+    [permutation_plan,exact_permutations] = ...
+        permutation_plan_between(n_a,n_b,opts.n_permutations,opts.random_seed);
+    permutation_description = 'independent label';
+    pooled_maps = cat(4,maps_a,maps_b);
+end
+n_permutations = size(permutation_plan,1);
+fprintf('Computing %d %s %s permutations...\n',n_permutations, ...
+    ternary(exact_permutations,'exact','Monte Carlo'), ...
+    permutation_description);
 null_maxima = zeros(n_permutations,1);
 progress_step = max(1,floor(n_permutations/10));
 for permi = 1:n_permutations
-    signs = reshape(permutation_signs(permi,:),[1 1 1 nsubs]);
-    permuted_t = paired_t_values(differences.*signs);
-    null_maxima(permi) = maximum_cluster_mass(permuted_t,t_threshold,adjacency);
+    if strcmp(design,'within')
+        signs = reshape(permutation_plan(permi,:),[1 1 1 n_a]);
+        [~,permuted_statistic,~,permuted_p] = ...
+            within_statistics(differences.*signs,test);
+    else
+        group_a = permutation_plan(permi,:);
+        [~,permuted_statistic,~,permuted_p] = ...
+            between_statistics(pooled_maps(:,:,:,group_a), ...
+            pooled_maps(:,:,:,~group_a),test);
+    end
+    null_maxima(permi) = maximum_cluster_mass(permuted_statistic, ...
+        permuted_p,opts.cluster_forming_alpha,adjacency);
     if mod(permi,progress_step)==0 || permi==n_permutations
         fprintf('  Permutation %d/%d\n',permi,n_permutations);
     end
@@ -184,21 +224,23 @@ end
 
 %% Correct observed spatial clusters
 
-p_cluster_corrected = ones(size(t_values));
-significant_mask = false(size(t_values));
-cluster_labels = zeros(size(t_values));
+p_cluster_corrected = ones(size(statistic));
+significant_mask = false(size(statistic));
+cluster_labels = zeros(size(statistic));
 clusters = empty_cluster_structure;
 
 for frexi = 1:numel(frex2compare)
     for compi = 1:numel(comps2compare)
-        spatial_map = t_values(:,frexi,compi);
+        spatial_map = statistic(:,frexi,compi);
+        supra_threshold = p_uncorrected(:,frexi,compi)<= ...
+            opts.cluster_forming_alpha;
         positive_label = 0;
         negative_label = 0;
         for polarity = [1 -1]
             if polarity>0
-                mask = spatial_map>=t_threshold;
+                mask = supra_threshold & spatial_map>0;
             else
-                mask = spatial_map<=-t_threshold;
+                mask = supra_threshold & spatial_map<0;
             end
             observed_clusters = connected_components(mask,adjacency);
             for clusteri = 1:numel(observed_clusters)
@@ -229,6 +271,7 @@ for frexi = 1:numel(frex2compare)
                     'mass',mass, ...
                     'p_corrected',p_corrected, ...
                     'peak_t',spatial_map(peak_voxel), ...
+                    'peak_statistic',spatial_map(peak_voxel), ...
                     'peak_voxel',peak_voxel, ...
                     'peak_mni',MNI(peak_voxel,:));
                 clusters(end+1) = record; %#ok<AGROW>
@@ -244,11 +287,30 @@ STATS.frex = frex2compare;
 STATS.idx_frex = idx_frex2compare;
 STATS.comps = comps2compare;
 STATS.condition_labels = condition_labels;
-STATS.design = 'paired';
-STATS.n_participants = nsubs;
+STATS.design = design;
+STATS.test = test;
+if strcmp(design,'within')
+    STATS.n_participants = n_a;
+else
+    STATS.n_participants = [n_a n_b];
+end
+STATS.n_A = n_a;
+STATS.n_B = n_b;
 STATS.mean_difference = mean_difference;
-STATS.t_values = t_values;
-STATS.effect_size_dz = effect_size_dz;
+STATS.statistic = statistic;
+STATS.statistic_name = statistic_name;
+if strcmp(test,'ttest')
+    STATS.t_values = statistic;
+else
+    STATS.t_values = nan(size(statistic));
+end
+STATS.effect_size = effect_size;
+STATS.effect_size_name = effect_size_name;
+if strcmp(design,'within') && strcmp(test,'ttest')
+    STATS.effect_size_dz = effect_size;
+else
+    STATS.effect_size_dz = nan(size(effect_size));
+end
 STATS.p_uncorrected = p_uncorrected;
 STATS.p_cluster_corrected = p_cluster_corrected;
 STATS.significant_mask = significant_mask;
@@ -372,36 +434,48 @@ end
 
 %% Helper Function: Prepare Maps
 function [maps_a,maps_b,flips_a,flips_b] = ...
-    prepare_maps(maps_a,maps_b,map_mode,normalization)
+    prepare_maps(maps_a,maps_b,map_mode,normalization,design)
 
-[~,nfrex,nComp,nsubs] = size(maps_a);
-flips_a = ones(nfrex,nComp,nsubs);
-flips_b = ones(nfrex,nComp,nsubs);
+[~,nfrex,nComp,n_a] = size(maps_a);
+n_b = size(maps_b,4);
+flips_a = ones(nfrex,nComp,n_a);
+flips_b = ones(nfrex,nComp,n_b);
 if strcmp(map_mode,'magnitude')
     maps_a = abs(maps_a);
     maps_b = abs(maps_b);
 else
     for frexi = 1:nfrex
         for compi = 1:nComp
-            for subi = 1:nsubs
-                if maps_a(:,frexi,compi,subi)'*maps_b(:,frexi,compi,subi)<0
-                    maps_b(:,frexi,compi,subi) = -maps_b(:,frexi,compi,subi);
-                    flips_b(frexi,compi,subi) = -1;
+            if strcmp(design,'within')
+                for subi = 1:n_a
+                    if maps_a(:,frexi,compi,subi)'* ...
+                            maps_b(:,frexi,compi,subi)<0
+                        maps_b(:,frexi,compi,subi) = ...
+                            -maps_b(:,frexi,compi,subi);
+                        flips_b(frexi,compi,subi) = -1;
+                    end
                 end
+                reference_maps = .5*(squeeze(maps_a(:,frexi,compi,:))+ ...
+                    squeeze(maps_b(:,frexi,compi,:)));
+            else
+                reference_maps = [squeeze(maps_a(:,frexi,compi,:)) ...
+                    squeeze(maps_b(:,frexi,compi,:))];
             end
-            paired_mean = .5*(squeeze(maps_a(:,frexi,compi,:))+ ...
-                squeeze(maps_b(:,frexi,compi,:)));
-            [reference,~,~] = svd(paired_mean,'econ');
+            [reference,~,~] = svd(reference_maps,'econ');
             reference = reference(:,1);
             [~,peak] = max(abs(reference));
             if reference(peak)<0
                 reference = -reference;
             end
-            for subi = 1:nsubs
-                if paired_mean(:,subi)'*reference<0
+            for subi = 1:n_a
+                if maps_a(:,frexi,compi,subi)'*reference<0
                     maps_a(:,frexi,compi,subi) = -maps_a(:,frexi,compi,subi);
-                    maps_b(:,frexi,compi,subi) = -maps_b(:,frexi,compi,subi);
                     flips_a(frexi,compi,subi) = -flips_a(frexi,compi,subi);
+                end
+            end
+            for subi = 1:n_b
+                if maps_b(:,frexi,compi,subi)'*reference<0
+                    maps_b(:,frexi,compi,subi) = -maps_b(:,frexi,compi,subi);
                     flips_b(frexi,compi,subi) = -flips_b(frexi,compi,subi);
                 end
             end
@@ -412,13 +486,18 @@ end
 if strcmp(normalization,'l2')
     for frexi = 1:nfrex
         for compi = 1:nComp
-            for subi = 1:nsubs
+            for subi = 1:n_a
                 norm_a = norm(maps_a(:,frexi,compi,subi));
-                norm_b = norm(maps_b(:,frexi,compi,subi));
-                if norm_a<=eps || norm_b<=eps
+                if norm_a<=eps
                     error('A selected participant pattern has zero L2 norm.');
                 end
                 maps_a(:,frexi,compi,subi) = maps_a(:,frexi,compi,subi)/norm_a;
+            end
+            for subi = 1:n_b
+                norm_b = norm(maps_b(:,frexi,compi,subi));
+                if norm_b<=eps
+                    error('A selected FREQ_B participant pattern has zero L2 norm.');
+                end
                 maps_b(:,frexi,compi,subi) = maps_b(:,frexi,compi,subi)/norm_b;
             end
         end
@@ -427,8 +506,105 @@ end
 
 end
 
-%% Helper Function: Paired Statistics
-function [mean_difference,t_values,effect_size,p_values] = paired_statistics(differences)
+%% Helper Function: Spatial Statistics
+function [mean_difference,statistic,effect_size,p_values, ...
+    statistic_name,effect_size_name] = within_statistics(differences,test)
+
+if strcmp(test,'ttest')
+    [mean_difference,statistic,effect_size,p_values] = ...
+        paired_statistics(differences);
+    statistic_name = 't';
+    effect_size_name = 'Cohen''s dz';
+    return
+end
+
+mean_difference = mean(differences,4);
+statistic = zeros(size(mean_difference));
+effect_size = zeros(size(mean_difference));
+p_values = ones(size(mean_difference));
+flat_differences = reshape(differences,[],size(differences,4));
+for mapi = 1:size(flat_differences,1)
+    this_difference = flat_differences(mapi,:);
+    this_difference = this_difference(this_difference~=0);
+    n_nonzero = numel(this_difference);
+    if n_nonzero==0
+        continue
+    end
+    ranks = tiedrank(abs(this_difference));
+    signed_rank = sum(sign(this_difference).*ranks);
+    variance = n_nonzero*(n_nonzero+1)*(2*n_nonzero+1)/6;
+    statistic(mapi) = signed_rank/sqrt(variance);
+    effect_size(mapi) = signed_rank/(n_nonzero*(n_nonzero+1)/2);
+    p_values(mapi) = erfc(abs(statistic(mapi))/sqrt(2));
+end
+statistic_name = 'z';
+effect_size_name = 'matched rank-biserial r';
+
+end
+
+function [mean_difference,statistic,effect_size,p_values, ...
+    statistic_name,effect_size_name] = between_statistics(maps_a,maps_b,test)
+
+n_a = size(maps_a,4);
+n_b = size(maps_b,4);
+mean_a = mean(maps_a,4);
+mean_b = mean(maps_b,4);
+mean_difference = mean_b-mean_a;
+
+if strcmp(test,'ttest')
+    variance_a = var(maps_a,0,4);
+    variance_b = var(maps_b,0,4);
+    term_a = variance_a/n_a;
+    term_b = variance_b/n_b;
+    denominator = sqrt(term_a+term_b);
+    statistic = zeros(size(mean_difference));
+    valid = denominator>eps;
+    statistic(valid) = mean_difference(valid)./denominator(valid);
+    zero_variance_effect = ~valid & abs(mean_difference)>eps;
+    statistic(zero_variance_effect) = ...
+        sign(mean_difference(zero_variance_effect))*Inf;
+    degrees_freedom = inf(size(mean_difference));
+    degrees_freedom(valid) = (term_a(valid)+term_b(valid)).^2./ ...
+        (term_a(valid).^2/(n_a-1)+term_b(valid).^2/(n_b-1));
+    x = degrees_freedom./(degrees_freedom+statistic.^2);
+    p_values = betainc(x,degrees_freedom/2,.5);
+    p_values(~valid & mean_difference==0) = 1;
+    p_values(zero_variance_effect) = 0;
+
+    pooled = sqrt(((n_a-1)*variance_a+(n_b-1)*variance_b)/(n_a+n_b-2));
+    effect_size = zeros(size(mean_difference));
+    valid_pooled = pooled>eps;
+    effect_size(valid_pooled) = ...
+        mean_difference(valid_pooled)./pooled(valid_pooled);
+    effect_size(zero_variance_effect) = ...
+        sign(mean_difference(zero_variance_effect))*Inf;
+    correction = 1-3/(4*(n_a+n_b)-9);
+    effect_size = correction*effect_size;
+    statistic_name = 't';
+    effect_size_name = 'Hedges'' g';
+    return
+end
+
+statistic = zeros(size(mean_difference));
+effect_size = zeros(size(mean_difference));
+p_values = ones(size(mean_difference));
+flat_a = reshape(maps_a,[],n_a);
+flat_b = reshape(maps_b,[],n_b);
+variance = n_a*n_b*(n_a+n_b+1)/12;
+for mapi = 1:size(flat_a,1)
+    ranks = tiedrank([flat_b(mapi,:) flat_a(mapi,:)]);
+    u_b = sum(ranks(1:n_b))-n_b*(n_b+1)/2;
+    statistic(mapi) = (u_b-n_a*n_b/2)/sqrt(variance);
+    effect_size(mapi) = 2*u_b/(n_a*n_b)-1;
+    p_values(mapi) = erfc(abs(statistic(mapi))/sqrt(2));
+end
+statistic_name = 'z';
+effect_size_name = 'rank-biserial r';
+
+end
+
+function [mean_difference,t_values,effect_size,p_values] = ...
+    paired_statistics(differences)
 
 nsubs = size(differences,4);
 mean_difference = mean(differences,4);
@@ -447,20 +623,6 @@ degrees_freedom = nsubs-1;
 x = degrees_freedom./(degrees_freedom+t_values.^2);
 p_values = betainc(x,degrees_freedom/2,.5);
 p_values(t_values==0) = 1;
-
-end
-
-function t_values = paired_t_values(differences)
-
-nsubs = size(differences,4);
-mean_difference = mean(differences,4);
-standard_deviation = std(differences,0,4);
-denominator = standard_deviation/sqrt(nsubs);
-t_values = zeros(size(mean_difference));
-valid = denominator>eps;
-t_values(valid) = mean_difference(valid)./denominator(valid);
-zero_variance_effect = ~valid & abs(mean_difference)>eps;
-t_values(zero_variance_effect) = sign(mean_difference(zero_variance_effect))*inf;
 
 end
 
@@ -525,17 +687,19 @@ end
 end
 
 %% Helper Function: Maximum Cluster Mass
-function maximum = maximum_cluster_mass(t_values,threshold,adjacency)
+function maximum = maximum_cluster_mass(statistic,p_values, ...
+    cluster_forming_alpha,adjacency)
 
 maximum = 0;
-for frexi = 1:size(t_values,2)
-    for compi = 1:size(t_values,3)
-        spatial_map = t_values(:,frexi,compi);
+for frexi = 1:size(statistic,2)
+    for compi = 1:size(statistic,3)
+        spatial_map = statistic(:,frexi,compi);
+        significant = p_values(:,frexi,compi)<=cluster_forming_alpha;
         for polarity = [1 -1]
             if polarity>0
-                mask = spatial_map>=threshold;
+                mask = significant & spatial_map>0;
             else
-                mask = spatial_map<=-threshold;
+                mask = significant & spatial_map<0;
             end
             clusters = connected_components(mask,adjacency);
             for clusteri = 1:numel(clusters)
@@ -547,8 +711,9 @@ end
 
 end
 
-%% Helper Function: Permutation Plan
-function [signs,exact] = permutation_plan(nsubs,n_permutations,random_seed)
+%% Helper Function: Permutation Plans
+function [signs,exact] = ...
+    permutation_plan_within(nsubs,n_permutations,random_seed)
 
 possible = 2^nsubs;
 if ischar(n_permutations) || (isstring(n_permutations) && isscalar(n_permutations))
@@ -585,6 +750,52 @@ else
     cleanup = onCleanup(@()rng(previous_rng));
     rng(random_seed,'twister');
     signs = 2*randi([0 1],count,nsubs)-1;
+end
+
+end
+
+function [assignments,exact] = ...
+    permutation_plan_between(n_a,n_b,n_permutations,random_seed)
+
+total = n_a+n_b;
+possible = nchoosek(total,n_a);
+if ischar(n_permutations) || ...
+        (isstring(n_permutations) && isscalar(n_permutations))
+    mode = validatestring(n_permutations,{'auto','exact'});
+    if strcmp(mode,'exact') && possible>1048576
+        error('Exact enumeration is too large; use Monte Carlo permutations.');
+    end
+    exact = strcmp(mode,'exact') || possible<=65536;
+    if exact
+        count = possible;
+    else
+        count = 10000;
+    end
+elseif isnumeric(n_permutations) && isscalar(n_permutations) && ...
+        isfinite(n_permutations) && n_permutations>0 && ...
+        n_permutations==round(n_permutations)
+    count = n_permutations;
+    exact = count>=possible && possible<=65536;
+    if exact
+        count = possible;
+    end
+else
+    error('n_permutations must be a positive integer, ''auto'', or ''exact''.');
+end
+
+assignments = false(count,total);
+if exact
+    combinations = nchoosek(1:total,n_a);
+    for permi = 1:count
+        assignments(permi,combinations(permi,:)) = true;
+    end
+else
+    previous_rng = rng;
+    cleanup = onCleanup(@()rng(previous_rng));
+    rng(random_seed,'twister');
+    for permi = 1:count
+        assignments(permi,randperm(total,n_a)) = true;
+    end
 end
 
 end
@@ -651,6 +862,40 @@ cmap = [blue;red];
 end
 
 %% Helper Function: Validation
+function [design,test] = validate_analysis_options(design,test)
+
+if isstring(design) && isscalar(design)
+    design = char(design);
+end
+if ~ischar(design)
+    error('design must be ''within'' or ''between''.');
+end
+if any(strcmpi(design,{'within','paired'}))
+    design = 'within';
+elseif any(strcmpi(design,{'between','independent'}))
+    design = 'between';
+else
+    error('design must be ''within'' or ''between''.');
+end
+
+if isempty(test)
+    test = 'ttest';
+elseif isstring(test) && isscalar(test)
+    test = char(test);
+end
+test = validatestring(test,{'ttest','signrank','ranksum'});
+if strcmp(design,'within') && strcmp(test,'ranksum')
+    warning(['test=''ranksum'' is an independent-samples test and is ' ...
+        'incompatible with design=''within''. Using test=''signrank'' instead.']);
+    test = 'signrank';
+elseif strcmp(design,'between') && strcmp(test,'signrank')
+    warning(['test=''signrank'' is a paired-samples test and is incompatible ' ...
+        'with design=''between''. Using test=''ranksum'' instead.']);
+    test = 'ranksum';
+end
+
+end
+
 function labels = validate_condition_labels(labels)
 
 if isstring(labels)
@@ -676,7 +921,8 @@ end
 function clusters = empty_cluster_structure
 
 clusters = struct('frex',{},'comp',{},'polarity',{},'size',{}, ...
-    'mass',{},'p_corrected',{},'peak_t',{},'peak_voxel',{},'peak_mni',{});
+    'mass',{},'p_corrected',{},'peak_t',{},'peak_statistic',{}, ...
+    'peak_voxel',{},'peak_mni',{});
 
 end
 

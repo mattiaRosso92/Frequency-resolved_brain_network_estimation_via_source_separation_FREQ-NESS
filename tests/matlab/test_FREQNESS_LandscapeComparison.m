@@ -117,17 +117,23 @@ close all
 
 end
 
-function testInvalidDesignTestCombination(testCase)
+function testIncompatibleNonparametricTestsWarnAndAreCorrected(testCase)
 
 [FREQ_A,FREQ_B] = paired_freq;
-did_error = false;
-try
-    FREQNESS_LandscapeComparison(FREQ_A,FREQ_B, ...
-        'design','between','test','signrank','plot_results',false);
-catch ME
-    did_error = contains(ME.message,'valid');
-end
-verifyTrue(testCase,did_error);
+lastwarn('');
+within = FREQNESS_LandscapeComparison(FREQ_A,FREQ_B, ...
+    'design','within','test','ranksum','plot_results',false);
+[warning_message,~] = lastwarn;
+verifyTrue(testCase,contains(warning_message,'Using test=''signrank'''));
+verifyEqual(testCase,within.test,'signrank');
+
+FREQ_B.evals = FREQ_B.evals(:,:,1:10);
+lastwarn('');
+between = FREQNESS_LandscapeComparison(FREQ_A,FREQ_B, ...
+    'design','between','test','signrank','plot_results',false);
+[warning_message,~] = lastwarn;
+verifyTrue(testCase,contains(warning_message,'Using test=''ranksum'''));
+verifyEqual(testCase,between.test,'ranksum');
 
 end
 

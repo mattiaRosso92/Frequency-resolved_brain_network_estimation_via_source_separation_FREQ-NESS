@@ -55,8 +55,10 @@ def test_spatial_comparison_returns_structured_cluster_corrected_results(
     )
 
     assert isinstance(result, FREQNESSSpatialComparisonResult)
-    assert result.design == "paired"
+    assert result.design == "within"
+    assert result.test == "ttest"
     assert result.n_participants == 6
+    assert result.n_A == result.n_B == 6
     assert result.exact_permutations
     assert result.n_permutations == 64
     assert result.mean_difference.shape == (27, 1, 1)
@@ -178,7 +180,7 @@ def test_frequency_and_input_safeguards(paired_patterns):
             frex2compare=[7.9, 8.1],
             plot_results=False,
         )
-    with pytest.raises(ValueError, match="matching dimensions"):
+    with pytest.raises(ValueError, match="matching participant counts"):
         FREQNESS_SpatialComparison(
             condition_a,
             SimpleNamespace(pats=condition_b.pats[..., :-1], frex=condition_b.frex),
@@ -186,6 +188,79 @@ def test_frequency_and_input_safeguards(paired_patterns):
             frex2compare=[8],
             plot_results=False,
         )
+
+
+def test_between_subject_ttest_supports_unequal_group_sizes():
+    coordinates = np.asarray(list(np.ndindex(3, 3, 3)), dtype=float) * 8.0
+    rng = np.random.default_rng(44)
+    group_a = rng.normal(0.2, 0.03, (27, 1, 1, 4))
+    group_b = rng.normal(0.2, 0.03, (27, 1, 1, 5))
+    group_b[[4, 5, 13, 14], 0, 0, :] += 0.3
+
+    result = FREQNESS_SpatialComparison(
+        SimpleNamespace(pats=group_a, frex=[8.0]),
+        SimpleNamespace(pats=group_b, frex=[8.0]),
+        coordinates,
+        frex2compare=[8],
+        design="between",
+        test="ttest",
+        normalization="none",
+        cluster_forming_alpha=0.05,
+        n_permutations="exact",
+        plot_results=False,
+    )
+
+    assert result.design == "between"
+    assert result.test == "ttest"
+    assert result.n_participants == (4, 5)
+    assert result.n_A == 4
+    assert result.n_B == 5
+    assert result.statistic_name == "t"
+    assert result.effect_size_name == "Hedges' g"
+    assert result.exact_permutations
+    assert result.n_permutations == 126
+    assert result.sign_flips_a.shape[-1] == 4
+    assert result.sign_flips_b.shape[-1] == 5
+
+
+def test_incompatible_nonparametric_tests_warn_and_are_corrected(paired_patterns):
+    condition_a, condition_b, coordinates, _ = paired_patterns
+    with pytest.warns(UserWarning, match="Using test='signrank'"):
+        within = FREQNESS_SpatialComparison(
+            condition_a,
+            condition_b,
+            coordinates,
+            frex2compare=[8],
+            design="within",
+            test="ranksum",
+            cluster_forming_alpha=0.05,
+            n_permutations=8,
+            plot_results=False,
+        )
+    assert within.test == "signrank"
+    assert within.statistic_name == "z"
+    assert within.effect_size_name == "matched rank-biserial r"
+    assert np.all(np.isnan(within.t_values))
+
+    between_b = SimpleNamespace(
+        pats=condition_b.pats[..., :5],
+        frex=condition_b.frex,
+    )
+    with pytest.warns(UserWarning, match="Using test='ranksum'"):
+        between = FREQNESS_SpatialComparison(
+            condition_a,
+            between_b,
+            coordinates,
+            frex2compare=[8],
+            design="between",
+            test="signrank",
+            cluster_forming_alpha=0.05,
+            n_permutations=8,
+            plot_results=False,
+        )
+    assert between.test == "ranksum"
+    assert between.statistic_name == "z"
+    assert between.effect_size_name == "rank-biserial r"
 
 
 def test_public_alias_references_matlab_named_function():

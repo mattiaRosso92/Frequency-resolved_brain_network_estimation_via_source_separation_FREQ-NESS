@@ -21,6 +21,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Any, Mapping, Sequence, TYPE_CHECKING
+import warnings
 
 import numpy as np
 from numpy.typing import ArrayLike, NDArray
@@ -341,14 +342,24 @@ def _analysis_options(
         test_key = "signrank" if design_key == "within" else "ranksum"
     else:
         test_key = str(test).lower()
-    valid_tests = (
-        {"ttest", "signrank"}
-        if design_key == "within"
-        else {"ttest", "ranksum"}
-    )
-    if test_key not in valid_tests:
-        choices = " or ".join(sorted(valid_tests))
-        raise ValueError(f"For design='{design_key}', test must be {choices}")
+    if test_key not in {"ttest", "signrank", "ranksum"}:
+        raise ValueError("test must be 'ttest', 'signrank', or 'ranksum'")
+    if design_key == "within" and test_key == "ranksum":
+        warnings.warn(
+            "test='ranksum' is an independent-samples test and is incompatible "
+            "with design='within'. Using test='signrank' instead.",
+            UserWarning,
+            stacklevel=3,
+        )
+        test_key = "signrank"
+    elif design_key == "between" and test_key == "signrank":
+        warnings.warn(
+            "test='signrank' is a paired-samples test and is incompatible with "
+            "design='between'. Using test='ranksum' instead.",
+            UserWarning,
+            stacklevel=3,
+        )
+        test_key = "ranksum"
 
     tail_key = str(tail).lower()
     if tail_key not in {"both", "left", "right"}:

@@ -29,8 +29,11 @@ STATS = FREQNESS_SpatialComparison(FREQ_A,FREQ_B,MNI, ...
     'cluster_forming_alpha',.05,'n_permutations','exact', ...
     'plot_results',false);
 
-verifyEqual(testCase,STATS.design,'paired');
+verifyEqual(testCase,STATS.design,'within');
+verifyEqual(testCase,STATS.test,'ttest');
 verifyEqual(testCase,STATS.n_participants,6);
+verifyEqual(testCase,STATS.n_A,6);
+verifyEqual(testCase,STATS.n_B,6);
 verifyTrue(testCase,STATS.exact_permutations);
 verifyEqual(testCase,STATS.n_permutations,64);
 verifySize(testCase,STATS.mean_difference,[27 1]);
@@ -125,6 +128,57 @@ verifyTrue(testCase,did_error);
 
 end
 
+function testBetweenSubjectTTestSupportsUnequalGroups(testCase)
+
+[FREQ_A,FREQ_B,MNI] = synthetic_between_data;
+STATS = FREQNESS_SpatialComparison(FREQ_A,FREQ_B,MNI, ...
+    'frex2compare',8,'design','between','test','ttest', ...
+    'normalization','none','cluster_forming_alpha',.05, ...
+    'n_permutations','exact','plot_results',false);
+
+verifyEqual(testCase,STATS.design,'between');
+verifyEqual(testCase,STATS.test,'ttest');
+verifyEqual(testCase,STATS.n_participants,[4 5]);
+verifyEqual(testCase,STATS.n_A,4);
+verifyEqual(testCase,STATS.n_B,5);
+verifyEqual(testCase,STATS.statistic_name,'t');
+verifyEqual(testCase,STATS.effect_size_name,'Hedges'' g');
+verifyTrue(testCase,STATS.exact_permutations);
+verifyEqual(testCase,STATS.n_permutations,126);
+verifyEqual(testCase,size(STATS.sign_flips_a,3),4);
+verifyEqual(testCase,size(STATS.sign_flips_b,3),5);
+
+end
+
+function testIncompatibleNonparametricTestsWarnAndAreCorrected(testCase)
+
+[FREQ_A,FREQ_B,MNI] = synthetic_paired_data;
+lastwarn('');
+within = FREQNESS_SpatialComparison(FREQ_A,FREQ_B,MNI, ...
+    'frex2compare',8,'design','within','test','ranksum', ...
+    'cluster_forming_alpha',.05,'n_permutations',8, ...
+    'plot_results',false);
+[warning_message,~] = lastwarn;
+verifyTrue(testCase,contains(warning_message,'Using test=''signrank'''));
+verifyEqual(testCase,within.test,'signrank');
+verifyEqual(testCase,within.statistic_name,'z');
+verifyEqual(testCase,within.effect_size_name,'matched rank-biserial r');
+verifyTrue(testCase,all(isnan(within.t_values(:))));
+
+FREQ_B.pats = FREQ_B.pats(:,:,:,1:5);
+lastwarn('');
+between = FREQNESS_SpatialComparison(FREQ_A,FREQ_B,MNI, ...
+    'frex2compare',8,'design','between','test','signrank', ...
+    'cluster_forming_alpha',.05,'n_permutations',8, ...
+    'plot_results',false);
+[warning_message,~] = lastwarn;
+verifyTrue(testCase,contains(warning_message,'Using test=''ranksum'''));
+verifyEqual(testCase,between.test,'ranksum');
+verifyEqual(testCase,between.statistic_name,'z');
+verifyEqual(testCase,between.effect_size_name,'rank-biserial r');
+
+end
+
 function [FREQ_A,FREQ_B,MNI,central_cluster] = synthetic_paired_data
 
 [x,y,z] = ndgrid(0:2,0:2,0:2);
@@ -140,5 +194,19 @@ FREQ_A.pats = patterns_a;
 FREQ_A.frex = frex;
 FREQ_B.pats = patterns_b;
 FREQ_B.frex = frex;
+
+end
+
+function [FREQ_A,FREQ_B,MNI] = synthetic_between_data
+
+[x,y,z] = ndgrid(0:2,0:2,0:2);
+MNI = 8*[x(:) y(:) z(:)];
+rng(44,'twister');
+FREQ_A.pats = .2+.03*randn(27,1,1,4);
+FREQ_A.frex = 8;
+FREQ_B.pats = .2+.03*randn(27,1,1,5);
+FREQ_B.pats([5 6 14 15],1,1,:) = ...
+    FREQ_B.pats([5 6 14 15],1,1,:)+.3;
+FREQ_B.frex = 8;
 
 end

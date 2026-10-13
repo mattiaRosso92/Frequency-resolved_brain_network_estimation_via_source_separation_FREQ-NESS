@@ -183,21 +183,27 @@ component indices for MATLAB compatibility. The legacy thresholds are exposed
 as `threshold_sd` (defaults: 1 for frequency gradients and 2 for component
 gradients), and retained-voxel counts are included in the fit diagnostics.
 
-`FREQNESS_SpatialComparison` quantitatively compares paired spatial patterns
-between two conditions. Requested frequencies are resolved against the shared
+`FREQNESS_SpatialComparison` quantitatively compares spatial patterns between
+two conditions or groups. Set `design="within"` for repeated observations or
+`design="between"` for independent groups, including groups with unequal
+sample sizes. Requested frequencies are resolved against the shared
 `FREQ.frex` grid, while component numbers remain one-based. The default
 magnitude and within-participant L2 normalization make the comparison robust
-to arbitrary GED sign and scale. Voxel-wise paired statistics are corrected
-with a two-sided MNI-adjacency cluster-mass sign-flip test. Each permutation
-uses the maximum cluster mass across every frequency and component requested
-in the call, providing family-wise error control over the complete comparison.
-Use `frex2compare="all"` to analyze the full frequency grid.
+to arbitrary GED sign and scale. Within-subject analyses use paired sign-flip
+permutations; between-group analyses use label permutations. Each permutation
+uses the maximum MNI-adjacency cluster mass across every frequency and
+component requested in the call, providing family-wise error control over the
+complete comparison. Use `frex2compare="all"` to analyze the full frequency
+grid.
 
 `FREQNESS_LandscapeComparison` tests participant-level frequency landscapes
 between conditions or groups. Set `design="within"` for repeated observations
 or `design="between"` for independent groups. Within-subject analyses support
 paired `ttest` and `signrank`; between-subject analyses support Welch `ttest`
 and `ranksum`. Component numbers are one-based and default to component 1.
+If `ranksum` is requested for a within-subject design, or `signrank` for a
+between-subject design, the function warns and substitutes the compatible
+non-parametric test. `FREQNESS_SpatialComparison` applies the same safeguard.
 Benjamini-Hochberg FDR correction is applied across tested frequencies,
 separately for each measure and component, by default. Omitting `measure`
 analyzes every recognized landscape shared by both inputs and preserves each

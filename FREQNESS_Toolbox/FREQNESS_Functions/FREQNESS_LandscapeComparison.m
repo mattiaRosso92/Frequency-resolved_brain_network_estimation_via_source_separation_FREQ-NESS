@@ -44,6 +44,8 @@ function STATS = FREQNESS_LandscapeComparison(LANDSCAPE_A,LANDSCAPE_B,varargin)
 %  - test : 'ttest' or 'signrank' for within-subject designs; 'ttest' or
 %           'ranksum' for between-subject designs. Defaults are 'signrank'
 %           for within-subject and 'ranksum' for between-subject designs.
+%           An incompatible non-parametric choice is corrected to the
+%           design-appropriate test and reported with a warning.
 %
 %  - which_comp : one-based feature/component numbers. Default: 1.
 %
@@ -706,10 +708,15 @@ if isempty(test)
 elseif isstring(test) && isscalar(test)
     test = char(test);
 end
-if strcmp(design,'within')
-    test = validatestring(test,{'ttest','signrank'});
-else
-    test = validatestring(test,{'ttest','ranksum'});
+test = validatestring(test,{'ttest','signrank','ranksum'});
+if strcmp(design,'within') && strcmp(test,'ranksum')
+    warning(['test=''ranksum'' is an independent-samples test and is ' ...
+        'incompatible with design=''within''. Using test=''signrank'' instead.']);
+    test = 'signrank';
+elseif strcmp(design,'between') && strcmp(test,'signrank')
+    warning(['test=''signrank'' is a paired-samples test and is incompatible ' ...
+        'with design=''between''. Using test=''ranksum'' instead.']);
+    test = 'ranksum';
 end
 tail = validatestring(tail,{'both','left','right'});
 

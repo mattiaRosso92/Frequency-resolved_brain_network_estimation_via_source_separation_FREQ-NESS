@@ -49,12 +49,16 @@ The bundled `FREQNESS_MNI_Coordinates` file corresponds to the 3559-voxel
 MNI152 8-mm grid. Replace it when using a different source space or voxel
 ordering. Matching coordinates are required for spatial visualizations and
 gradient modelling. `FREQNESS_SpatialComparison` uses the same coordinates to
-perform paired voxel-wise comparisons with MNI-adjacency cluster correction.
+perform within-subject or between-group voxel-wise comparisons with
+MNI-adjacency cluster correction.
 `FREQNESS_StabilityIndex` quantifies the temporal frequency stability of
 selected network time series without requiring behavioral data.
 `FREQNESS_LandscapeComparison` compares participant-level landscapes between
 conditions or groups using paired or independent tests and applies internal
 Benjamini-Hochberg FDR correction across frequencies by default.
+For both comparison functions, an incompatible non-parametric test selection
+is replaced by the design-appropriate test with a warning: `signrank` for
+within-subject data and `ranksum` for independent groups.
 
 For group analyses, every participant must use the same standardized source
 space: the source count, ordering, and anatomical correspondence must all
