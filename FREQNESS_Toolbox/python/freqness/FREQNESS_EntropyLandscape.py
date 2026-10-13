@@ -19,6 +19,7 @@ leonardo.bonetti@clin.au.dk; leonardo.bonetti@psych.ox.ac.uk
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any, Mapping
 
 import numpy as np
@@ -26,6 +27,16 @@ from numpy.typing import NDArray
 
 
 FloatArray = NDArray[np.float64]
+
+
+@dataclass(slots=True)
+class FREQNESSEntropyLandscapeResult:
+    """Outputs of :func:`FREQNESS_EntropyLandscape`."""
+
+    H2: FloatArray
+    ED: FloatArray
+    frex: FloatArray
+    figures: list[Any]
 
 
 def _field(container: Any, name: str, *, required: bool = True) -> Any:
@@ -76,12 +87,6 @@ def _frequency_axis(FREQ: Any, nfrequencies: int) -> tuple[FloatArray, str]:
         ):
             return frequencies.reshape(-1).copy(), "Frequency (Hz)"
     return np.arange(1, nfrequencies + 1, dtype=float), "Frequency index"
-
-
-def _matlab_output(values: FloatArray) -> FloatArray | float:
-    if values.size == 1:
-        return float(values[0, 0])
-    return values
 
 
 def _set_frequency_limits(axis: Any, frequencies: FloatArray) -> None:
@@ -171,10 +176,10 @@ def FREQNESS_EntropyLandscape(
     *,
     plot_all: bool = False,
     show: bool = True,
-) -> tuple[FloatArray | float, FloatArray | float]:
+) -> FREQNESSEntropyLandscapeResult:
     """Compute quadratic Rényi entropy and effective dimensionality.
 
-    The numerical outputs mirror the MATLAB function. ``FREQ.evals`` may be
+    The numerical fields mirror the MATLAB function. ``FREQ.evals`` may be
     shaped as ``(eigenvalues,)``, ``(eigenvalues, frequencies)``, or
     ``(eigenvalues, frequencies, participants)``. NetworkEstimation supplies
     the complete eigenspectrum independently of ``ncomps``. The visualization
@@ -193,10 +198,10 @@ def FREQNESS_EntropyLandscape(
 
     Returns
     -------
-    H2, ED
-        Arrays shaped ``(frequencies, participants)``. When there is exactly
-        one frequency and one participant, both outputs are scalars, matching
-        MATLAB behaviour.
+    FREQNESSEntropyLandscapeResult
+        ``ENTR.H2`` and ``ENTR.ED`` are arrays shaped
+        ``(frequencies, participants)``. ``ENTR.frex`` contains the physical
+        frequency axis when supplied by FREQ and frequency indices otherwise.
     """
     for value, name in ((plot_all, "plot_all"), (show, "show")):
         if not isinstance(value, (bool, np.bool_)):
@@ -222,7 +227,7 @@ def FREQNESS_EntropyLandscape(
     denominator = np.maximum(np.sum(eigenspectrum**2, axis=0), tiny)
     ED_matrix = numerator / denominator
 
-    _plot_h2(
+    figures = _plot_h2(
         H2_matrix,
         frequencies,
         xlabel,
@@ -233,7 +238,15 @@ def FREQNESS_EntropyLandscape(
 
         plt.show()
 
-    return _matlab_output(H2_matrix), _matlab_output(ED_matrix)
+    return FREQNESSEntropyLandscapeResult(
+        H2=H2_matrix,
+        ED=ED_matrix,
+        frex=frequencies,
+        figures=figures,
+    )
 
 
-__all__ = ["FREQNESS_EntropyLandscape"]
+__all__ = [
+    "FREQNESS_EntropyLandscape",
+    "FREQNESSEntropyLandscapeResult",
+]

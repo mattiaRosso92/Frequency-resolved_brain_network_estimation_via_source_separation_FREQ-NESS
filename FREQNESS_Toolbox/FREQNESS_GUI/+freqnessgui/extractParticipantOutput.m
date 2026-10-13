@@ -16,9 +16,10 @@ end
 moduleId = lower(char(moduleId));
 switch moduleId
     case 'entropy'
-        participantOutput = struct( ...
-            'H2',selectColumn(groupOutput.H2,participantIndex,nParticipants), ...
-            'ED',selectColumn(groupOutput.ED,participantIndex,nParticipants));
+        ENTR = groupOutput.ENTR;
+        ENTR.H2 = selectColumn(ENTR.H2,participantIndex,nParticipants);
+        ENTR.ED = selectColumn(ENTR.ED,participantIndex,nParticipants);
+        participantOutput = struct('ENTR',ENTR);
 
     case 'exponential_dk'
         participantOutput = struct( ...

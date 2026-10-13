@@ -223,9 +223,9 @@ FREQ = FREQNESS_NetworkEstimation(eegData,frex,srate, ...
 [~,targetfrexi] = min(abs(FREQ.frex-targetfrex));
 
 % Compute effective dimensionality of the frequency-resolved eigenspectrum
-[~,ED] = FREQNESS_EntropyLandscape(FREQ);
+ENTR = FREQNESS_EntropyLandscape(FREQ);
 close(gcf)
-targetED = ED(targetfrexi,1);
+targetED = ENTR.ED(targetfrexi,1);
 targetevals = squeeze(FREQ.evals(1:2,targetfrexi,1));
 
 % Visualize the top ten components in the network landscape
@@ -481,9 +481,9 @@ for phasei = 1:nphaseoffsets
                                            'regularisation',regularisation, ...
                                            'ncomps',ncomps);
 
-    [~,this_ED] = FREQNESS_EntropyLandscape(this_FREQ);
+    this_ENTR = FREQNESS_EntropyLandscape(this_FREQ);
     close(gcf)
-    paramED(phasei) = this_ED(targetfrexi,1);
+    paramED(phasei) = this_ENTR.ED(targetfrexi,1);
 
     this_targetPats = squeeze(this_FREQ.pats(:,1:2,targetfrexi,1));
     this_targetTs = squeeze(this_FREQ.ts(1:2,:,targetfrexi,1));

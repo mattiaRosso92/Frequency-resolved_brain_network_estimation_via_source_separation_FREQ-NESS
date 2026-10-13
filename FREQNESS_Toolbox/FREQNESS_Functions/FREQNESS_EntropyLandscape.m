@@ -1,4 +1,4 @@
-function [H2,ED] = FREQNESS_EntropyLandscape(FREQ,varargin)
+function ENTR = FREQNESS_EntropyLandscape(FREQ,varargin)
 
 % ========================================================================
 %
@@ -19,8 +19,9 @@ function [H2,ED] = FREQNESS_EntropyLandscape(FREQ,varargin)
 %  (2012) to estimate the effective number of uncorrelated measurements, as
 %  described in Del Giudice (2021).
 %
-%  Both H2 and ED are returned for numerical analyses. The visualization
-%  deliberately shows only the H2 entropy landscape.
+%  H2, ED, and their frequency axis are returned together in the ENTR
+%  structure. The visualization deliberately shows only the H2 entropy
+%  landscape.
 %
 % ------------------------------------------------------------------------
 %  INPUT ARGUMENTS:
@@ -37,10 +38,11 @@ function [H2,ED] = FREQNESS_EntropyLandscape(FREQ,varargin)
 % ------------------------------------------------------------------------
 %  OUTPUT ARGUMENTS:
 % ------------------------------------------------------------------------
-%  - H2 : Quadratic Rényi entropy of the eigenvalue distribution.
-%
-%  - ED : Effective dimensionality. This output is retained for numerical
-%         analysis and backwards compatibility but is not visualized.
+%  - ENTR : structure containing
+%           • ENTR.H2   -> quadratic Rényi entropy [nFrex x nSubs]
+%           • ENTR.ED   -> effective dimensionality [nFrex x nSubs]
+%           • ENTR.frex -> physical frequencies when supplied by FREQ,
+%                          otherwise frequency indices [nFrex x 1]
 %
 % ------------------------------------------------------------------------
 %  REFERENCES:
@@ -178,12 +180,11 @@ if plot_all
 end
 
 
-%% Adjust scalar outputs
+%% Store entropy-landscape outputs
 
-if numel(H2) == 1
-    H2 = H2(1);
-    ED = ED(1);
-end
+ENTR.H2 = H2;
+ENTR.ED = ED;
+ENTR.frex = x;
 
 end
 

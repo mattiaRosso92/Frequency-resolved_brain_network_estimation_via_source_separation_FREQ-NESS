@@ -2,7 +2,9 @@
 
 Block 0 defines the settings. Block 1 loads, estimates, saves and releases
 one participant at a time. Block 2 combines saved results for optional group
-analyses. The CORE block runs by default; group analyses are disabled.
+analyses. Block 3 builds compact multi-participant inputs for statistical
+comparisons without reconstructing complete group FREQ structures. The CORE
+block runs by default; group analyses and comparisons are disabled.
 
 Keep RUN_CORE = True and RUN_GROUP_ANALYSES = False for the initial CORE run
 to limit memory use. Once CORE finishes, set RUN_CORE = False and
@@ -44,17 +46,25 @@ from freqness.FREQNESS_MainPipeline import main
 # BLOCK 0 - STARTUP AND ANALYSIS SETTINGS
 # ============================================================================
 
-TOOLBOX_ROOT = Path(__file__).resolve().parent.parent
+# ============================================================================
+# SELECT WHAT TO RUN
+#
+# These are the first decisions to make before editing analysis settings.
+# ============================================================================
 
-# Core results are saved outside FREQNESS_Data, in one folder per condition.
 RUN_CORE = True
 RUN_GROUP_ANALYSES = False
-PATH_RESULTS = None  # None uses FREQNESS_Results inside TOOLBOX_ROOT
-OVERWRITE_CORE = False
+RUN_SPATIAL_COMPARISON = False
+RUN_LANDSCAPE_COMPARISON = False
 
 # Optional sections for Block 2. Group arrays remain in memory when enabled.
 # ANALYSES_TO_RUN = ("FREQNESS_EntropyLandscape",)
 ANALYSES_TO_RUN = ALL_ANALYSES
+
+# Toolbox and output locations.
+TOOLBOX_ROOT = Path(__file__).resolve().parent.parent
+PATH_RESULTS = None  # None uses FREQNESS_Results inside TOOLBOX_ROOT
+OVERWRITE_CORE = False
 
 
 # ============================================================================
@@ -145,6 +155,33 @@ NETREM_LANDSCAPE_COMPONENTS = 3
 
 
 # ============================================================================
+# 10) SELECTIVE CONDITION/GROUP COMPARISONS
+# ============================================================================
+
+# None compares the first two non-empty folders. Prefer explicit folder names.
+COMPARISON_CONDITIONS = None  # e.g. ("Condition_1", "Condition_2")
+COMPARISON_DESIGN = "within"  # "within" or "between"
+COMPARISON_PLOT_RESULTS = True
+
+# Spatial comparison loads only these pats slices from participant CORE files.
+SPATIALCOMPARISON_TEST = None  # None defaults to ttest
+SPATIALCOMPARISON_FREQUENCIES = np.array([2.4, 8.4])
+SPATIALCOMPARISON_COMPONENTS = np.array([1], dtype=np.int64)
+SPATIALCOMPARISON_CLUSTER_FORMING_ALPHA = 0.001
+SPATIALCOMPARISON_ALPHA = 0.05
+SPATIALCOMPARISON_N_PERMUTATIONS = "auto"
+
+# Landscape comparison builds a thin input containing only the selected field,
+# its frequency axis, and participants. Evals come directly from CORE; H2/ED
+# and CFC amplitudes require their corresponding Block 2 analysis.
+LANDSCAPECOMPARISON_TEST = None  # signrank within; ranksum between
+LANDSCAPECOMPARISON_MEASURE = "evals"
+LANDSCAPECOMPARISON_FREQUENCIES = None  # None analyzes every frequency
+LANDSCAPECOMPARISON_COMPONENTS = np.array([1], dtype=np.int64)
+LANDSCAPECOMPARISON_CORRECTION = "fdr"
+
+
+# ============================================================================
 # OUTPUT AND DISPLAY SETTINGS
 # ============================================================================
 
@@ -156,6 +193,8 @@ CONFIG = FREQNESSPipelineConfig(
     toolbox_root=TOOLBOX_ROOT,
     run_core=RUN_CORE,
     run_group_analyses=RUN_GROUP_ANALYSES,
+    run_spatial_comparison=RUN_SPATIAL_COMPARISON,
+    run_landscape_comparison=RUN_LANDSCAPE_COMPARISON,
     path_results=PATH_RESULTS,
     overwrite_core=OVERWRITE_CORE,
     frex=FREQUENCIES,
@@ -183,12 +222,27 @@ CONFIG = FREQNESSPipelineConfig(
     netrem_comps2remove=NETREM_COMPONENTS,
     netrem_plot_landscape=NETREM_PLOT_LANDSCAPE,
     netrem_landscape_ncomps=NETREM_LANDSCAPE_COMPONENTS,
+    comparison_conditions=COMPARISON_CONDITIONS,
+    comparison_design=COMPARISON_DESIGN,
+    comparison_plot_results=COMPARISON_PLOT_RESULTS,
+    spatialcomparison_test=SPATIALCOMPARISON_TEST,
+    spatialcomparison_frex=SPATIALCOMPARISON_FREQUENCIES,
+    spatialcomparison_comps=SPATIALCOMPARISON_COMPONENTS,
+    spatialcomparison_cluster_forming_alpha=SPATIALCOMPARISON_CLUSTER_FORMING_ALPHA,
+    spatialcomparison_alpha=SPATIALCOMPARISON_ALPHA,
+    spatialcomparison_n_permutations=SPATIALCOMPARISON_N_PERMUTATIONS,
+    landscapecomparison_test=LANDSCAPECOMPARISON_TEST,
+    landscapecomparison_measure=LANDSCAPECOMPARISON_MEASURE,
+    landscapecomparison_frex=LANDSCAPECOMPARISON_FREQUENCIES,
+    landscapecomparison_comps=LANDSCAPECOMPARISON_COMPONENTS,
+    landscapecomparison_correction=LANDSCAPECOMPARISON_CORRECTION,
 )
 
 
 # ============================================================================
 # BLOCK 1 - NETWORK ESTIMATION AND CORE EXPORT
 # BLOCK 2 - OPTIONAL GROUP ANALYSES
+# BLOCK 3 - SELECTIVE CONDITION/GROUP COMPARISONS
 # ============================================================================
 # The package pipeline runs these blocks in order using the settings above.
 # Each complete FREQ is saved to CORE/<condition>/<participant>_FREQ.npz.

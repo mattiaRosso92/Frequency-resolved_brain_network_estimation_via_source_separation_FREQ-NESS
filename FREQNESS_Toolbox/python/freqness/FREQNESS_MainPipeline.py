@@ -22,6 +22,7 @@ from __future__ import annotations
 import argparse
 from dataclasses import dataclass, field, replace
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, Mapping, Sequence
 import warnings
 
@@ -38,12 +39,20 @@ from numpy.typing import NDArray
 from .FREQNESS_BackProjection import FREQNESS_BackProjection
 from .FREQNESS_CompGradients import FREQNESS_CompGradients
 from .FREQNESS_CrossCoupling import FREQNESS_CrossCoupling
-from .FREQNESS_CoreIO import FREQNESS_LoadCore, FREQNESS_SaveCore, _core_matches
+from .FREQNESS_CoreIO import (
+    FREQNESS_LoadCore,
+    FREQNESS_LoadCoreFields,
+    FREQNESS_SaveCore,
+    _core_matches,
+    _core_participant,
+)
 from .FREQNESS_EntropyLandscape import FREQNESS_EntropyLandscape
 from .FREQNESS_ExponentialDK import FREQNESS_ExponentialDK
 from .FREQNESS_FreqGradients import FREQNESS_FreqGradients
+from .FREQNESS_LandscapeComparison import FREQNESS_LandscapeComparison
 from .FREQNESS_NetworkEstimation import FREQNESS_NetworkEstimation
 from .FREQNESS_NetworkRemoval import FREQNESS_NetworkRemoval
+from .FREQNESS_SpatialComparison import FREQNESS_SpatialComparison
 from .FREQNESS_Startup import FREQNESS_Startup, _load_participant
 from .FREQNESS_Visualizer import FREQNESS_Visualizer
 
@@ -59,6 +68,8 @@ COMP_GRADIENTS = "FREQNESS_CompGradients"
 CROSS_COUPLING = "FREQNESS_CrossCoupling"
 BACK_PROJECTION = "FREQNESS_BackProjection"
 NETWORK_REMOVAL = "FREQNESS_NetworkRemoval"
+SPATIAL_COMPARISON = "FREQNESS_SpatialComparison"
+LANDSCAPE_COMPARISON = "FREQNESS_LandscapeComparison"
 
 ALL_ANALYSES = (
     NETWORK_ESTIMATION,
@@ -126,6 +137,28 @@ class FREQNESSPipelineConfig:
     )
     netrem_plot_landscape: bool = True
     netrem_landscape_ncomps: int = 3
+    run_spatial_comparison: bool = False
+    run_landscape_comparison: bool = False
+    comparison_conditions: tuple[str, str] | None = None
+    comparison_design: str = "within"
+    comparison_plot_results: bool = True
+    spatialcomparison_test: str | None = None
+    spatialcomparison_frex: FloatArray | str = field(
+        default_factory=lambda: np.array([2.4, 8.4])
+    )
+    spatialcomparison_comps: NDArray[np.int64] = field(
+        default_factory=lambda: np.array([1], dtype=np.int64)
+    )
+    spatialcomparison_cluster_forming_alpha: float = 0.001
+    spatialcomparison_alpha: float = 0.05
+    spatialcomparison_n_permutations: int | str = "auto"
+    landscapecomparison_test: str | None = None
+    landscapecomparison_measure: str = "evals"
+    landscapecomparison_frex: FloatArray | str | None = None
+    landscapecomparison_comps: NDArray[np.int64] = field(
+        default_factory=lambda: np.array([1], dtype=np.int64)
+    )
+    landscapecomparison_correction: str = "fdr"
     run_core: bool = True
     run_group_analyses: bool = False
     path_results: str | Path | None = None
@@ -148,6 +181,7 @@ class FREQNESSPipelineResult:
     path_home: Path
     MNI: NDArray[np.number] | None
     conditions: list[FREQNESSPipelineConditionResult]
+    comparisons: dict[str, Any] = field(default_factory=dict)
 
 
 def _validate_config(config: FREQNESSPipelineConfig) -> tuple[str, ...]:
@@ -173,6 +207,9 @@ def _validate_config(config: FREQNESSPipelineConfig) -> tuple[str, ...]:
         (config.show, "show"),
         (config.save_nifti, "save_nifti"),
         (config.netrem_plot_landscape, "netrem_plot_landscape"),
+        (config.run_spatial_comparison, "run_spatial_comparison"),
+        (config.run_landscape_comparison, "run_landscape_comparison"),
+        (config.comparison_plot_results, "comparison_plot_results"),
     ):
         if not isinstance(value, (bool, np.bool_)):
             raise TypeError(f"config.{name} must be a boolean")
@@ -205,6 +242,264 @@ def _visualizer_output_root(
     return Path(config.visualizer_output_directory).expanduser().resolve()
 
 
+def _comparison_design(design: str) -> str:
+    key = str(design).lower()
+    if key in {"within", "paired"}:
+        return "within"
+    if key in {"between", "independent"}:
+        return "between"
+    raise ValueError("config.comparison_design must be 'within' or 'between'")
+
+
+def _comparison_condition_indices(
+    folder_data: Sequence[Mapping[str, Any]],
+    requested: tuple[str, str] | None,
+) -> tuple[int, int]:
+    if requested is None:
+        populated = [
+            index for index, folder in enumerate(folder_data) if folder["files_mat"]
+        ]
+        if len(populated) < 2:
+            raise ValueError(
+                "At least two non-empty conditions are required for comparisons"
+            )
+        return populated[0], populated[1]
+    if (
+        not isinstance(requested, (tuple, list))
+        or len(requested) != 2
+        or not all(isinstance(name, str) and name for name in requested)
+    ):
+        raise ValueError(
+            "config.comparison_conditions must contain two condition names"
+        )
+    lookup = {str(folder["name"]).casefold(): index for index, folder in enumerate(folder_data)}
+    keys = tuple(name.casefold() for name in requested)
+    if keys[0] == keys[1]:
+        raise ValueError("comparison_conditions must identify two different conditions")
+    missing = [name for name, key in zip(requested, keys, strict=True) if key not in lookup]
+    if missing:
+        raise ValueError("Unknown comparison condition(s): " + ", ".join(missing))
+    return lookup[keys[0]], lookup[keys[1]]
+
+
+def _comparison_records(
+    folder: Mapping[str, Any],
+    condition_result: FREQNESSPipelineConditionResult,
+    network_settings: Mapping[str, Any],
+) -> list[tuple[str, Path]]:
+    records: list[tuple[str, Path]] = []
+    identifiers: set[str] = set()
+    for source_file, core_file in zip(
+        folder["files_mat"], condition_result.core_files, strict=True
+    ):
+        if not core_file.is_file():
+            raise FileNotFoundError(
+                f"Core output missing: {core_file}. Run Block 1 first."
+            )
+        source_info = source_file.stat()
+        expected = {
+            "condition": folder["name"],
+            "name": source_file.stem,
+            "source_file": str(source_file),
+            "source_size": folder["data_size"],
+            "source_bytes": source_info.st_size,
+            "source_mtime_ns": source_info.st_mtime_ns,
+        }
+        if not _core_matches(core_file, expected, dict(network_settings)):
+            raise ValueError(
+                f"Core output does not match the current inputs or settings: {core_file}. "
+                "Run Block 1 with overwrite_core=True."
+            )
+        participant = _core_participant(core_file)
+        identifier = str(participant.get("name", ""))
+        key = identifier.casefold()
+        if not identifier or key in identifiers:
+            raise ValueError(
+                f"Condition {folder['name']} contains missing or duplicate participant identifiers"
+            )
+        identifiers.add(key)
+        records.append((identifier, core_file))
+    return records
+
+
+def _match_comparison_records(
+    records_A: list[tuple[str, Path]],
+    records_B: list[tuple[str, Path]],
+    design: str,
+) -> tuple[list[tuple[str, Path]], list[tuple[str, Path]]]:
+    if design == "between":
+        return records_A, records_B
+    lookup_B = {
+        identifier.casefold(): (identifier, core_file)
+        for identifier, core_file in records_B
+    }
+    identifiers_A = [identifier.casefold() for identifier, _ in records_A]
+    if set(identifiers_A) != set(lookup_B):
+        only_A = sorted(set(identifiers_A).difference(lookup_B))
+        only_B = sorted(set(lookup_B).difference(identifiers_A))
+        raise ValueError(
+            "Within-subject comparisons require identical participant identifiers "
+            f"in both conditions. Only in A: {only_A}; only in B: {only_B}"
+        )
+    ordered_B = [lookup_B[identifier] for identifier in identifiers_A]
+    return records_A, ordered_B
+
+
+def _comparison_frequencies(
+    available: NDArray[np.float64],
+    requested: Any,
+) -> tuple[NDArray[np.int64], NDArray[np.float64]]:
+    frequencies = np.asarray(available, dtype=float).reshape(-1)
+    if requested is None or (isinstance(requested, str) and requested.lower() == "all"):
+        indices = np.arange(frequencies.size, dtype=np.int64)
+        return indices, frequencies.copy()
+    if isinstance(requested, str):
+        raise ValueError("Comparison frequencies must be numeric, None, or 'all'")
+    values = np.asarray(requested, dtype=float).reshape(-1)
+    if values.size == 0 or not np.all(np.isfinite(values)):
+        raise ValueError("Comparison frequencies must contain finite values")
+    if np.any(values < frequencies[0]) or np.any(values > frequencies[-1]):
+        raise ValueError("Comparison frequencies fall outside the CORE frequency range")
+    tolerance = np.inf if frequencies.size == 1 else np.median(np.diff(frequencies)) / 2.0
+    indices = np.empty(values.size, dtype=np.int64)
+    for index, value in enumerate(values):
+        distance = np.abs(frequencies - value)
+        nearest = np.flatnonzero(np.isclose(distance, np.min(distance)))
+        if nearest.size != 1 or distance[nearest[0]] > tolerance + np.finfo(float).eps:
+            raise ValueError(f"No unique CORE frequency matches {value:g} Hz")
+        indices[index] = nearest[0]
+    if np.unique(indices).size != indices.size:
+        raise ValueError("Two requested comparison frequencies resolve to the same bin")
+    resolved = frequencies[indices]
+    if not np.allclose(values, resolved, atol=1e-12, rtol=0.0):
+        warnings.warn(
+            "Some comparison frequencies are unavailable; using closest CORE bins.",
+            UserWarning,
+            stacklevel=3,
+        )
+    return indices, resolved
+
+
+def _comparison_components(requested: Any, available: int) -> NDArray[np.int64]:
+    values = np.asarray(requested, dtype=float).reshape(-1)
+    if (
+        values.size == 0
+        or not np.all(np.isfinite(values))
+        or not np.all(values == np.round(values))
+        or np.any(values < 1)
+        or np.any(values > available)
+        or np.unique(values).size != values.size
+    ):
+        raise ValueError(
+            f"Comparison components must be unique integers between 1 and {available}"
+        )
+    return values.astype(np.int64)
+
+
+def _assemble_core_comparison(
+    records: Sequence[tuple[str, Path]],
+    field_name: str,
+    requested_frex: Any,
+    requested_components: Any,
+) -> tuple[SimpleNamespace, NDArray[np.int64]]:
+    if not records:
+        raise ValueError("A comparison condition contains no participant CORE files")
+    first = FREQNESS_LoadCoreFields(records[0][1], (field_name, "frex"))
+    available_frex = np.asarray(first["frex"], dtype=float).reshape(-1)
+    indices, resolved_frex = _comparison_frequencies(available_frex, requested_frex)
+    values = np.asarray(first[field_name])
+    if field_name == "pats":
+        if values.ndim != 4 or values.shape[-1] != 1:
+            raise ValueError("Participant CORE pats must end in one participant axis")
+        components = _comparison_components(requested_components, values.shape[1])
+        selected = values[:, components - 1, :, :][:, :, indices, 0]
+    elif field_name == "evals":
+        if values.ndim != 3 or values.shape[-1] != 1:
+            raise ValueError("Participant CORE evals must end in one participant axis")
+        components = _comparison_components(requested_components, values.shape[0])
+        selected = values[components - 1, :, :][:, indices, 0]
+    else:
+        raise ValueError("Selective CORE comparisons support only pats or evals")
+    combined = np.empty((*selected.shape, len(records)), dtype=selected.dtype)
+    combined[..., 0] = selected
+    del first, values, selected
+
+    for subi, (_, core_file) in enumerate(records[1:], start=1):
+        participant = FREQNESS_LoadCoreFields(core_file, (field_name, "frex"))
+        if not np.allclose(
+            np.asarray(participant["frex"], dtype=float).reshape(-1),
+            available_frex,
+            atol=1e-10,
+            rtol=0.0,
+        ):
+            raise ValueError("Participant CORE frequency grids do not match")
+        participant_values = np.asarray(participant[field_name])
+        if field_name == "pats":
+            combined[..., subi] = participant_values[:, components - 1, :, :][
+                :, :, indices, 0
+            ]
+        else:
+            combined[..., subi] = participant_values[components - 1, :, :][
+                :, indices, 0
+            ]
+        del participant, participant_values
+    return SimpleNamespace(**{field_name: combined, "frex": resolved_frex}), components
+
+
+def _assemble_output_comparison(
+    output: Any,
+    field_name: str,
+    axis_name: str,
+    requested_frex: Any,
+    requested_components: Any,
+    participant_order: NDArray[np.int64],
+) -> tuple[SimpleNamespace, NDArray[np.int64]]:
+    """Build one thin statistical input from a secondary group output."""
+    if not hasattr(output, field_name) or not hasattr(output, axis_name):
+        raise ValueError(
+            f"Secondary output does not contain {field_name!r} and {axis_name!r}"
+        )
+    available_frex = np.asarray(getattr(output, axis_name), dtype=float).reshape(-1)
+    indices, resolved_frex = _comparison_frequencies(available_frex, requested_frex)
+    values = np.asarray(getattr(output, field_name))
+    if values.ndim not in (2, 3) or values.shape[-1] != participant_order.size:
+        raise ValueError(
+            f"Secondary output {field_name} does not match the participant count"
+        )
+    if values.ndim == 2:
+        if values.shape[0] != available_frex.size:
+            raise ValueError(
+                f"Secondary output {field_name} must be [nFrex x nParticipants]"
+            )
+        components = _comparison_components(requested_components, 1)
+        selected = values[indices, :][:, participant_order]
+    elif values.ndim == 3:
+        if values.shape[1] != available_frex.size:
+            raise ValueError(
+                f"Secondary output {field_name} must be "
+                "[nFeatures x nFrex x nParticipants]"
+            )
+        components = _comparison_components(requested_components, values.shape[0])
+        selected = values[components - 1, :, :][:, indices, :][..., participant_order]
+    else:
+        raise ValueError(
+            f"Secondary output {field_name} must be two- or three-dimensional"
+        )
+    return (
+        SimpleNamespace(**{field_name: selected, axis_name: resolved_frex}),
+        components,
+    )
+
+
+def _participant_order(
+    original: Sequence[tuple[str, Path]],
+    matched: Sequence[tuple[str, Path]],
+) -> NDArray[np.int64]:
+    """Map matched participant records back to the secondary-output order."""
+    lookup = {core_file: index for index, (_, core_file) in enumerate(original)}
+    return np.asarray([lookup[core_file] for _, core_file in matched], dtype=np.int64)
+
+
 def FREQNESS_MainPipeline(
     config: FREQNESSPipelineConfig | None = None,
 ) -> FREQNESSPipelineResult:
@@ -212,8 +507,9 @@ def FREQNESS_MainPipeline(
 
     Block 0 inspects input files and defines the network settings. Block 1 saves
     complete participant results in FREQNESS_Results/CORE/<condition> and releases
-    their arrays. Block 2 is optional: it combines saved FREQ results and retains
-    selected secondary outputs in memory. Numerical estimator APIs are unchanged.
+    their arrays. Block 2 optionally combines saved FREQ results. Block 3 builds
+    thin statistical inputs containing only the requested landscape fields,
+    frequency axes, and participant dimension. Numerical APIs are unchanged.
     """
     # ========================================================================
     # BLOCK 0 - STARTUP AND ANALYSIS SETTINGS
@@ -245,6 +541,7 @@ def FREQNESS_MainPipeline(
         )
         for folder in folder_data
     ]
+    comparisons: dict[str, Any] = {}
 
     # ========================================================================
     # BLOCK 1 - NETWORK ESTIMATION AND CORE EXPORT (one participant at a time)
@@ -365,15 +662,12 @@ def FREQNESS_MainPipeline(
                 condition_result.outputs[VISUALIZER] = visualization
 
             if ENTROPY_LANDSCAPE in selected:
-                H2, ED = FREQNESS_EntropyLandscape(
+                ENTR = FREQNESS_EntropyLandscape(
                     FREQ,
                     plot_all=config.plot_all,
                     show=config.show,
                 )
-                condition_result.outputs[ENTROPY_LANDSCAPE] = {
-                    "H2": H2,
-                    "ED": ED,
-                }
+                condition_result.outputs[ENTROPY_LANDSCAPE] = ENTR
 
             if EXPONENTIAL_DK in selected:
                 condition_result.outputs[EXPONENTIAL_DK] = FREQNESS_ExponentialDK(
@@ -475,10 +769,169 @@ def FREQNESS_MainPipeline(
                 condition_result.outputs[NETWORK_REMOVAL] = network_removal_output
             del FREQ
 
+    # ========================================================================
+    # BLOCK 3 - SELECTIVE CONDITION/GROUP COMPARISONS
+    # ========================================================================
+    # Block 3 compares selected spatial patterns or frequency landscapes
+    # between two conditions or groups. It supports paired and independent
+    # designs, matches paired participants by identifier, and returns the
+    # statistical results separately from the condition outputs.
+    #
+    # For low memory use, each sample is represented by one temporary structure
+    # containing only the selected landscape, frequency axis, and participant
+    # dimension. Complete group ts/evecs arrays are never assembled here.
+    if config.run_spatial_comparison or config.run_landscape_comparison:
+        condition_A, condition_B = _comparison_condition_indices(
+            folder_data, config.comparison_conditions
+        )
+        folder_A = folder_data[condition_A]
+        folder_B = folder_data[condition_B]
+        result_A = results[condition_A]
+        result_B = results[condition_B]
+        design = _comparison_design(config.comparison_design)
+        original_records_A = _comparison_records(folder_A, result_A, NETWORK_SETTINGS)
+        original_records_B = _comparison_records(folder_B, result_B, NETWORK_SETTINGS)
+        records_A, records_B = _match_comparison_records(
+            original_records_A, original_records_B, design
+        )
+        order_A = _participant_order(original_records_A, records_A)
+        order_B = _participant_order(original_records_B, records_B)
+        sample_labels = (str(folder_A["name"]), str(folder_B["name"]))
+
+        if config.run_spatial_comparison:
+            if MNI is None:
+                raise ValueError(
+                    "FREQNESS_SpatialComparison requires matching MNI coordinates"
+                )
+            compact_A, original_components = _assemble_core_comparison(
+                records_A,
+                "pats",
+                config.spatialcomparison_frex,
+                config.spatialcomparison_comps,
+            )
+            compact_B, components_B = _assemble_core_comparison(
+                records_B,
+                "pats",
+                config.spatialcomparison_frex,
+                config.spatialcomparison_comps,
+            )
+            if not np.array_equal(original_components, components_B):
+                raise RuntimeError("Internal spatial component selection mismatch")
+            spatial_stats = FREQNESS_SpatialComparison(
+                compact_A,
+                compact_B,
+                MNI,
+                frex2compare=compact_A.frex,
+                comps2compare=np.arange(1, original_components.size + 1),
+                design=design,
+                test=config.spatialcomparison_test,
+                condition_labels=sample_labels,
+                cluster_forming_alpha=config.spatialcomparison_cluster_forming_alpha,
+                alpha=config.spatialcomparison_alpha,
+                n_permutations=config.spatialcomparison_n_permutations,
+                plot_results=config.comparison_plot_results,
+                show=config.show,
+            )
+            spatial_stats.comps = original_components.copy()
+            for cluster in spatial_stats.clusters:
+                cluster.comp = int(original_components[cluster.comp - 1])
+            comparisons[SPATIAL_COMPARISON] = spatial_stats
+            del compact_A, compact_B, spatial_stats
+
+        if config.run_landscape_comparison:
+            requested_measure = str(config.landscapecomparison_measure)
+            measure_key = requested_measure.lower()
+            if measure_key == "evals":
+                compact_A, original_components = _assemble_core_comparison(
+                    records_A,
+                    "evals",
+                    config.landscapecomparison_frex,
+                    config.landscapecomparison_comps,
+                )
+                compact_B, components_B = _assemble_core_comparison(
+                    records_B,
+                    "evals",
+                    config.landscapecomparison_frex,
+                    config.landscapecomparison_comps,
+                )
+                measure_name = "evals"
+            else:
+                secondary_sources = {
+                    "h2": (ENTROPY_LANDSCAPE, "H2", "frex"),
+                    "ed": (ENTROPY_LANDSCAPE, "ED", "frex"),
+                    "amplitude_raw": (
+                        CROSS_COUPLING,
+                        "amplitude_raw",
+                        "carrier_frex",
+                    ),
+                    "amplitude_normalized": (
+                        CROSS_COUPLING,
+                        "amplitude_normalized",
+                        "carrier_frex",
+                    ),
+                }
+                if measure_key not in secondary_sources:
+                    raise ValueError(
+                        "Block 3 can assemble evals, H2, ED, amplitude_raw, or "
+                        "amplitude_normalized. Pass other compact landscapes "
+                        "directly to FREQNESS_LandscapeComparison."
+                    )
+                analysis_name, measure_name, axis_name = secondary_sources[measure_key]
+                if (
+                    analysis_name not in result_A.outputs
+                    or analysis_name not in result_B.outputs
+                ):
+                    raise ValueError(
+                        f"landscapecomparison_measure={requested_measure!r} requires "
+                        f"{analysis_name} to be selected and Block 2 to be run."
+                    )
+                compact_A, original_components = _assemble_output_comparison(
+                    result_A.outputs[analysis_name],
+                    measure_name,
+                    axis_name,
+                    config.landscapecomparison_frex,
+                    config.landscapecomparison_comps,
+                    order_A,
+                )
+                compact_B, components_B = _assemble_output_comparison(
+                    result_B.outputs[analysis_name],
+                    measure_name,
+                    axis_name,
+                    config.landscapecomparison_frex,
+                    config.landscapecomparison_comps,
+                    order_B,
+                )
+            if not np.array_equal(original_components, components_B):
+                raise RuntimeError("Internal landscape component selection mismatch")
+            frequency_axis = (
+                compact_A.carrier_frex
+                if hasattr(compact_A, "carrier_frex")
+                else compact_A.frex
+            )
+            landscape_stats = FREQNESS_LandscapeComparison(
+                compact_A,
+                compact_B,
+                measure=measure_name,
+                design=design,
+                test=config.landscapecomparison_test,
+                which_comp=np.arange(1, original_components.size + 1),
+                frex2compare=frequency_axis,
+                sample_labels=sample_labels,
+                correction=config.landscapecomparison_correction,
+                plot_results=config.comparison_plot_results,
+                show=config.show,
+            )
+            landscape_stats.results[measure_name].comps = original_components.copy()
+            comparisons[LANDSCAPE_COMPARISON] = landscape_stats
+            del compact_A, compact_B, landscape_stats
+
+        del original_records_A, original_records_B, records_A, records_B
+
     return FREQNESSPipelineResult(
         path_home=root,
         MNI=MNI,
         conditions=results,
+        comparisons=comparisons,
     )
 
 
@@ -523,6 +976,10 @@ def main(
                         help="Use existing CORE files without estimating networks.")
     parser.add_argument("--overwrite-core", action="store_true",
                         help="Replace existing participant CORE files.")
+    parser.add_argument("--spatial-comparison", action="store_true",
+                        help="Run the selective CORE spatial comparison block.")
+    parser.add_argument("--landscape-comparison", action="store_true",
+                        help="Run the selective landscape comparison block.")
     parser.add_argument("--results-directory", type=Path,
                         help="Override the FREQNESS_Results output directory.")
     arguments = parser.parse_args(argv)
@@ -538,6 +995,10 @@ def main(
         config.run_core = False
     if arguments.overwrite_core:
         config.overwrite_core = True
+    if arguments.spatial_comparison:
+        config.run_spatial_comparison = True
+    if arguments.landscape_comparison:
+        config.run_landscape_comparison = True
     if arguments.results_directory is not None:
         config.path_results = arguments.results_directory
     if arguments.no_show:
@@ -565,8 +1026,10 @@ __all__ = [
     "FREQNESSPipelineConfig",
     "FREQNESSPipelineResult",
     "FREQ_GRADIENTS",
+    "LANDSCAPE_COMPARISON",
     "NETWORK_ESTIMATION",
     "NETWORK_REMOVAL",
+    "SPATIAL_COMPARISON",
     "VISUALIZER",
     "main",
 ]

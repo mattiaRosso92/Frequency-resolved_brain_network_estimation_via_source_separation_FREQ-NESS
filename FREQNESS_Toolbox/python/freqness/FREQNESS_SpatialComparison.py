@@ -1,4 +1,4 @@
-"""Paired spatial comparison of FREQ-NESS activation patterns.
+"""Within-subject or between-group comparison of spatial patterns.
 
 If you use this toolbox, please cite:
 Rosso, M., Fernández-Rubio, G., Keller, P. E., Brattico, E., Vuust, P.,
@@ -45,6 +45,7 @@ class FREQNESSSpatialCluster:
     mass: float
     p_corrected: float
     peak_t: float
+    peak_statistic: float
     peak_voxel: int
     peak_mni: FloatArray
 
@@ -59,9 +60,16 @@ class FREQNESSSpatialComparisonResult:
     comps: IntArray
     condition_labels: tuple[str, str]
     design: str
-    n_participants: int
+    test: str
+    n_participants: int | tuple[int, int]
+    n_A: int
+    n_B: int
     mean_difference: FloatArray
+    statistic: FloatArray
+    statistic_name: str
     t_values: FloatArray
+    effect_size: FloatArray
+    effect_size_name: str
     effect_size_dz: FloatArray
     p_uncorrected: FloatArray
     p_cluster_corrected: FloatArray
@@ -193,11 +201,43 @@ def _component_selection(components: ArrayLike | None, ncomponents: int) -> IntA
     return selected
 
 
+def _analysis_options(design: str, test: str | None) -> tuple[str, str]:
+    design_key = str(design).lower()
+    if design_key in {"within", "paired"}:
+        design_key = "within"
+    elif design_key in {"between", "independent"}:
+        design_key = "between"
+    else:
+        raise ValueError("design must be 'within' or 'between'")
+
+    test_key = "ttest" if test is None else str(test).lower()
+    if test_key not in {"ttest", "signrank", "ranksum"}:
+        raise ValueError("test must be 'ttest', 'signrank', or 'ranksum'")
+    if design_key == "within" and test_key == "ranksum":
+        warnings.warn(
+            "test='ranksum' is an independent-samples test and is incompatible "
+            "with design='within'. Using test='signrank' instead.",
+            UserWarning,
+            stacklevel=3,
+        )
+        test_key = "signrank"
+    elif design_key == "between" and test_key == "signrank":
+        warnings.warn(
+            "test='signrank' is a paired-samples test and is incompatible with "
+            "design='between'. Using test='ranksum' instead.",
+            UserWarning,
+            stacklevel=3,
+        )
+        test_key = "ranksum"
+    return design_key, test_key
+
+
 def _prepare_maps(
     maps_a: FloatArray,
     maps_b: FloatArray,
     map_mode: str,
     normalization: str,
+    design: str,
 ) -> tuple[FloatArray, FloatArray, FloatArray, FloatArray]:
     prepared_a = maps_a.copy()
     prepared_b = maps_b.copy()
@@ -210,26 +250,43 @@ def _prepare_maps(
     elif map_mode == "signed_aligned":
         for freqi in range(prepared_a.shape[1]):
             for compi in range(prepared_a.shape[2]):
-                for subi in range(prepared_a.shape[3]):
-                    if np.dot(
-                        prepared_a[:, freqi, compi, subi],
-                        prepared_b[:, freqi, compi, subi],
-                    ) < 0:
-                        prepared_b[:, freqi, compi, subi] *= -1
-                        flips_b[freqi, compi, subi] *= -1
-                paired_mean = 0.5 * (
-                    prepared_a[:, freqi, compi, :]
-                    + prepared_b[:, freqi, compi, :]
-                )
-                reference = np.linalg.svd(paired_mean, full_matrices=False)[0][:, 0]
+                if design == "within":
+                    for subi in range(prepared_a.shape[3]):
+                        if np.dot(
+                            prepared_a[:, freqi, compi, subi],
+                            prepared_b[:, freqi, compi, subi],
+                        ) < 0:
+                            prepared_b[:, freqi, compi, subi] *= -1
+                            flips_b[freqi, compi, subi] *= -1
+                    reference_maps = 0.5 * (
+                        prepared_a[:, freqi, compi, :]
+                        + prepared_b[:, freqi, compi, :]
+                    )
+                else:
+                    reference_maps = np.concatenate(
+                        (
+                            prepared_a[:, freqi, compi, :],
+                            prepared_b[:, freqi, compi, :],
+                        ),
+                        axis=1,
+                    )
+                reference = np.linalg.svd(
+                    reference_maps, full_matrices=False
+                )[0][:, 0]
                 peak = int(np.argmax(np.abs(reference)))
                 if reference[peak] < 0:
                     reference *= -1
                 for subi in range(prepared_a.shape[3]):
-                    if np.dot(paired_mean[:, subi], reference) < 0:
+                    if np.dot(
+                        prepared_a[:, freqi, compi, subi], reference
+                    ) < 0:
                         prepared_a[:, freqi, compi, subi] *= -1
-                        prepared_b[:, freqi, compi, subi] *= -1
                         flips_a[freqi, compi, subi] *= -1
+                for subi in range(prepared_b.shape[3]):
+                    if np.dot(
+                        prepared_b[:, freqi, compi, subi], reference
+                    ) < 0:
+                        prepared_b[:, freqi, compi, subi] *= -1
                         flips_b[freqi, compi, subi] *= -1
     else:
         raise ValueError("map_mode must be 'magnitude' or 'signed_aligned'")
@@ -280,6 +337,144 @@ def _paired_statistics(differences: FloatArray) -> tuple[FloatArray, FloatArray,
     effect_size[zero_variance_effect] = np.sign(mean_difference[zero_variance_effect]) * np.inf
     p_values = 2.0 * stats.t.sf(np.abs(t_values), nsubjects - 1)
     return mean_difference, t_values, effect_size, p_values
+
+
+def _within_statistics(
+    differences: FloatArray,
+    test: str,
+) -> tuple[FloatArray, FloatArray, FloatArray, FloatArray, str, str]:
+    if test == "ttest":
+        mean_difference, statistic, effect_size, p_values = _paired_statistics(
+            differences
+        )
+        return (
+            mean_difference,
+            statistic,
+            effect_size,
+            p_values,
+            "t",
+            "Cohen's dz",
+        )
+
+    mean_difference = np.mean(differences, axis=-1)
+    nonzero = differences != 0
+    absolute = np.where(nonzero, np.abs(differences), np.nan)
+    ranks = stats.rankdata(
+        absolute,
+        axis=-1,
+        method="average",
+        nan_policy="omit",
+    )
+    ranks = np.nan_to_num(ranks, nan=0.0)
+    signed_rank = np.sum(np.sign(differences) * ranks, axis=-1)
+    n_nonzero = np.sum(nonzero, axis=-1)
+    variance = n_nonzero * (n_nonzero + 1) * (2 * n_nonzero + 1) / 6.0
+    statistic = np.divide(
+        signed_rank,
+        np.sqrt(variance),
+        out=np.zeros_like(signed_rank),
+        where=variance > 0,
+    )
+    total_rank = n_nonzero * (n_nonzero + 1) / 2.0
+    effect_size = np.divide(
+        signed_rank,
+        total_rank,
+        out=np.zeros_like(signed_rank),
+        where=total_rank > 0,
+    )
+    p_values = 2.0 * stats.norm.sf(np.abs(statistic))
+    p_values[n_nonzero == 0] = 1.0
+    return (
+        mean_difference,
+        statistic,
+        effect_size,
+        p_values,
+        "z",
+        "matched rank-biserial r",
+    )
+
+
+def _between_statistics(
+    maps_a: FloatArray,
+    maps_b: FloatArray,
+    test: str,
+) -> tuple[FloatArray, FloatArray, FloatArray, FloatArray, str, str]:
+    n_a = maps_a.shape[-1]
+    n_b = maps_b.shape[-1]
+    mean_a = np.mean(maps_a, axis=-1)
+    mean_b = np.mean(maps_b, axis=-1)
+    mean_difference = mean_b - mean_a
+
+    if test == "ttest":
+        variance_a = np.var(maps_a, axis=-1, ddof=1)
+        variance_b = np.var(maps_b, axis=-1, ddof=1)
+        term_a = variance_a / n_a
+        term_b = variance_b / n_b
+        denominator = np.sqrt(term_a + term_b)
+        statistic = np.divide(
+            mean_difference,
+            denominator,
+            out=np.zeros_like(mean_difference),
+            where=denominator > np.finfo(float).eps,
+        )
+        zero_variance_effect = (
+            denominator <= np.finfo(float).eps
+        ) & (np.abs(mean_difference) > np.finfo(float).eps)
+        statistic[zero_variance_effect] = (
+            np.sign(mean_difference[zero_variance_effect]) * np.inf
+        )
+        degrees_freedom = np.divide(
+            (term_a + term_b) ** 2,
+            term_a**2 / (n_a - 1) + term_b**2 / (n_b - 1),
+            out=np.full_like(mean_difference, np.inf),
+            where=(term_a + term_b) > np.finfo(float).eps,
+        )
+        p_values = 2.0 * stats.t.sf(np.abs(statistic), degrees_freedom)
+        p_values[(term_a + term_b) == 0] = np.where(
+            mean_difference[(term_a + term_b) == 0] == 0,
+            1.0,
+            0.0,
+        )
+
+        pooled = np.sqrt(
+            ((n_a - 1) * variance_a + (n_b - 1) * variance_b)
+            / (n_a + n_b - 2)
+        )
+        cohens_d = np.divide(
+            mean_difference,
+            pooled,
+            out=np.zeros_like(mean_difference),
+            where=pooled > np.finfo(float).eps,
+        )
+        cohens_d[zero_variance_effect] = (
+            np.sign(mean_difference[zero_variance_effect]) * np.inf
+        )
+        correction = 1.0 - 3.0 / (4.0 * (n_a + n_b) - 9.0)
+        return (
+            mean_difference,
+            statistic,
+            correction * cohens_d,
+            p_values,
+            "t",
+            "Hedges' g",
+        )
+
+    combined = np.concatenate((maps_b, maps_a), axis=-1)
+    ranks = stats.rankdata(combined, axis=-1, method="average")
+    u_b = np.sum(ranks[..., :n_b], axis=-1) - n_b * (n_b + 1) / 2.0
+    centered_u = u_b - n_a * n_b / 2.0
+    variance = n_a * n_b * (n_a + n_b + 1) / 12.0
+    statistic = centered_u / np.sqrt(variance)
+    effect_size = 2.0 * u_b / (n_a * n_b) - 1.0
+    p_values = 2.0 * stats.norm.sf(np.abs(statistic))
+    return (
+        mean_difference,
+        statistic,
+        effect_size,
+        p_values,
+        "z",
+        "rank-biserial r",
+    )
 
 
 def _spatial_adjacency(
@@ -343,15 +538,20 @@ def _clusters(
 
 
 def _maximum_cluster_mass(
-    t_values: FloatArray,
-    threshold: float,
+    statistic: FloatArray,
+    p_values: FloatArray,
+    cluster_forming_alpha: float,
     adjacency: list[IntArray],
 ) -> float:
     maximum = 0.0
-    for freqi in range(t_values.shape[1]):
-        for compi in range(t_values.shape[2]):
-            spatial_map = t_values[:, freqi, compi]
-            for mask in (spatial_map >= threshold, spatial_map <= -threshold):
+    for freqi in range(statistic.shape[1]):
+        for compi in range(statistic.shape[2]):
+            spatial_map = statistic[:, freqi, compi]
+            significant = p_values[:, freqi, compi] <= cluster_forming_alpha
+            for mask in (
+                significant & (spatial_map > 0),
+                significant & (spatial_map < 0),
+            ):
                 for members in _clusters(mask, adjacency):
                     maximum = max(maximum, float(np.sum(np.abs(spatial_map[members]))))
     return maximum
@@ -385,6 +585,48 @@ def _permutation_plan(
         rng = np.random.default_rng(random_seed)
         signs = rng.choice(np.array([-1.0, 1.0]), size=(count, nsubjects))
     return signs, exact
+
+
+def _between_permutation_plan(
+    n_a: int,
+    n_b: int,
+    n_permutations: int | str,
+    random_seed: int,
+) -> tuple[BoolArray, bool]:
+    from itertools import combinations
+    from math import comb
+
+    total = n_a + n_b
+    possible = comb(total, n_a)
+    if isinstance(n_permutations, str):
+        mode = n_permutations.lower()
+        if mode not in ("auto", "exact"):
+            raise ValueError(
+                "n_permutations must be a positive integer, 'auto', or 'exact'"
+            )
+        if mode == "exact" and possible > 1_048_576:
+            raise ValueError(
+                "Exact enumeration is too large; use Monte Carlo permutations"
+            )
+        exact = mode == "exact" or possible <= 65_536
+        count = possible if exact else 10_000
+    else:
+        count = int(n_permutations)
+        if count <= 0 or count != n_permutations:
+            raise ValueError("n_permutations must be a positive integer")
+        exact = count >= possible and possible <= 65_536
+        count = possible if exact else count
+
+    assignments = np.zeros((count, total), dtype=bool)
+    if exact:
+        for permutation, indices in enumerate(combinations(range(total), n_a)):
+            assignments[permutation, np.asarray(indices, dtype=np.int64)] = True
+    else:
+        rng = np.random.default_rng(random_seed)
+        for permutation in range(count):
+            indices = rng.choice(total, size=n_a, replace=False)
+            assignments[permutation, indices] = True
+    return assignments, exact
 
 
 def _plot_results(
@@ -442,6 +684,8 @@ def FREQNESS_SpatialComparison(
     *,
     frex2compare: ArrayLike | str,
     comps2compare: ArrayLike | None = None,
+    design: str = "within",
+    test: str | None = None,
     condition_labels: tuple[str, str] = ("A", "B"),
     map_mode: str = "magnitude",
     normalization: str = "l2",
@@ -455,20 +699,32 @@ def FREQNESS_SpatialComparison(
     plot_results: bool = True,
     show: bool = True,
 ) -> FREQNESSSpatialComparisonResult:
-    """Compare paired FREQ-NESS spatial patterns with cluster correction.
+    """Compare FREQ-NESS spatial patterns with cluster correction.
 
-    The participant order must match across ``FREQ_A`` and ``FREQ_B``.
+    For a within-subject design, participant order must match across
+    ``FREQ_A`` and ``FREQ_B``. Between-group designs may have unequal sample
+    sizes. Incompatible non-parametric test names are corrected with a warning.
     Component numbers retain the MATLAB convention and are one-based, while
     ``idx_frex`` is zero-based for direct NumPy indexing.
     """
+    design_key, test_key = _analysis_options(design, test)
     patterns_a, frequency_axis_a = _canonical_freq(FREQ_A, "FREQ_A")
     patterns_b, frequency_axis_b = _canonical_freq(FREQ_B, "FREQ_B")
-    if patterns_a.shape != patterns_b.shape:
-        raise ValueError("FREQ_A.pats and FREQ_B.pats must have matching dimensions")
+    if patterns_a.shape[:3] != patterns_b.shape[:3]:
+        raise ValueError(
+            "FREQ_A.pats and FREQ_B.pats must have matching voxel, component, "
+            "and frequency dimensions"
+        )
     if not np.allclose(frequency_axis_a, frequency_axis_b, atol=1e-10, rtol=0.0):
         raise ValueError("FREQ_A.frex and FREQ_B.frex must contain the same grid")
-    if patterns_a.shape[3] < 2:
-        raise ValueError("At least two paired participants are required")
+    n_a = patterns_a.shape[3]
+    n_b = patterns_b.shape[3]
+    if design_key == "within" and n_a != n_b:
+        raise ValueError(
+            "Within-subject comparisons require matching participant counts"
+        )
+    if n_a < 2 or n_b < 2:
+        raise ValueError("Each sample must contain at least two participants")
 
     coordinates = np.asarray(MNI, dtype=float)
     if coordinates.shape != (patterns_a.shape[0], 3) or not np.all(np.isfinite(coordinates)):
@@ -495,54 +751,102 @@ def FREQNESS_SpatialComparison(
     selected_a = np.transpose(selected_a, (0, 2, 1, 3))
     selected_b = np.transpose(selected_b, (0, 2, 1, 3))
     selected_a, selected_b, flips_a, flips_b = _prepare_maps(
-        selected_a, selected_b, map_mode, normalization
+        selected_a, selected_b, map_mode, normalization, design_key
     )
-    differences = selected_b - selected_a
-    mean_difference, t_values, effect_size, p_uncorrected = _paired_statistics(differences)
     adjacency, grid_spacing = _spatial_adjacency(coordinates, connectivity)
-    threshold = float(stats.t.ppf(1.0 - cluster_forming_alpha / 2.0, patterns_a.shape[3] - 1))
-    signs, exact = _permutation_plan(patterns_a.shape[3], n_permutations, int(random_seed))
+
+    if design_key == "within":
+        differences = selected_b - selected_a
+        (
+            mean_difference,
+            statistic,
+            effect_size,
+            p_uncorrected,
+            statistic_name,
+            effect_size_name,
+        ) = _within_statistics(differences, test_key)
+        permutation_plan, exact = _permutation_plan(
+            n_a, n_permutations, int(random_seed)
+        )
+        permutation_description = "paired sign-flip"
+    else:
+        (
+            mean_difference,
+            statistic,
+            effect_size,
+            p_uncorrected,
+            statistic_name,
+            effect_size_name,
+        ) = _between_statistics(selected_a, selected_b, test_key)
+        permutation_plan, exact = _between_permutation_plan(
+            n_a, n_b, n_permutations, int(random_seed)
+        )
+        permutation_description = "independent label"
+
     print(
         "\nFREQNESS Spatial Comparison: comparing "
         f"{condition_labels[0]} and {condition_labels[1]} at "
         f"{resolved.size} frequencies and {selected_components.size} components "
-        f"across {patterns_a.shape[3]} paired participants."
+        f"using a {design_key}-subject {test_key} analysis "
+        f"(n={n_a}, n={n_b})."
     )
     print(
-        f"Computing {signs.shape[0]} "
-        f"{'exact' if exact else 'Monte Carlo'} paired sign-flip permutations..."
+        f"Computing {permutation_plan.shape[0]} "
+        f"{'exact' if exact else 'Monte Carlo'} "
+        f"{permutation_description} permutations..."
     )
-    null_maxima = np.zeros(signs.shape[0])
-    progress_step = max(1, signs.shape[0] // 10)
-    for permutation, permutation_signs in enumerate(signs):
-        _, _, permuted_t = _paired_moments(
-            differences * permutation_signs.reshape(1, 1, 1, -1)
-        )
+    null_maxima = np.zeros(permutation_plan.shape[0])
+    progress_step = max(1, permutation_plan.shape[0] // 10)
+    if design_key == "between":
+        pooled_maps = np.concatenate((selected_a, selected_b), axis=-1)
+    for permutation, assignment in enumerate(permutation_plan):
+        if design_key == "within":
+            _, permuted_statistic, _, permuted_p, _, _ = _within_statistics(
+                differences * assignment.reshape(1, 1, 1, -1),
+                test_key,
+            )
+        else:
+            _, permuted_statistic, _, permuted_p, _, _ = _between_statistics(
+                pooled_maps[..., assignment],
+                pooled_maps[..., ~assignment],
+                test_key,
+            )
         null_maxima[permutation] = _maximum_cluster_mass(
-            permuted_t, threshold, adjacency
+            permuted_statistic,
+            permuted_p,
+            cluster_forming_alpha,
+            adjacency,
         )
-        if (permutation + 1) % progress_step == 0 or permutation + 1 == signs.shape[0]:
-            print(f"  Permutation {permutation + 1}/{signs.shape[0]}")
+        if (
+            (permutation + 1) % progress_step == 0
+            or permutation + 1 == permutation_plan.shape[0]
+        ):
+            print(f"  Permutation {permutation + 1}/{permutation_plan.shape[0]}")
 
-    corrected = np.ones_like(t_values)
-    significant = np.zeros_like(t_values, dtype=bool)
-    labels = np.zeros_like(t_values, dtype=np.int64)
+    corrected = np.ones_like(statistic)
+    significant = np.zeros_like(statistic, dtype=bool)
+    labels = np.zeros_like(statistic, dtype=np.int64)
     cluster_records: list[FREQNESSSpatialCluster] = []
     for freqi, frequency in enumerate(resolved):
         for compi, component in enumerate(selected_components):
-            spatial_map = t_values[:, freqi, compi]
+            spatial_map = statistic[:, freqi, compi]
+            spatial_p = p_uncorrected[:, freqi, compi]
+            supra_threshold = spatial_p <= cluster_forming_alpha
             positive_label = 0
             negative_label = 0
             for polarity, mask in (
-                (1, spatial_map >= threshold),
-                (-1, spatial_map <= -threshold),
+                (1, supra_threshold & (spatial_map > 0)),
+                (-1, supra_threshold & (spatial_map < 0)),
             ):
                 for members in _clusters(mask, adjacency):
                     mass = float(np.sum(np.abs(spatial_map[members])))
                     if exact:
                         p_corrected = float(np.mean(null_maxima >= mass))
                     else:
-                        p_corrected = float((1 + np.count_nonzero(null_maxima >= mass)) / (signs.shape[0] + 1))
+                        p_corrected = float(
+                            (1 + np.count_nonzero(null_maxima >= mass))
+                            / (permutation_plan.shape[0] + 1)
+                        )
                     corrected[members, freqi, compi] = p_corrected
                     significant[members, freqi, compi] = p_corrected <= alpha
                     if polarity > 0:
@@ -563,6 +867,7 @@ def FREQNESS_SpatialComparison(
                             mass=mass,
                             p_corrected=p_corrected,
                             peak_t=float(spatial_map[peak_voxel]),
+                            peak_statistic=float(spatial_map[peak_voxel]),
                             peak_voxel=peak_voxel,
                             peak_mni=coordinates[peak_voxel].copy(),
                         )
@@ -574,11 +879,26 @@ def FREQNESS_SpatialComparison(
         idx_frex=frequency_indices,
         comps=selected_components,
         condition_labels=(condition_labels[0], condition_labels[1]),
-        design="paired",
-        n_participants=patterns_a.shape[3],
+        design=design_key,
+        test=test_key,
+        n_participants=n_a if design_key == "within" else (n_a, n_b),
+        n_A=n_a,
+        n_B=n_b,
         mean_difference=mean_difference,
-        t_values=t_values,
-        effect_size_dz=effect_size,
+        statistic=statistic,
+        statistic_name=statistic_name,
+        t_values=(
+            statistic.copy()
+            if test_key == "ttest"
+            else np.full_like(statistic, np.nan)
+        ),
+        effect_size=effect_size,
+        effect_size_name=effect_size_name,
+        effect_size_dz=(
+            effect_size.copy()
+            if design_key == "within" and test_key == "ttest"
+            else np.full_like(effect_size, np.nan)
+        ),
         p_uncorrected=p_uncorrected,
         p_cluster_corrected=corrected,
         significant_mask=significant,
@@ -591,7 +911,7 @@ def FREQNESS_SpatialComparison(
         connectivity=connectivity,
         grid_spacing=grid_spacing,
         correction_scope=correction_scope,
-        n_permutations=signs.shape[0],
+        n_permutations=permutation_plan.shape[0],
         exact_permutations=exact,
         random_seed=int(random_seed),
         sign_flips_a=flips_a,

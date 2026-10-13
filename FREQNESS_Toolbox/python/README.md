@@ -15,6 +15,7 @@ from freqness import (
     FREQNESS_ExponentialDK,
     FREQNESS_FreqGradients,
     FREQNESS_InducedResponses,
+    FREQNESS_LandscapeComparison,
     FREQNESS_MainPipeline,
     FREQNESS_NetworkEstimation,
     FREQNESS_NetworkRemoval,
@@ -52,7 +53,7 @@ visualization = FREQNESS_Visualizer(
     plot_all=False,
 )
 
-H2, ED = FREQNESS_EntropyLandscape(FREQ)
+ENTR = FREQNESS_EntropyLandscape(FREQ)
 decayCoeff, goodFit = FREQNESS_ExponentialDK(
     FREQ,
     which_comp=1,
@@ -94,6 +95,14 @@ STATS = FREQNESS_SpatialComparison(
     frex2compare=[8, 12],
     comps2compare=[1, 2],
 )
+LANDSCAPE_STATS = FREQNESS_LandscapeComparison(
+    FREQ_condition_1,
+    FREQ_condition_2,
+    measure="evals",
+    design="within",
+    test="ttest",
+    which_comp=[1, 2],
+)
 STAB = FREQNESS_StabilityIndex(
     FREQ,
     frex2model=[2, 30],
@@ -127,13 +136,13 @@ frequencies as x-axis ticks, while short grids retain every requested tick.
 This affects figure readability only and does not alter the analyzed frequency
 vector or numerical output.
 
-`FREQNESS_EntropyLandscape` computes and returns both quadratic Rényi entropy
-(`H2`) and effective dimensionality (`ED`) to preserve MATLAB numerical
-compatibility. `FREQ.evals` always contains the complete normalized
+`FREQNESS_EntropyLandscape` returns one `ENTR` result containing quadratic
+Rényi entropy (`ENTR.H2`), effective dimensionality (`ENTR.ED`), and the
+frequency axis (`ENTR.frex`). `FREQ.evals` always contains the complete normalized
 eigenspectrum, independently of the number of eigenvectors, patterns, and time
 series retained through `ncomps`. Entropy therefore uses every eigenvalue while
 component-dependent outputs remain memory-limited. Its figures intentionally
-show only `H2`.
+show only `ENTR.H2`.
 
 `FREQNESS_ExponentialDK` fits `A * exp(-lambda * frequency)` to one component
 using MATLAB-compatible one-based component numbering. It returns one decay
@@ -174,15 +183,32 @@ component indices for MATLAB compatibility. The legacy thresholds are exposed
 as `threshold_sd` (defaults: 1 for frequency gradients and 2 for component
 gradients), and retained-voxel counts are included in the fit diagnostics.
 
-`FREQNESS_SpatialComparison` quantitatively compares paired spatial patterns
-between two conditions. Requested frequencies are resolved against the shared
+`FREQNESS_SpatialComparison` quantitatively compares spatial patterns between
+two conditions or groups. Set `design="within"` for repeated observations or
+`design="between"` for independent groups, including groups with unequal
+sample sizes. Requested frequencies are resolved against the shared
 `FREQ.frex` grid, while component numbers remain one-based. The default
 magnitude and within-participant L2 normalization make the comparison robust
-to arbitrary GED sign and scale. Voxel-wise paired statistics are corrected
-with a two-sided MNI-adjacency cluster-mass sign-flip test. Each permutation
-uses the maximum cluster mass across every frequency and component requested
-in the call, providing family-wise error control over the complete comparison.
-Use `frex2compare="all"` to analyze the full frequency grid.
+to arbitrary GED sign and scale. Within-subject analyses use paired sign-flip
+permutations; between-group analyses use label permutations. Each permutation
+uses the maximum MNI-adjacency cluster mass across every frequency and
+component requested in the call, providing family-wise error control over the
+complete comparison. Use `frex2compare="all"` to analyze the full frequency
+grid.
+
+`FREQNESS_LandscapeComparison` tests participant-level frequency landscapes
+between conditions or groups. Set `design="within"` for repeated observations
+or `design="between"` for independent groups. Within-subject analyses support
+paired `ttest` and `signrank`; between-subject analyses support Welch `ttest`
+and `ranksum`. Component numbers are one-based and default to component 1.
+If `ranksum` is requested for a within-subject design, or `signrank` for a
+between-subject design, the function warns and substitutes the compatible
+non-parametric test. `FREQNESS_SpatialComparison` applies the same safeguard.
+Benjamini-Hochberg FDR correction is applied across tested frequencies,
+separately for each measure and component, by default. Omitting `measure`
+analyzes every recognized landscape shared by both inputs and preserves each
+source field name in the result, such as `STATS.evals`, `STATS.H2`, or
+`STATS.stability_index`.
 
 `FREQNESS_StabilityIndex` quantifies the temporal stability of selected
 network oscillations. Each broadband component time series is filtered at its
@@ -200,7 +226,7 @@ use the complete time series. Multi-frequency analyses warn that raw-Hz indices
 are most directly compared within frequency, and windows touching the complete
 recording boundaries warn about possible FFT and analytic-signal edge effects.
 
-`FREQNESS_MainPipeline` follows the same three blocks as MATLAB:
+`FREQNESS_MainPipeline` follows the same four blocks as MATLAB:
 
 1. **Block 0 — Startup and settings:** inspect participant files and load MNI
    coordinates, without importing participant data.
@@ -209,6 +235,9 @@ recording boundaries warn about possible FFT and analytic-signal edge effects.
 3. **Block 2 — Optional group analyses:** combine the saved participant results
    and run the established secondary analyses. This block retains group arrays
    in memory and is disabled by default.
+4. **Block 3 — Selective comparisons:** match participant identifiers and
+   assemble only the requested landscape, frequency axis, and participant
+   dimension. Complete group `ts` and `evecs` arrays are never created.
 
 Edit `RUN_CORE`, `RUN_GROUP_ANALYSES`, `PATH_RESULTS`, `OVERWRITE_CORE` and the
 analysis settings in `FREQNESS_MainPipeline.py`. Their configuration-API
@@ -250,6 +279,15 @@ and `run_group_analyses=True` with the settings used to create the files.
 Group NIfTI exports are separated under `FREQNESS_Results/GROUP/<condition>`.
 Network removal loads the original data for the current condition only when
 that analysis is selected, and preserves its existing cleaned-data outputs.
+
+Set `run_spatial_comparison=True` or `run_landscape_comparison=True` to enable
+Block 3. Spatial-pattern and eigenvalue tests selectively read `pats` or
+`evals` from each NPZ CORE file, slice requested frequencies/components first,
+and then add participants along the last dimension. `H2`, `ED`,
+`amplitude_raw`, and `amplitude_normalized` comparisons use the corresponding
+compact EntropyLandscape or CrossCoupling output from Block 2. Paired samples
+are matched and reordered by participant identifier; independent groups may
+have different participant counts.
 
 The original `FREQNESS_Startup(path)` three-output call still eagerly loads all
 datasets. Use

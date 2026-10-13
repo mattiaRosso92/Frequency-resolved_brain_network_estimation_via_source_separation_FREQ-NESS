@@ -18,14 +18,21 @@ leonardo.bonetti@clin.au.dk; leonardo.bonetti@psych.ox.ac.uk
 """
 
 from .FREQNESS_BackProjection import FREQNESS_BackProjection
-from .FREQNESS_CoreIO import FREQNESS_LoadCore, FREQNESS_SaveCore
+from .FREQNESS_CoreIO import (
+    FREQNESS_LoadCore,
+    FREQNESS_LoadCoreFields,
+    FREQNESS_SaveCore,
+)
 from .FREQNESS_CrossCoupling import (
     FREQNESS_CrossCoupling,
     FREQNESSCrossCouplingResult,
 )
 from .FREQNESS_CompGradients import FREQNESS_CompGradients
 from .FREQNESS_ComputeFilterWidths import FREQNESS_ComputeFilterWidths
-from .FREQNESS_EntropyLandscape import FREQNESS_EntropyLandscape
+from .FREQNESS_EntropyLandscape import (
+    FREQNESS_EntropyLandscape,
+    FREQNESSEntropyLandscapeResult,
+)
 from .FREQNESS_ExponentialDK import (
     FREQNESS_ExponentialDK,
     FREQNESSExponentialGoodFit,
@@ -37,6 +44,11 @@ from .FREQNESS_FreqGradients import (
 from .FREQNESS_InducedResponses import (
     FREQNESS_InducedResponses,
     FREQNESSInducedResponsesResult,
+)
+from .FREQNESS_LandscapeComparison import (
+    FREQNESS_LandscapeComparison,
+    FREQNESSLandscapeComparisonResult,
+    FREQNESSLandscapeMeasureResult,
 )
 from .FREQNESS_MainPipeline import (
     ALL_ANALYSES,
@@ -50,8 +62,10 @@ from .FREQNESS_MainPipeline import (
     FREQNESSPipelineConfig,
     FREQNESSPipelineResult,
     FREQ_GRADIENTS,
+    LANDSCAPE_COMPARISON,
     NETWORK_ESTIMATION,
     NETWORK_REMOVAL,
+    SPATIAL_COMPARISON,
     VISUALIZER,
 )
 from .FREQNESS_NetworkEstimation import (
@@ -80,6 +94,7 @@ entropy_landscape = FREQNESS_EntropyLandscape
 exponential_decay = FREQNESS_ExponentialDK
 frequency_gradients = FREQNESS_FreqGradients
 induced_responses = FREQNESS_InducedResponses
+landscape_comparison = FREQNESS_LandscapeComparison
 main_pipeline = FREQNESS_MainPipeline
 remove_network = FREQNESS_NetworkRemoval
 startup = FREQNESS_Startup
@@ -94,13 +109,18 @@ __all__ = [
     "FREQNESS_CompGradients",
     "FREQNESS_ComputeFilterWidths",
     "FREQNESS_EntropyLandscape",
+    "FREQNESSEntropyLandscapeResult",
     "FREQNESS_ExponentialDK",
     "FREQNESSExponentialGoodFit",
     "FREQNESS_FreqGradients",
     "FREQNESSGradientGoodFit",
     "FREQNESS_InducedResponses",
     "FREQNESSInducedResponsesResult",
+    "FREQNESS_LandscapeComparison",
+    "FREQNESSLandscapeComparisonResult",
+    "FREQNESSLandscapeMeasureResult",
     "FREQNESS_LoadCore",
+    "FREQNESS_LoadCoreFields",
     "FREQNESS_SaveCore",
     "FREQNESS_MainPipeline",
     "FREQNESSPipelineConditionResult",
@@ -126,6 +146,7 @@ __all__ = [
     "frequency_gradients",
     "filterFGx",
     "induced_responses",
+    "landscape_comparison",
     "main_pipeline",
     "remove_network",
     "startup",
@@ -139,8 +160,10 @@ __all__ = [
     "ENTROPY_LANDSCAPE",
     "EXPONENTIAL_DK",
     "FREQ_GRADIENTS",
+    "LANDSCAPE_COMPARISON",
     "NETWORK_ESTIMATION",
     "NETWORK_REMOVAL",
+    "SPATIAL_COMPARISON",
     "VISUALIZER",
 ]
 

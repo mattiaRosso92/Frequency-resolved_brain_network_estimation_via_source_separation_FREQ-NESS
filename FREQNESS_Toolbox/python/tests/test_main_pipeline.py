@@ -1,5 +1,6 @@
 from importlib import import_module
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -8,12 +9,15 @@ from scipy.io import savemat
 from freqness import (
     BACK_PROJECTION,
     ENTROPY_LANDSCAPE,
+    FREQNESSEntropyLandscapeResult,
     FREQNESS_MainPipeline,
     FREQNESS_LoadCore,
     FREQNESSPipelineConfig,
     FREQNESSResult,
+    LANDSCAPE_COMPARISON,
     NETWORK_ESTIMATION,
     NETWORK_REMOVAL,
+    SPATIAL_COMPARISON,
 )
 
 
@@ -61,6 +65,8 @@ def test_pipeline_defaults_mirror_matlab_settings():
     assert config.network_options["ncomps"] == 5
     assert config.run_core is True
     assert config.run_group_analyses is False
+    assert config.run_spatial_comparison is False
+    assert config.run_landscape_comparison is False
     assert config.overwrite_core is False
     assert config.landscape_ncomps == 10
     np.testing.assert_array_equal(config.pattern_frex, [2.4, 8.4])
@@ -130,7 +136,12 @@ def test_secondary_section_uses_saved_core_prerequisite(
 
     def fake_entropy(FREQ, **kwargs):
         seen_shapes.append(FREQ.evals.shape)
-        return np.array([[0.5]]), np.array([[2.0]])
+        return FREQNESSEntropyLandscapeResult(
+            H2=np.array([[0.5]]),
+            ED=np.array([[2.0]]),
+            frex=np.array([8.0]),
+            figures=[],
+        )
 
     monkeypatch.setattr(
         pipeline_module, "FREQNESS_NetworkEstimation", fake_estimation
@@ -152,10 +163,13 @@ def test_secondary_section_uses_saved_core_prerequisite(
     for condition in result.conditions:
         assert set(condition.outputs) == {ENTROPY_LANDSCAPE}
         np.testing.assert_array_equal(
-            condition.outputs[ENTROPY_LANDSCAPE]["H2"], [[0.5]]
+            condition.outputs[ENTROPY_LANDSCAPE].H2, [[0.5]]
         )
         np.testing.assert_array_equal(
-            condition.outputs[ENTROPY_LANDSCAPE]["ED"], [[2.0]]
+            condition.outputs[ENTROPY_LANDSCAPE].ED, [[2.0]]
+        )
+        np.testing.assert_array_equal(
+            condition.outputs[ENTROPY_LANDSCAPE].frex, [8.0]
         )
 
 
@@ -285,6 +299,166 @@ def test_pipeline_rejects_invalid_section_selection(analyses):
         FREQNESS_MainPipeline(FREQNESSPipelineConfig(analyses=analyses))
 
 
+def test_selective_comparison_block_builds_thin_matched_structures(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    root = tmp_path
+    mni_root = root / "FREQNESS_MNI_Coordinates"
+    mni_root.mkdir(parents=True)
+    savemat(mni_root / "MNI.mat", {"MNI": np.column_stack([np.arange(3.0)] * 3)})
+    for condition, scales in (
+        ("Condition_A", {"participant_1": 1.0, "participant_2": 2.0}),
+        ("Condition_B", {"participant_1": 10.0, "participant_2": 20.0}),
+    ):
+        folder = root / "FREQNESS_Data" / condition
+        folder.mkdir(parents=True)
+        for participant, scale in scales.items():
+            savemat(folder / f"{participant}.mat", {"data": np.full((3, 20), scale)})
+
+    monkeypatch.setattr(
+        pipeline_module,
+        "FREQNESS_NetworkEstimation",
+        lambda data, *args, **kwargs: _freq_result(float(data[0, 0, 0])),
+    )
+    common = dict(
+        toolbox_root=root,
+        frex=np.array([2.0, 4.0]),
+        analyses=(NETWORK_ESTIMATION,),
+        show=False,
+    )
+    FREQNESS_MainPipeline(FREQNESSPipelineConfig(**common))
+
+    original_records = pipeline_module._comparison_records
+
+    def reversed_second_condition(folder, *args):
+        records = original_records(folder, *args)
+        return list(reversed(records)) if folder["name"] == "Condition_B" else records
+
+    monkeypatch.setattr(
+        pipeline_module,
+        "_comparison_records",
+        reversed_second_condition,
+    )
+    monkeypatch.setattr(
+        pipeline_module,
+        "FREQNESS_LoadCore",
+        lambda *args, **kwargs: pytest.fail("Block 3 must not load a complete FREQ"),
+    )
+    captured: dict[str, tuple[np.ndarray, np.ndarray]] = {}
+
+    def fake_spatial(freq_A, freq_B, _mni, **kwargs):
+        captured["pats"] = (freq_A.pats.copy(), freq_B.pats.copy())
+        assert not hasattr(freq_A, "ts")
+        assert kwargs["condition_labels"] == ("Condition_A", "Condition_B")
+        return SimpleNamespace(comps=np.array([1]), clusters=[])
+
+    def fake_landscape(freq_A, freq_B, **kwargs):
+        captured["evals"] = (freq_A.evals.copy(), freq_B.evals.copy())
+        assert not hasattr(freq_A, "ts")
+        assert kwargs["sample_labels"] == ("Condition_A", "Condition_B")
+        measure = SimpleNamespace(comps=np.array([1]))
+        return SimpleNamespace(evals=measure, results={"evals": measure})
+
+    monkeypatch.setattr(pipeline_module, "FREQNESS_SpatialComparison", fake_spatial)
+    monkeypatch.setattr(
+        pipeline_module,
+        "FREQNESS_LandscapeComparison",
+        fake_landscape,
+    )
+    result = FREQNESS_MainPipeline(
+        FREQNESSPipelineConfig(
+            **common,
+            run_core=False,
+            run_spatial_comparison=True,
+            run_landscape_comparison=True,
+            comparison_conditions=("Condition_A", "Condition_B"),
+            spatialcomparison_frex=np.array([4.0]),
+            spatialcomparison_comps=np.array([2]),
+            landscapecomparison_frex=np.array([4.0]),
+            landscapecomparison_comps=np.array([2]),
+            comparison_plot_results=False,
+        )
+    )
+
+    assert set(result.comparisons) == {SPATIAL_COMPARISON, LANDSCAPE_COMPARISON}
+    pats_A, pats_B = captured["pats"]
+    evals_A, evals_B = captured["evals"]
+    assert pats_A.shape == (3, 1, 1, 2)
+    assert evals_A.shape == (1, 1, 2)
+    np.testing.assert_array_equal(pats_A[0, 0, 0], [1.0, 2.0])
+    np.testing.assert_array_equal(pats_B[0, 0, 0], [10.0, 20.0])
+    np.testing.assert_array_equal(evals_A[0, 0], [1.0, 2.0])
+    np.testing.assert_array_equal(evals_B[0, 0], [10.0, 20.0])
+
+
+def test_selective_comparison_block_uses_thin_secondary_landscape(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    root = tmp_path
+    (root / "FREQNESS_MNI_Coordinates").mkdir(parents=True)
+    for condition, offset in (("Condition_A", 0.0), ("Condition_B", 10.0)):
+        folder = root / "FREQNESS_Data" / condition
+        folder.mkdir(parents=True)
+        for participant, scale in (("participant_1", 1.0), ("participant_2", 2.0)):
+            savemat(
+                folder / f"{participant}.mat",
+                {"data": np.full((3, 20), scale + offset)},
+            )
+
+    monkeypatch.setattr(
+        pipeline_module,
+        "FREQNESS_NetworkEstimation",
+        lambda data, *args, **kwargs: _freq_result(float(data[0, 0, 0])),
+    )
+
+    def fake_entropy(FREQ, **kwargs):
+        scales = np.asarray(FREQ.evals[0, 0, :], dtype=float)
+        return FREQNESSEntropyLandscapeResult(
+            H2=np.vstack((scales, scales + 0.5)),
+            ED=np.vstack((scales + 1.0, scales + 1.5)),
+            frex=np.array([2.0, 4.0]),
+            figures=[],
+        )
+
+    captured: dict[str, tuple[np.ndarray, np.ndarray]] = {}
+
+    def fake_landscape(entr_A, entr_B, **kwargs):
+        assert not hasattr(entr_A, "ts")
+        assert set(vars(entr_A)) == {"H2", "frex"}
+        captured["H2"] = (entr_A.H2.copy(), entr_B.H2.copy())
+        measure = SimpleNamespace(comps=np.array([1]))
+        return SimpleNamespace(H2=measure, results={"H2": measure})
+
+    monkeypatch.setattr(pipeline_module, "FREQNESS_EntropyLandscape", fake_entropy)
+    monkeypatch.setattr(
+        pipeline_module,
+        "FREQNESS_LandscapeComparison",
+        fake_landscape,
+    )
+    result = FREQNESS_MainPipeline(
+        FREQNESSPipelineConfig(
+            toolbox_root=root,
+            frex=np.array([2.0, 4.0]),
+            analyses=(ENTROPY_LANDSCAPE,),
+            run_group_analyses=True,
+            run_landscape_comparison=True,
+            comparison_conditions=("Condition_A", "Condition_B"),
+            landscapecomparison_measure="H2",
+            landscapecomparison_frex=np.array([4.0]),
+            comparison_plot_results=False,
+            show=False,
+        )
+    )
+
+    assert LANDSCAPE_COMPARISON in result.comparisons
+    H2_A, H2_B = captured["H2"]
+    assert H2_A.shape == (1, 2)
+    np.testing.assert_array_equal(H2_A[0], [1.5, 2.5])
+    np.testing.assert_array_equal(H2_B[0], [11.5, 12.5])
+
+
 def test_executable_pipeline_is_complete_and_user_focused():
     script = Path(__file__).resolve().parents[1] / "FREQNESS_MainPipeline.py"
     source = script.read_text()
@@ -293,5 +467,5 @@ def test_executable_pipeline_is_complete_and_user_focused():
     assert "# 7) FREQNESS_CrossCoupling" in source
     assert "# 8) FREQNESS_BackProjection" in source
     assert "# 9) FREQNESS_NetworkRemoval" in source
-    assert "comparison" not in source.lower()
+    assert "# 10) SELECTIVE CONDITION/GROUP COMPARISONS" in source
     assert "checkpoint" not in source.lower()

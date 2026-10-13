@@ -221,18 +221,18 @@ Landscape.ncomps = ncomps;
 FREQNESS_Visualizer(FREQ,Landscape,[],'save_nifti',false);
 
 % Compute effective dimensionality from the complete eigenspectrum
-[~,ED] = FREQNESS_EntropyLandscape(FREQ);
+ENTR = FREQNESS_EntropyLandscape(FREQ);
 
 % Replace the default H2 visualization with the ED landscape
 close(gcf)
 figure(3), clf
-plot(FREQ.frex,ED(:,1),'Color',[.2 .1 .6],'LineWidth',2)
+plot(FREQ.frex,ENTR.ED(:,1),'Color',[.2 .1 .6],'LineWidth',2)
 hold on
 yline(nactivations,'r--',['Hypothesized N = ' num2str(nactivations)])
 xline(targetfrex,'k--','Target frequency')
 xlabel('Frequency (Hz)')
 ylabel('Effective dimensionality')
-ylim([0 1.1*max([ED(:);nactivations])])
+ylim([0 1.1*max([ENTR.ED(:);nactivations])])
 title('Effective-dimensionality landscape')
 grid on
 grid minor
@@ -378,12 +378,12 @@ for conditioni = 1:nconditions
                                                'filter','linear', ...
                                                'regularisation',regularisation, ...
                                                'ncomps',ncomps);
-        [~,this_ED] = FREQNESS_EntropyLandscape(this_FREQ);
+        this_ENTR = FREQNESS_EntropyLandscape(this_FREQ);
         close(gcf)
 
         % Store target-frequency ED and physical source distances
         this_distance = 1000*dipdistance(this_mydips); % mm from reference
-        paramED(nawayi,conditioni) = this_ED(targetfrexi,1);
+        paramED(nawayi,conditioni) = this_ENTR.ED(targetfrexi,1);
         paramdistance(nawayi) = mean(this_distance(2:end));
         parammaxdistance(nawayi) = max(this_distance);
         parammydips(:,nawayi) = this_mydips;
