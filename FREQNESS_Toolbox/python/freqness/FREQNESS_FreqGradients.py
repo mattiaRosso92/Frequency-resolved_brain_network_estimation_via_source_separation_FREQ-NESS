@@ -12,6 +12,8 @@ Toolbox authors
 Mattia Rosso - Center for Music in the Brain, Aarhus University -
 mattia.rosso@clin.au.dk
 Chiara Malvaso - University of Bologna - chiara.malvaso2@unibo.it
+Nikita Kudriavtsev - Center for Music in the Brain, Aarhus University
+Kenneth Shinozuka - Stanford University
 Leonardo Bonetti - Center for Music in the Brain, Aarhus University; Centre
 for Eudaimonia and Human Flourishing, Linacre College, University of Oxford -
 leonardo.bonetti@clin.au.dk; leonardo.bonetti@psych.ox.ac.uk

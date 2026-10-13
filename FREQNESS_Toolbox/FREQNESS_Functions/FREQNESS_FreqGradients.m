@@ -85,10 +85,11 @@ function [gradCoeff, goodFit] = FREQNESS_FreqGradients(FREQ, MNI, varargin)
 %
 % ------------------------------------------------------------------------
 %  AUTHORS:
-%  Mattia Rosso, Nikita Kudryavtsev, Leonardo Bonetti
+%  Mattia Rosso, Nikita Kudriavtsev, Kenneth Shinozuka, Leonardo Bonetti
 %  mattia.rosso@clin.au.dk
 %  leonardo.bonetti@clin.au.dk; leonardo.bonetti@psych.ox.ac.uk
 %  Center for Music in the Brain, Aarhus University
+%  Stanford University
 %  Centre for Eudaimonia and Human Flourishing, Linacre College, University of Oxford
 %  Aarhus (DK), Oxford (UK), 16/11/2025
 %
