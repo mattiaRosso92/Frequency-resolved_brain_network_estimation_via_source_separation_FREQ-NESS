@@ -52,6 +52,17 @@ def test_startup_rejects_multiple_variables(tmp_path: Path) -> None:
         FREQNESS_Startup(tmp_path)
 
 
+def test_startup_explains_group_source_space_mismatch(tmp_path: Path) -> None:
+    group = tmp_path / "FREQNESS_Data" / "Group_A"
+    group.mkdir(parents=True)
+    (tmp_path / "FREQNESS_MNI_Coordinates").mkdir()
+    savemat(group / "participant_01.mat", {"data": np.ones((3, 20))})
+    savemat(group / "participant_02.mat", {"data": np.ones((4, 20))})
+
+    with pytest.raises(ValueError, match="standardized source space"):
+        FREQNESS_Startup(tmp_path, load_data=False)
+
+
 def test_startup_warns_when_data_root_has_no_dataset_folders(
     tmp_path: Path,
 ) -> None:

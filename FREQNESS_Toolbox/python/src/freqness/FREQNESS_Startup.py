@@ -116,7 +116,9 @@ def _load_groups(data_directory: Path) -> list[NumericArray | None]:
             elif participant.shape != reference_shape:
                 raise ValueError(
                     f"Size mismatch in file {participant_file.name} relative to "
-                    f"the first participant in {group_directory}."
+                    f"the first participant in {group_directory}. Group analyses "
+                    "require a common standardized source space with matching "
+                    "source count, ordering, and anatomical correspondence."
                 )
 
             participants.append(participant)
@@ -221,7 +223,9 @@ def _inspect_groups(data_directory: Path) -> list[dict]:
             if data_size is not None and shape != data_size:
                 raise ValueError(
                     f"Size mismatch in file {source_file.name} relative to "
-                    f"the first participant in {this_folder}."
+                    f"the first participant in {this_folder}. Group analyses "
+                    "require a common standardized source space with matching "
+                    "source count, ordering, and anatomical correspondence."
                 )
             data_size = shape
         folder_data.append({

@@ -50,6 +50,16 @@ perform paired voxel-wise comparisons with MNI-adjacency cluster correction.
 `FREQNESS_StabilityIndex` quantifies the temporal frequency stability of
 selected network time series without requiring behavioral data.
 
+For group analyses, every participant must use the same standardized source
+space: the source count, ordering, and anatomical correspondence must all
+match. Equal matrix dimensions alone cannot verify anatomical correspondence.
+Source-space transformation or morphing must therefore be completed upstream
+with the software used for source reconstruction. FREQ-NESS does not perform
+that transformation. Python warns when an input contains 8,000 or more sources,
+because its dense covariance matrices and generalized eigendecomposition can
+require substantial memory and computation time; ordinary lower-resolution
+inputs do not trigger this warning.
+
 ## MATLAB quick start
 
 1. Open `FREQNESS_MainPipeline.m` in MATLAB.
@@ -166,6 +176,11 @@ complete FREQ arrays and metadata in `.npz` archives; these are not MATLAB
 Both interfaces initialize the Python package themselves; users do not run
 `FREQNESS_Startup.py` separately. If `FREQNESS_Data` has no condition folders,
 the toolbox displays a warning and performs no analysis.
+
+Do not run `python/src/freqness/FREQNESS_MainPipeline.py` directly. That file is
+the internal package engine and uses package-relative imports. Always run the
+user-facing `python/FREQNESS_MainPipeline.py` script from the `python` folder as
+shown above.
 
 For individual functions, installation options, and Python examples, see the
 [Python README](python/README.md).

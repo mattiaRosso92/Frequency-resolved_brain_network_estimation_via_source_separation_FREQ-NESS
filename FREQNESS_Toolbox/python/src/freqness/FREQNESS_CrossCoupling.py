@@ -33,7 +33,7 @@ from .filterFGx import filterFGx
 FloatArray = NDArray[np.float64]
 
 
-@dataclass(slots=True)
+@dataclass(slots=True, repr=False)
 class FREQNESSCrossCouplingResult:
     """Outputs of :func:`FREQNESS_CrossCoupling`."""
 
@@ -60,6 +60,20 @@ class FREQNESSCrossCouplingResult:
     valid_bins: NDArray[np.int64]
     lfo_phase: FloatArray
     figures: list[Any]
+
+    def __repr__(self) -> str:
+        """Return a concise summary suitable for notebooks and terminals."""
+        participants = self.PAC_all.shape[1] if self.PAC_all.ndim >= 2 else 0
+        return (
+            f"{type(self).__name__}("
+            f"carrier_frequencies={self.carrier_frex.size}, "
+            f"participants={participants}, "
+            f"phase_bins={self.phase_centers.size}, "
+            f"lfo_freq={self.lfo_freq:g}, "
+            f"comp={self.comp}, "
+            f"PAC_all_shape={self.PAC_all.shape}, "
+            f"figures={len(self.figures)})"
+        )
 
 
 @dataclass(slots=True)

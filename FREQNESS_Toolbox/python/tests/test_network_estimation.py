@@ -1,3 +1,5 @@
+import warnings
+
 import numpy as np
 import pytest
 
@@ -69,6 +71,30 @@ def test_single_participant_keeps_subject_dimension() -> None:
     assert result.evals.shape == (3, 1, 1)
     assert result.evecs.shape == (3, 2, 1, 1)
     assert result.ts.shape == (2, 128, 1, 1)
+
+
+def test_large_source_space_warning_is_targeted() -> None:
+    ordinary = np.ones((3, 8))
+    with warnings.catch_warnings(record=True) as ordinary_warnings:
+        warnings.simplefilter("always")
+        with pytest.raises(ValueError, match="ncomps cannot exceed"):
+            FREQNESS_NetworkEstimation(
+                ordinary,
+                [2],
+                16,
+                ncomps=4,
+            )
+    assert not ordinary_warnings
+
+    large = np.ones((8_000, 2))
+    with pytest.warns(UserWarning, match="8,000 variables"):
+        with pytest.raises(ValueError, match="ncomps cannot exceed"):
+            FREQNESS_NetworkEstimation(
+                large,
+                [2],
+                16,
+                ncomps=8_001,
+            )
 
 
 def test_complete_eigenspectrum_is_independent_of_ncomps() -> None:

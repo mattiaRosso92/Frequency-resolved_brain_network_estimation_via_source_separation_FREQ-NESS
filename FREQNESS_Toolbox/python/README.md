@@ -122,6 +122,11 @@ normalized activation magnitude controls marker size. Pass
 `frequency_panels=True` for separate frequency-specific views, or
 `save_nifti=False` when only figures are required.
 
+Dense landscape frequency grids use a reduced set of actual analyzed
+frequencies as x-axis ticks, while short grids retain every requested tick.
+This affects figure readability only and does not alter the analyzed frequency
+vector or numerical output.
+
 `FREQNESS_EntropyLandscape` computes and returns both quadratic Rényi entropy
 (`H2`) and effective dimensionality (`ED`) to preserve MATLAB numerical
 compatibility. `FREQ.evals` always contains the complete normalized
@@ -254,6 +259,15 @@ MATLAB discovery workflow: a fourth output lists folder names, participant
 folder/file order and defers real/finite-value checks until participant loading.
 Both single-participant and multi-participant estimator calls remain supported.
 
+Group analyses require every participant to use the same standardized source
+space, including source count, ordering, and anatomical correspondence. Equal
+matrix dimensions alone do not establish anatomical correspondence. Perform
+any source morphing or grid standardization upstream in the source-reconstruction
+software; FREQ-NESS does not add an MNE dependency or transform source spaces.
+Inputs with 8,000 or more variables produce a targeted resource warning because
+dense covariance storage and generalized eigendecomposition become expensive.
+Ordinary lower-resolution inputs do not produce that warning.
+
 Long-running Python functions mirror the MATLAB console messages, including
 condition, participant, frequency, modelling, backprojection, removal, and
 NIfTI-export progress.
@@ -265,6 +279,10 @@ kernel before switching participants to release those interactive outputs.
 `FREQNESS_MainPipeline.py` remains the recommended interface for unattended processing of every dataset
 folder, while `src/freqness/FREQNESS_MainPipeline.py` provides the reusable
 package engine and configuration API.
+
+Do not execute `src/freqness/FREQNESS_MainPipeline.py` as a standalone script;
+its relative imports require package context. From the `python` directory, run
+the user-facing `FREQNESS_MainPipeline.py` shown below.
 
 From the `python` directory, run only the core section with:
 
