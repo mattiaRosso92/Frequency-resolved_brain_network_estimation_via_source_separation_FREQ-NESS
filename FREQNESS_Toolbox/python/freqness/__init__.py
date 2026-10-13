@@ -167,4 +167,4 @@ __all__ = [
     "VISUALIZER",
 ]
 
-__version__ = "2.1.0"
+__version__ = "3.0.0"
