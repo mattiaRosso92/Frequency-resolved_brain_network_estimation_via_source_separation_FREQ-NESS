@@ -1,5 +1,7 @@
 import json
 from pathlib import Path
+import subprocess
+import sys
 
 from freqness import ALL_ANALYSES
 
@@ -30,13 +32,31 @@ def test_notebook_is_clean_and_covers_every_pipeline_analysis() -> None:
 def test_batch_and_package_pipeline_files_are_retained() -> None:
     python_root = Path(__file__).resolve().parents[1]
     batch_pipeline = python_root / "FREQNESS_MainPipeline.py"
-    package_pipeline = (
-        python_root / "src" / "freqness" / "FREQNESS_MainPipeline.py"
-    )
+    package_pipeline = python_root / "freqness" / "FREQNESS_MainPipeline.py"
 
     assert batch_pipeline.is_file()
     assert package_pipeline.is_file()
     assert "run_configured_pipeline" in batch_pipeline.read_text(encoding="utf-8")
     assert "def FREQNESS_MainPipeline" in package_pipeline.read_text(
         encoding="utf-8"
+    )
+
+
+def test_internal_pipeline_direct_execution_has_actionable_guidance() -> None:
+    package_pipeline = (
+        Path(__file__).resolve().parents[1]
+        / "freqness"
+        / "FREQNESS_MainPipeline.py"
+    )
+
+    completed = subprocess.run(
+        [sys.executable, str(package_pipeline)],
+        capture_output=True,
+        check=False,
+        text=True,
+    )
+
+    assert completed.returncode != 0
+    assert "Do not run freqness/FREQNESS_MainPipeline.py directly" in (
+        completed.stdout + completed.stderr
     )

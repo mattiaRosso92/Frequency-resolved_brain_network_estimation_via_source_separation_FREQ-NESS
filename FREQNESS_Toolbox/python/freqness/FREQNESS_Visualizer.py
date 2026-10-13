@@ -32,6 +32,7 @@ if TYPE_CHECKING:
 
 
 FloatArray = NDArray[np.float64]
+_MAX_LANDSCAPE_TICKS = 10
 
 
 @dataclass(slots=True)
@@ -347,7 +348,20 @@ def _style_landscape_axis(
     else:
         axis.set_xlim(float(frequencies[0]), float(frequencies[-1]))
     axis.set_ylim(0, maximum * 1.1 if maximum > 0 else 1.0)
-    axis.set_xticks(frequencies)
+    if frequencies.size <= _MAX_LANDSCAPE_TICKS:
+        tick_frequencies = frequencies
+    else:
+        tick_indices = np.unique(
+            np.rint(
+                np.linspace(
+                    0,
+                    frequencies.size - 1,
+                    _MAX_LANDSCAPE_TICKS,
+                )
+            ).astype(np.int64)
+        )
+        tick_frequencies = frequencies[tick_indices]
+    axis.set_xticks(tick_frequencies)
     axis.set_xlabel("Frequency (Hz)", fontweight="bold")
     axis.set_ylabel("Explained variance (%)", fontweight="bold")
     axis.set_title(title, fontweight="bold")

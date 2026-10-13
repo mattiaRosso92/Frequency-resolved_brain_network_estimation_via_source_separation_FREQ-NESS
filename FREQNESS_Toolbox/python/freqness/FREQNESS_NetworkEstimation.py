@@ -31,6 +31,7 @@ from .filterFGx import filterFGx
 
 
 FloatArray = NDArray[np.float64]
+_LARGE_SOURCE_SPACE_THRESHOLD = 8_000
 
 
 @dataclass(slots=True)
@@ -172,6 +173,21 @@ def _prepare_scale_factors(data: FloatArray, rescale: bool) -> FloatArray:
     return factors
 
 
+def _warn_if_large_source_space(n_variables: int) -> None:
+    if n_variables < _LARGE_SOURCE_SPACE_THRESHOLD:
+        return
+    covariance_gib = n_variables**2 * np.dtype(float).itemsize / 1024**3
+    warnings.warn(
+        f"Input contains {n_variables:,} variables. Each dense covariance "
+        f"matrix requires approximately {covariance_gib:.2f} GiB, and "
+        "generalized eigendecomposition time and memory increase steeply with "
+        "source count. Consider an anatomically standardized lower-resolution "
+        "source grid before running FREQ-NESS.",
+        UserWarning,
+        stacklevel=3,
+    )
+
+
 def FREQNESS_NetworkEstimation(
     data: ArrayLike,
     frex: ArrayLike,
@@ -211,9 +227,9 @@ def FREQNESS_NetworkEstimation(
         raise ValueError("ncomps must be a positive integer")
     if not isinstance(rescale, (bool, np.bool_)):
         raise TypeError("rescale must be a boolean")
-
     subject_data = _as_subject_array(data)
     n_variables, n_time, n_subjects = subject_data.shape
+    _warn_if_large_source_space(n_variables)
     if ncomps > n_variables:
         raise ValueError("ncomps cannot exceed the number of input variables")
 

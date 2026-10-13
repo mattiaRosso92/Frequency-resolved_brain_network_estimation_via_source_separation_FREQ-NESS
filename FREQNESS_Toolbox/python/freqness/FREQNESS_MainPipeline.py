@@ -25,6 +25,13 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 import warnings
 
+if __name__ == "__main__" and not __package__:
+    raise SystemExit(
+        "Do not run freqness/FREQNESS_MainPipeline.py directly. "
+        "Open a terminal in the python folder and run: "
+        "python FREQNESS_MainPipeline.py"
+    )
+
 import numpy as np
 from numpy.typing import NDArray
 

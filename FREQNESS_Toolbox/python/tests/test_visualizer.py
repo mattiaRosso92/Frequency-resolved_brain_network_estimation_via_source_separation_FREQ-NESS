@@ -114,6 +114,28 @@ def test_visualizer_supports_landscape_only_without_mni_or_nifti():
     assert result.group_patterns is None
 
 
+def test_visualizer_reduces_ticks_for_dense_frequency_grids():
+    frequencies = np.arange(0.5, 100.0, 0.5)
+    landscape_only = SimpleNamespace(
+        frex=frequencies,
+        evals=np.ones((2, frequencies.size, 1)),
+    )
+
+    result = FREQNESS_Visualizer(
+        landscape_only,
+        {"frex": frequencies, "ncomps": 2},
+        None,
+        save_nifti=False,
+        show=False,
+    )
+
+    ticks = result.landscape_figures[0].axes[0].get_xticks()
+    assert ticks.size == 10
+    assert ticks[0] == frequencies[0]
+    assert ticks[-1] == frequencies[-1]
+    assert np.all(np.isin(ticks, frequencies))
+
+
 def test_visualizer_accepts_full_eigenspectrum_with_retained_patterns():
     FREQ, Landscape, Patterns = _example_inputs(nsubs=2)
     extra_eigenvalue = np.full((1, FREQ.frex.size, 2), 5.0)

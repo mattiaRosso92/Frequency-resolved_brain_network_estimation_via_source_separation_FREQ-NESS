@@ -117,6 +117,12 @@ def test_cross_coupling_uses_neural_lfo_and_returns_harmonic_outputs():
     assert result.goodFit is result.mse
     assert len(result.figures) == 1
 
+    summary = repr(result)
+    assert "carrier_frequencies=2" in summary
+    assert "participants=2" in summary
+    assert "PAC_all_shape=(2, 2, 37)" in summary
+    assert "array(" not in summary
+
 
 def test_nearest_lfo_warning_and_carrier_range_selection():
     with pytest.warns(UserWarning, match="using 2 Hz"):
