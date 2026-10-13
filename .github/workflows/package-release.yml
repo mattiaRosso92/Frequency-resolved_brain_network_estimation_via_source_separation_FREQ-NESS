@@ -28,6 +28,8 @@ jobs:
             --exclude '*.egg-info' \
             --exclude 'build' \
             --exclude 'dist' \
+            --exclude 'FREQNESS_Data/*.mat' \
+            --exclude 'FREQNESS_Data/*/*.mat' \
             --exclude 'python/.gitignore' \
             --exclude 'python/tests'
           cd release

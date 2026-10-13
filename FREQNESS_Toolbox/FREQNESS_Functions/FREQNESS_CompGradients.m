@@ -92,7 +92,6 @@ function [gradCoeff, goodFit] = FREQNESS_CompGradients(FREQ, MNI, varargin)
 %  mattia.rosso@clin.au.dk
 %  leonardo.bonetti@clin.au.dk; leonardo.bonetti@psych.ox.ac.uk
 %  Center for Music in the Brain, Aarhus University
-%  Stanford University
 %  Centre for Eudaimonia and Human Flourishing, Linacre College, University of Oxford
 %  Aarhus (DK), Oxford (UK), 17/11/2025
 %
