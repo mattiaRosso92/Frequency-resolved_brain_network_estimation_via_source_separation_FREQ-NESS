@@ -277,10 +277,10 @@ Code. The notebook inspects all filenames, then guides one selected participant
 through every analysis and keeps intermediate outputs visible. Restart its
 kernel before switching participants to release those interactive outputs.
 `FREQNESS_MainPipeline.py` remains the recommended interface for unattended processing of every dataset
-folder, while `src/freqness/FREQNESS_MainPipeline.py` provides the reusable
+folder, while `freqness/FREQNESS_MainPipeline.py` provides the reusable
 package engine and configuration API.
 
-Do not execute `src/freqness/FREQNESS_MainPipeline.py` as a standalone script;
+Do not execute `freqness/FREQNESS_MainPipeline.py` as a standalone script;
 its relative imports require package context. From the `python` directory, run
 the user-facing `FREQNESS_MainPipeline.py` shown below.
 

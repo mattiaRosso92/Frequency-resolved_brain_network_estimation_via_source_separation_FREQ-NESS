@@ -39,7 +39,10 @@ FREQNESS/
 │       └── participant_01.mat
 ├── FREQNESS_MainPipeline.m
 └── python/
-    └── FREQNESS_MainPipeline.py
+    ├── FREQNESS_MainPipeline.py
+    ├── FREQNESS_NotebookPipeline.ipynb
+    └── freqness/
+        └── FREQNESS Python package
 ```
 
 The bundled `FREQNESS_MNI_Coordinates` file corresponds to the 3559-voxel
@@ -177,7 +180,7 @@ Both interfaces initialize the Python package themselves; users do not run
 `FREQNESS_Startup.py` separately. If `FREQNESS_Data` has no condition folders,
 the toolbox displays a warning and performs no analysis.
 
-Do not run `python/src/freqness/FREQNESS_MainPipeline.py` directly. That file is
+Do not run `python/freqness/FREQNESS_MainPipeline.py` directly. That file is
 the internal package engine and uses package-relative imports. Always run the
 user-facing `python/FREQNESS_MainPipeline.py` script from the `python` folder as
 shown above.

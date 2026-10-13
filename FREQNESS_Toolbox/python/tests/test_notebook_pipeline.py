@@ -32,9 +32,7 @@ def test_notebook_is_clean_and_covers_every_pipeline_analysis() -> None:
 def test_batch_and_package_pipeline_files_are_retained() -> None:
     python_root = Path(__file__).resolve().parents[1]
     batch_pipeline = python_root / "FREQNESS_MainPipeline.py"
-    package_pipeline = (
-        python_root / "src" / "freqness" / "FREQNESS_MainPipeline.py"
-    )
+    package_pipeline = python_root / "freqness" / "FREQNESS_MainPipeline.py"
 
     assert batch_pipeline.is_file()
     assert package_pipeline.is_file()
@@ -47,7 +45,6 @@ def test_batch_and_package_pipeline_files_are_retained() -> None:
 def test_internal_pipeline_direct_execution_has_actionable_guidance() -> None:
     package_pipeline = (
         Path(__file__).resolve().parents[1]
-        / "src"
         / "freqness"
         / "FREQNESS_MainPipeline.py"
     )
@@ -60,6 +57,6 @@ def test_internal_pipeline_direct_execution_has_actionable_guidance() -> None:
     )
 
     assert completed.returncode != 0
-    assert "Do not run src/freqness/FREQNESS_MainPipeline.py directly" in (
+    assert "Do not run freqness/FREQNESS_MainPipeline.py directly" in (
         completed.stdout + completed.stderr
     )

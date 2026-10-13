@@ -35,11 +35,9 @@ test = [
 Repository = "https://github.com/mattiaRosso92/Frequency-resolved_brain_network_estimation_via_source_separation_FREQ-NESS"
 Publication = "https://doi.org/10.1002/advs.202413195"
 
-[tool.setuptools]
-package-dir = { "" = "src" }
-
 [tool.setuptools.packages.find]
-where = ["src"]
+where = ["."]
+include = ["freqness*"]
 
 [tool.pytest.ini_options]
 addopts = "-ra"
