@@ -18,6 +18,7 @@ from freqness import (
     NETWORK_ESTIMATION,
     NETWORK_REMOVAL,
     SPATIAL_COMPARISON,
+    STABILITY_INDEX,
 )
 
 
@@ -74,6 +75,14 @@ def test_pipeline_defaults_mirror_matlab_settings():
     np.testing.assert_array_equal(config.freqgrad_frex2model, [8, 12])
     np.testing.assert_array_equal(config.compgrad_comps2model, [1, 5])
     assert config.lfo_freq == 2
+    np.testing.assert_array_equal(config.stability_which_comp, [1])
+    assert config.stability_frex2model is None
+    assert config.stability_fwhm is None
+    assert config.stability_median_window == 0.4
+    assert config.stability_time_window is None
+    assert config.stability_keep_frequency_sliding is False
+    assert config.stability_plot_avg is True
+    assert STABILITY_INDEX in config.analyses
     assert config.backproj_freq2project == 8.4
     np.testing.assert_array_equal(config.backproj_comps2project, [1])
     assert config.netrem_freq2remove == 8.4
@@ -458,6 +467,54 @@ def test_selective_comparison_block_uses_thin_secondary_landscape(
     np.testing.assert_array_equal(H2_A[0], [1.5, 2.5])
     np.testing.assert_array_equal(H2_B[0], [11.5, 12.5])
 
+    def fake_stability(FREQ, **kwargs):
+        scales = np.asarray(FREQ.evals[0, 0, :], dtype=float)
+        return SimpleNamespace(
+            stability_index=np.stack((scales, scales + 0.25))[np.newaxis, ...],
+            mean_frequency=np.stack((scales + 2.0, scales + 2.25))[np.newaxis, ...],
+            frex=np.array([2.0, 4.0]),
+        )
+
+    def fake_stability_landscape(stab_A, stab_B, **kwargs):
+        assert not hasattr(stab_A, "ts")
+        assert set(vars(stab_A)) == {"stability_index", "frex"}
+        captured["stability_index"] = (
+            stab_A.stability_index.copy(),
+            stab_B.stability_index.copy(),
+        )
+        measure = SimpleNamespace(comps=np.array([1]))
+        return SimpleNamespace(
+            stability_index=measure,
+            results={"stability_index": measure},
+        )
+
+    monkeypatch.setattr(pipeline_module, "FREQNESS_StabilityIndex", fake_stability)
+    monkeypatch.setattr(
+        pipeline_module,
+        "FREQNESS_LandscapeComparison",
+        fake_stability_landscape,
+    )
+    result = FREQNESS_MainPipeline(
+        FREQNESSPipelineConfig(
+            toolbox_root=root,
+            frex=np.array([2.0, 4.0]),
+            analyses=(STABILITY_INDEX,),
+            run_group_analyses=True,
+            run_landscape_comparison=True,
+            comparison_conditions=("Condition_A", "Condition_B"),
+            landscapecomparison_measure="stability_index",
+            landscapecomparison_frex=np.array([4.0]),
+            comparison_plot_results=False,
+            show=False,
+        )
+    )
+
+    assert LANDSCAPE_COMPARISON in result.comparisons
+    stability_A, stability_B = captured["stability_index"]
+    assert stability_A.shape == (1, 1, 2)
+    np.testing.assert_array_equal(stability_A[0, 0], [1.25, 2.25])
+    np.testing.assert_array_equal(stability_B[0, 0], [11.25, 12.25])
+
 
 def test_executable_pipeline_is_complete_and_user_focused():
     script = Path(__file__).resolve().parents[1] / "FREQNESS_MainPipeline.py"
@@ -465,7 +522,8 @@ def test_executable_pipeline_is_complete_and_user_focused():
     assert "ANALYSES_TO_RUN = ALL_ANALYSES" in source
     assert "# 1) FREQNESS_NetworkEstimation" in source
     assert "# 7) FREQNESS_CrossCoupling" in source
-    assert "# 8) FREQNESS_BackProjection" in source
-    assert "# 9) FREQNESS_NetworkRemoval" in source
-    assert "# 10) SELECTIVE CONDITION/GROUP COMPARISONS" in source
+    assert "# 8) FREQNESS_StabilityIndex" in source
+    assert "# 9) FREQNESS_BackProjection" in source
+    assert "# 10) FREQNESS_NetworkRemoval" in source
+    assert "# 11) SELECTIVE CONDITION/GROUP COMPARISONS" in source
     assert "checkpoint" not in source.lower()

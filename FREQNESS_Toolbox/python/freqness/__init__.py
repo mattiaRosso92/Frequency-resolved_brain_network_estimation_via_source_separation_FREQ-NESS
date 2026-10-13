@@ -66,6 +66,7 @@ from .FREQNESS_MainPipeline import (
     NETWORK_ESTIMATION,
     NETWORK_REMOVAL,
     SPATIAL_COMPARISON,
+    STABILITY_INDEX,
     VISUALIZER,
 )
 from .FREQNESS_NetworkEstimation import (
@@ -164,6 +165,7 @@ __all__ = [
     "NETWORK_ESTIMATION",
     "NETWORK_REMOVAL",
     "SPATIAL_COMPARISON",
+    "STABILITY_INDEX",
     "VISUALIZER",
 ]
 

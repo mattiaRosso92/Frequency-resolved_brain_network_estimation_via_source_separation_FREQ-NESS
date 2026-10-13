@@ -11,10 +11,11 @@ from scipy.io import loadmat, savemat
 
 from freqness import (
     ALL_ANALYSES, BACK_PROJECTION, CROSS_COUPLING, ENTROPY_LANDSCAPE,
-    NETWORK_ESTIMATION, NETWORK_REMOVAL,
+    NETWORK_ESTIMATION, NETWORK_REMOVAL, STABILITY_INDEX,
     FREQNESS_BackProjection, FREQNESS_CrossCoupling, FREQNESS_EntropyLandscape,
     FREQNESS_LoadCore, FREQNESS_MainPipeline, FREQNESS_NetworkEstimation,
-    FREQNESS_SaveCore, FREQNESS_Startup, FREQNESSPipelineConfig,
+    FREQNESS_SaveCore, FREQNESS_StabilityIndex, FREQNESS_Startup,
+    FREQNESSPipelineConfig,
 )
 
 pipeline_module = import_module("freqness.FREQNESS_MainPipeline")
@@ -211,6 +212,22 @@ def test_group_results_match_batch_and_only_removal_loads_raw(study, monkeypatch
         _assert_same(removal["FREQ_clean"], cleaned)
         coupling = FREQNESS_CrossCoupling(expected, 4., show=False)
         np.testing.assert_allclose(outputs[CROSS_COUPLING].PAC_all, coupling.PAC_all, atol=1e-10)
+        stability = FREQNESS_StabilityIndex(
+            expected,
+            which_comp=[1],
+            plot_avg=True,
+            show=False,
+        )
+        np.testing.assert_allclose(
+            outputs[STABILITY_INDEX].stability_index,
+            stability.stability_index,
+            atol=1e-10,
+        )
+        np.testing.assert_allclose(
+            outputs[STABILITY_INDEX].mean_frequency,
+            stability.mean_frequency,
+            atol=1e-10,
+        )
     loaded.clear()
     FREQNESS_MainPipeline(replace(config, analyses=(ENTROPY_LANDSCAPE,)))
     assert loaded == []

@@ -233,8 +233,9 @@ recording boundaries warn about possible FFT and analytic-signal edge effects.
 2. **Block 1 — CORE export:** load one participant, estimate networks, save the
    complete FREQ result, and release both raw data and result before continuing.
 3. **Block 2 — Optional group analyses:** combine the saved participant results
-   and run the established secondary analyses. This block retains group arrays
-   in memory and is disabled by default.
+   and run the established secondary analyses, including
+   `FREQNESS_StabilityIndex` when selected in `ANALYSES_TO_RUN`. This block
+   retains group arrays in memory and is disabled by default.
 4. **Block 3 — Selective comparisons:** match participant identifiers and
    assemble only the requested landscape, frequency axis, and participant
    dimension. Complete group `ts` and `evecs` arrays are never created.
@@ -285,9 +286,10 @@ Block 3. Spatial-pattern and eigenvalue tests selectively read `pats` or
 `evals` from each NPZ CORE file, slice requested frequencies/components first,
 and then add participants along the last dimension. `H2`, `ED`,
 `amplitude_raw`, and `amplitude_normalized` comparisons use the corresponding
-compact EntropyLandscape or CrossCoupling output from Block 2. Paired samples
-are matched and reordered by participant identifier; independent groups may
-have different participant counts.
+compact EntropyLandscape or CrossCoupling output from Block 2.
+`stability_index` and `mean_frequency` comparisons use the compact Stability
+Index output. Paired samples are matched and reordered by participant
+identifier; independent groups may have different participant counts.
 
 The original `FREQNESS_Startup(path)` three-output call still eagerly loads all
 datasets. Use

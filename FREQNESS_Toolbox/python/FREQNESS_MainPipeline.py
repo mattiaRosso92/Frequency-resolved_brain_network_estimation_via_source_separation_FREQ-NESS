@@ -137,7 +137,20 @@ LFO_FREQUENCY = 2.0
 
 
 # ============================================================================
-# 8) FREQNESS_BackProjection
+# 8) FREQNESS_StabilityIndex
+# ============================================================================
+
+STABILITY_COMPONENTS = np.array([1], dtype=np.int64)
+STABILITY_FREQUENCIES = None  # None analyzes every frequency
+STABILITY_FWHM = None  # None reuses the corresponding FREQ.fwhm values
+STABILITY_MEDIAN_WINDOW = 0.4  # seconds
+STABILITY_TIME_WINDOW = None  # None summarizes the complete duration
+STABILITY_KEEP_FREQUENCY_SLIDING = False
+STABILITY_PLOT_AVERAGE = True
+
+
+# ============================================================================
+# 9) FREQNESS_BackProjection
 # ============================================================================
 
 BACKPROJ_FREQUENCY = 8.4
@@ -145,7 +158,7 @@ BACKPROJ_COMPONENTS = np.array([1], dtype=np.int64)
 
 
 # ============================================================================
-# 9) FREQNESS_NetworkRemoval
+# 10) FREQNESS_NetworkRemoval
 # ============================================================================
 
 NETREM_FREQUENCY = 8.4
@@ -155,7 +168,7 @@ NETREM_LANDSCAPE_COMPONENTS = 3
 
 
 # ============================================================================
-# 10) SELECTIVE CONDITION/GROUP COMPARISONS
+# 11) SELECTIVE CONDITION/GROUP COMPARISONS
 # ============================================================================
 
 # None compares the first two non-empty folders. Prefer explicit folder names.
@@ -216,6 +229,13 @@ CONFIG = FREQNESSPipelineConfig(
     compgrad_freq2model=COMPGRAD_FREQUENCY,
     compgrad_comps2model=COMPGRAD_COMPONENTS,
     lfo_freq=LFO_FREQUENCY,
+    stability_which_comp=STABILITY_COMPONENTS,
+    stability_frex2model=STABILITY_FREQUENCIES,
+    stability_fwhm=STABILITY_FWHM,
+    stability_median_window=STABILITY_MEDIAN_WINDOW,
+    stability_time_window=STABILITY_TIME_WINDOW,
+    stability_keep_frequency_sliding=STABILITY_KEEP_FREQUENCY_SLIDING,
+    stability_plot_avg=STABILITY_PLOT_AVERAGE,
     backproj_freq2project=BACKPROJ_FREQUENCY,
     backproj_comps2project=BACKPROJ_COMPONENTS,
     netrem_freq2remove=NETREM_FREQUENCY,

@@ -114,6 +114,12 @@
 %    PAC histograms and deterministic first-harmonic parameters, with
 %    optional 3D visualizations of the LFO and peak carrier networks in MNI space.
 %
+%  - STAB = FREQNESS_StabilityIndex(FREQ, ...)
+%    Quantifies temporal frequency stability for selected network time series.
+%    The pipeline reuses the physical filter widths stored in FREQ by default,
+%    returns the compact STAB structure, and can plot the group Network
+%    Stability Landscape without retaining instantaneous-frequency traces.
+%
 %  - FREQNESS_BackProjection(FREQ, freq2project, ...)
 %    Reconstructs selected frequency-resolved components in broadband voxel
 %    space using the GED forward model and component time series.
@@ -161,6 +167,7 @@ run_exponential_dk    = true;
 run_freq_gradients    = true;
 run_comp_gradients    = true;
 run_cross_coupling    = true;
+run_stability_index   = true;
 run_backprojection    = true;
 run_network_removal   = true;
 
@@ -168,7 +175,8 @@ run_network_removal   = true;
 clearvars -except run_core run_group_analyses run_spatial_comparison ...
     run_landscape_comparison run_visualizer run_entropy_landscape ...
     run_exponential_dk run_freq_gradients run_comp_gradients ...
-    run_cross_coupling run_backprojection run_network_removal
+    run_cross_coupling run_stability_index run_backprojection ...
+    run_network_removal
 close all
 clc
 
@@ -250,13 +258,24 @@ compgrad_comps2model = [1 5]; % range of components to include in the gradient f
 lfo_freq = 2; % low-frequency oscillator (Hz)
 
 % ------------------------------------------------------------------------
-% 8) FREQNESS_BackProjection
+% 8) FREQNESS_StabilityIndex
+% ------------------------------------------------------------------------
+stability_which_comp = 1;       % component(s) to analyse
+stability_frex2model = [];      % [] analyses all frequencies
+stability_fwhm = [];            % [] reuses the corresponding FREQ.fwhm values
+stability_median_window = .4;   % moving-median duration (seconds)
+stability_time_window = [];     % [] summarizes the complete duration
+stability_keep_frequency_sliding = false; % retain instantaneous-frequency traces
+stability_plot_avg = true;      % plot the group Network Stability Landscape
+
+% ------------------------------------------------------------------------
+% 9) FREQNESS_BackProjection
 % ------------------------------------------------------------------------
 backproj_freq2project  = 8.4; % network frequency to backproject (Hz)
 backproj_comps2project = 1;   % component(s) to backproject
 
 % ------------------------------------------------------------------------
-% 9) FREQNESS_NetworkRemoval
+% 10) FREQNESS_NetworkRemoval
 % ------------------------------------------------------------------------
 netrem_freq2remove      = 8.4; % network frequency to remove (Hz)
 netrem_comps2remove     = 1;   % component(s) to remove
@@ -264,7 +283,7 @@ netrem_plot_landscape   = true; % re-estimate and plot the cleaned landscape
 netrem_landscape_ncomps = 3;    % cleaned components to visualize
 
 % ------------------------------------------------------------------------
-% 10) SELECTIVE CONDITION/GROUP COMPARISONS
+% 11) SELECTIVE CONDITION/GROUP COMPARISONS
 % ------------------------------------------------------------------------
 % Leave empty to compare the first two non-empty folders, or provide two
 % folder names, e.g. {'Condition_1','Condition_2'}.
@@ -439,6 +458,8 @@ if run_group_analyses
     goodFit_c   = cell(nconds,1);
     % Cross-frequency coupling structure
     CFC         = cell(nconds,1);
+    % Network Stability Index
+    STAB        = cell(nconds,1);
     % Backprojected broadband network activity
     backProj    = cell(nconds,1);
     % Network-removal outputs and cleaned-data re-estimation
@@ -586,7 +607,23 @@ if run_group_analyses
         end
 
         % ========================================================================
-        % 8) FREQNESS BACKPROJECTION
+        % 8) FREQNESS STABILITY INDEX
+        % ========================================================================
+
+        if run_stability_index
+            STAB{condi} = FREQNESS_StabilityIndex(FREQ{condi}, ...
+                'which_comp',stability_which_comp, ...
+                'frex2model',stability_frex2model, ...
+                'fwhm',stability_fwhm, ...
+                'median_window',stability_median_window, ...
+                'time_window',stability_time_window, ...
+                'keep_frequency_sliding',stability_keep_frequency_sliding, ...
+                'plot_avg',stability_plot_avg, ...
+                'plot_all',plot_all);
+        end
+
+        % ========================================================================
+        % 9) FREQNESS BACKPROJECTION
         % ========================================================================
 
         if run_backprojection
@@ -596,7 +633,7 @@ if run_group_analyses
         end
 
         % ========================================================================
-        % 9) FREQNESS NETWORK REMOVAL
+        % 10) FREQNESS NETWORK REMOVAL
         % ========================================================================
 
         if run_network_removal
@@ -755,10 +792,25 @@ if run_spatial_comparison || run_landscape_comparison
             [comparison_b,components_b] = load_comparison_output( ...
                 CFC{condition_b},measure_name,'carrier_frex', ...
                 landscapecomparison_frex,landscapecomparison_comps,order_b);
+        elseif any(strcmp(measure_key,{'stability_index','mean_frequency'}))
+            if ~exist('STAB','var') || isempty(STAB{condition_a}) || ...
+                    isempty(STAB{condition_b})
+                error(['landscapecomparison_measure=''' requested_measure ...
+                    ''' requires FREQNESS_StabilityIndex to be selected ' ...
+                    'and Block 2 to be run.']);
+            end
+            measure_name = measure_key;
+            [comparison_a,original_components] = load_comparison_output( ...
+                STAB{condition_a},measure_name,'frex', ...
+                landscapecomparison_frex,landscapecomparison_comps,order_a);
+            [comparison_b,components_b] = load_comparison_output( ...
+                STAB{condition_b},measure_name,'frex', ...
+                landscapecomparison_frex,landscapecomparison_comps,order_b);
         else
-            error(['Block 3 can assemble evals, H2, ED, amplitude_raw, or ' ...
-                'amplitude_normalized. Pass other compact landscapes directly ' ...
-                'to FREQNESS_LandscapeComparison.']);
+            error(['Block 3 can assemble evals, H2, ED, amplitude_raw, ' ...
+                'amplitude_normalized, stability_index, or mean_frequency. ' ...
+                'Pass other compact landscapes directly to ' ...
+                'FREQNESS_LandscapeComparison.']);
         end
         if ~isequal(original_components,components_b)
             error('Internal landscape component selection mismatch.');
