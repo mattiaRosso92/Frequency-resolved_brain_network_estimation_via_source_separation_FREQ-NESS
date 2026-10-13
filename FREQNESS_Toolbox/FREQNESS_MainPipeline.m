@@ -79,10 +79,10 @@
 %    Takes as input selected outputs from `FREQNESS_NetworkEstimation`
 %    to visualize both the network landscape and brain topographies.
 %
-%  - FREQNESS_EntropyLandscape(FREQ)
+%  - ENTR = FREQNESS_EntropyLandscape(FREQ)
 %    Computes quadratic Rényi entropy (H2) and effective dimensionality
-%    (ED) across frequencies. Both measures are returned for numerical
-%    analysis, while only the H2 entropy landscape is visualized.
+%    (ED) across frequencies and returns them with the frequency axis in
+%    one ENTR structure. Only the H2 entropy landscape is visualized.
 %
 %  - FREQNESS_ExponentialDK(FREQ, ...)
 %    Fits an exponentially decaying function to the eigenvalues of a
@@ -382,8 +382,7 @@ if run_group_analyses
     % 1) Core FREQNESS output
     FREQ        = cell(nconds,1);
     % Entropy landscape
-    h2          = cell(nconds,1);
-    ed          = cell(nconds,1);
+    ENTR        = cell(nconds,1);
     % Exponential decay of eigenvalues
     decayCoeff  = cell(nconds,1);
     goodFit_exp = cell(nconds,1);
@@ -493,7 +492,7 @@ if run_group_analyses
 
         % Compute entropy-based indices of the eigenspectrum
         if run_entropy_landscape
-            [h2{condi}, ed{condi}] = FREQNESS_EntropyLandscape(FREQ{condi});
+            ENTR{condi} = FREQNESS_EntropyLandscape(FREQ{condi});
         end
 
 

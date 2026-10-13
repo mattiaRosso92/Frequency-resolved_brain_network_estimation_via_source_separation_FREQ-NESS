@@ -124,10 +124,11 @@ def test_complete_eigenspectrum_is_independent_of_ncomps() -> None:
     assert retained_four.evecs.shape[1] == retained_four.pats.shape[1] == 4
     assert retained_four.ts.shape[0] == 4
 
-    H2_two, ED_two = FREQNESS_EntropyLandscape(retained_two, show=False)
-    H2_four, ED_four = FREQNESS_EntropyLandscape(retained_four, show=False)
-    np.testing.assert_allclose(H2_two, H2_four)
-    np.testing.assert_allclose(ED_two, ED_four)
+    ENTR_two = FREQNESS_EntropyLandscape(retained_two, show=False)
+    ENTR_four = FREQNESS_EntropyLandscape(retained_four, show=False)
+    np.testing.assert_allclose(ENTR_two.H2, ENTR_four.H2)
+    np.testing.assert_allclose(ENTR_two.ED, ENTR_four.ED)
+    np.testing.assert_allclose(ENTR_two.frex, ENTR_four.frex)
 
 
 def test_bad_segments_are_matlab_one_based() -> None:

@@ -263,7 +263,7 @@ FREQ = FREQNESS_NetworkEstimation(eegData,frex,srate, ...
                                   'ncomps',ncomps);
 
 % Compute quadratic entropy and effective dimensionality
-[H2,ED] = FREQNESS_EntropyLandscape(FREQ);
+ENTR = FREQNESS_EntropyLandscape(FREQ);
 fig_entropy = gcf;
 
 % Identify the target-frequency output
@@ -271,7 +271,7 @@ fig_entropy = gcf;
 targetevals = squeeze(FREQ.evals(:,targetfrexi,1));
 targetPats = squeeze(FREQ.pats(:,1:ncomps,targetfrexi,1));
 targetTs = squeeze(FREQ.ts(1:ncomps,:,targetfrexi,1));
-targetED = ED(targetfrexi,1);
+targetED = ENTR.ED(targetfrexi,1);
 
 % Relate each component pattern to the forward model at every wave phase
 componentSourceCorrelationSigned = corr(targetPats,fwd_weights);
@@ -321,7 +321,7 @@ title(['Top ' num2str(ncomps) ' FREQ-NESS eigenvalues'])
 grid on
 
 subplot(1,2,2)
-plot(FREQ.frex,ED(:,1),'k','LineWidth',2)
+plot(FREQ.frex,ENTR.ED(:,1),'k','LineWidth',2)
 hold on
 plot(FREQ.frex(targetfrexi),targetED,'or','MarkerFaceColor','r', ...
      'MarkerSize',8)

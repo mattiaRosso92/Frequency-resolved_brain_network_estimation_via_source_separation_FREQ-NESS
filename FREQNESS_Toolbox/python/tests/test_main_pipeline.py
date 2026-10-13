@@ -8,6 +8,7 @@ from scipy.io import savemat
 from freqness import (
     BACK_PROJECTION,
     ENTROPY_LANDSCAPE,
+    FREQNESSEntropyLandscapeResult,
     FREQNESS_MainPipeline,
     FREQNESS_LoadCore,
     FREQNESSPipelineConfig,
@@ -130,7 +131,12 @@ def test_secondary_section_uses_saved_core_prerequisite(
 
     def fake_entropy(FREQ, **kwargs):
         seen_shapes.append(FREQ.evals.shape)
-        return np.array([[0.5]]), np.array([[2.0]])
+        return FREQNESSEntropyLandscapeResult(
+            H2=np.array([[0.5]]),
+            ED=np.array([[2.0]]),
+            frex=np.array([8.0]),
+            figures=[],
+        )
 
     monkeypatch.setattr(
         pipeline_module, "FREQNESS_NetworkEstimation", fake_estimation
@@ -152,10 +158,13 @@ def test_secondary_section_uses_saved_core_prerequisite(
     for condition in result.conditions:
         assert set(condition.outputs) == {ENTROPY_LANDSCAPE}
         np.testing.assert_array_equal(
-            condition.outputs[ENTROPY_LANDSCAPE]["H2"], [[0.5]]
+            condition.outputs[ENTROPY_LANDSCAPE].H2, [[0.5]]
         )
         np.testing.assert_array_equal(
-            condition.outputs[ENTROPY_LANDSCAPE]["ED"], [[2.0]]
+            condition.outputs[ENTROPY_LANDSCAPE].ED, [[2.0]]
+        )
+        np.testing.assert_array_equal(
+            condition.outputs[ENTROPY_LANDSCAPE].frex, [8.0]
         )
 
 

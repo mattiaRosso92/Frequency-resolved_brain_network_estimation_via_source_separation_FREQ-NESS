@@ -200,8 +200,7 @@ set_pipeline_setting(testCase.TestData.script_file,'run_group_analyses','true');
 run_pipeline(testCase.TestData.script_file);
 
 actual = evalin('base','FREQ');
-h2 = evalin('base','h2');
-ed = evalin('base','ed');
+ENTR = evalin('base','ENTR');
 backProj = evalin('base','backProj');
 dataClean = evalin('base','dataClean');
 removedActivity = evalin('base','removedActivity');
@@ -219,9 +218,10 @@ for condi = 1:2
         one.scale_factors = one.scale_factors(subi);
         verify_participant(testCase,one,expected,subi);
     end
-    [expected_h2,expected_ed] = FREQNESS_EntropyLandscape(expected);
-    verifyEqual(testCase,h2{condi},expected_h2,'AbsTol',1e-12);
-    verifyEqual(testCase,ed{condi},expected_ed,'AbsTol',1e-12);
+    expected_ENTR = FREQNESS_EntropyLandscape(expected);
+    verifyEqual(testCase,ENTR{condi}.H2,expected_ENTR.H2,'AbsTol',1e-12);
+    verifyEqual(testCase,ENTR{condi}.ED,expected_ENTR.ED,'AbsTol',1e-12);
+    verifyEqual(testCase,ENTR{condi}.frex,expected_ENTR.frex,'AbsTol',1e-12);
     expected_back = FREQNESS_BackProjection(expected,8,'comps2project',1);
     verifyEqual(testCase,backProj{condi},expected_back,'AbsTol',1e-10);
     verifyEqual(testCase,dataClean{condi}+removedActivity{condi}, ...

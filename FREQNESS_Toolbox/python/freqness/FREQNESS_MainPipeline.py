@@ -365,15 +365,12 @@ def FREQNESS_MainPipeline(
                 condition_result.outputs[VISUALIZER] = visualization
 
             if ENTROPY_LANDSCAPE in selected:
-                H2, ED = FREQNESS_EntropyLandscape(
+                ENTR = FREQNESS_EntropyLandscape(
                     FREQ,
                     plot_all=config.plot_all,
                     show=config.show,
                 )
-                condition_result.outputs[ENTROPY_LANDSCAPE] = {
-                    "H2": H2,
-                    "ED": ED,
-                }
+                condition_result.outputs[ENTROPY_LANDSCAPE] = ENTR
 
             if EXPONENTIAL_DK in selected:
                 condition_result.outputs[EXPONENTIAL_DK] = FREQNESS_ExponentialDK(

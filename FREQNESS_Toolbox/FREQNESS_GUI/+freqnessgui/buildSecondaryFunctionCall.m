@@ -31,7 +31,7 @@ switch moduleId
     case 'entropy'
         call.functionName = 'FREQNESS_EntropyLandscape';
         call.arguments = {FREQ,'plot_all',values.plotAll};
-        call.outputNames = {'H2','ED'};
+        call.outputNames = {'ENTR'};
 
     case 'exponential_dk'
         call.functionName = 'FREQNESS_ExponentialDK';

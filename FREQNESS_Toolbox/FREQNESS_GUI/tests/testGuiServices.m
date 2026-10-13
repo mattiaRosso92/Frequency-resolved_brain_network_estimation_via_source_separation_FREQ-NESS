@@ -272,10 +272,12 @@ end
 function testParticipantOutputExtraction(testCase)
 nParticipants = 2;
 entropy = struct('H2',reshape(1:6,3,2), ...
-    'ED',reshape(11:16,3,2));
+    'ED',reshape(11:16,3,2),'frex',(1:3)');
 participant = freqnessgui.extractParticipantOutput( ...
-    'entropy',entropy,2,nParticipants);
-verifyEqual(testCase,participant.H2,entropy.H2(:,2));
+    'entropy',struct('ENTR',entropy),2,nParticipants);
+verifyEqual(testCase,participant.ENTR.H2,entropy.H2(:,2));
+verifyEqual(testCase,participant.ENTR.ED,entropy.ED(:,2));
+verifyEqual(testCase,participant.ENTR.frex,entropy.frex);
 
 gradient = struct('gradCoeff',reshape(1:18,3,3,2), ...
     'goodFit',struct('R2_best',reshape(1:6,3,2), ...
@@ -379,12 +381,19 @@ verifyTrue(testCase,isfile(report.groupOutputFile));
 verifyTrue(testCase,isfile(report.manifestFile));
 
 groupResult = load(report.groupOutputFile,'groupOutput');
-verifySize(testCase,groupResult.groupOutput.H2,[3 2]);
+verifySize(testCase,groupResult.groupOutput.ENTR.H2,[3 2]);
+verifySize(testCase,groupResult.groupOutput.ENTR.ED,[3 2]);
+verifyEqual(testCase,groupResult.groupOutput.ENTR.frex, ...
+    networkSet.frequencies(:));
 for participanti = 1:numel(participantIds)
     participantResult = load(report.participants(participanti).outputFile, ...
         'participantOutput');
-    verifyEqual(testCase,participantResult.participantOutput.H2, ...
-        groupResult.groupOutput.H2(:,participanti));
+    verifyEqual(testCase,participantResult.participantOutput.ENTR.H2, ...
+        groupResult.groupOutput.ENTR.H2(:,participanti));
+    verifyEqual(testCase,participantResult.participantOutput.ENTR.ED, ...
+        groupResult.groupOutput.ENTR.ED(:,participanti));
+    verifyEqual(testCase,participantResult.participantOutput.ENTR.frex, ...
+        groupResult.groupOutput.ENTR.frex);
 end
 loadedManifest = load(report.manifestFile,'manifest');
 verifyEqual(testCase,loadedManifest.manifest.status,'completed');

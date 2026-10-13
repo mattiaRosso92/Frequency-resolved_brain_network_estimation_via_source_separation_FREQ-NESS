@@ -192,9 +192,16 @@ def test_group_results_match_batch_and_only_removal_loads_raw(study, monkeypatch
         data, expected = _batch(study, Path(study.toolbox_root) / "FREQNESS_Data" / condition.name)
         outputs = condition.outputs
         _assert_same(outputs[NETWORK_ESTIMATION], expected)
-        h2, ed = FREQNESS_EntropyLandscape(expected, show=False)
-        np.testing.assert_allclose(outputs[ENTROPY_LANDSCAPE]["H2"], h2, atol=1e-12)
-        np.testing.assert_allclose(outputs[ENTROPY_LANDSCAPE]["ED"], ed, atol=1e-12)
+        entropy = FREQNESS_EntropyLandscape(expected, show=False)
+        np.testing.assert_allclose(
+            outputs[ENTROPY_LANDSCAPE].H2, entropy.H2, atol=1e-12
+        )
+        np.testing.assert_allclose(
+            outputs[ENTROPY_LANDSCAPE].ED, entropy.ED, atol=1e-12
+        )
+        np.testing.assert_allclose(
+            outputs[ENTROPY_LANDSCAPE].frex, entropy.frex, atol=1e-12
+        )
         back = FREQNESS_BackProjection(expected, 8., comps2project=[1])
         np.testing.assert_allclose(outputs[BACK_PROJECTION], back, atol=1e-10)
         removal = outputs[NETWORK_REMOVAL]

@@ -52,7 +52,7 @@ visualization = FREQNESS_Visualizer(
     plot_all=False,
 )
 
-H2, ED = FREQNESS_EntropyLandscape(FREQ)
+ENTR = FREQNESS_EntropyLandscape(FREQ)
 decayCoeff, goodFit = FREQNESS_ExponentialDK(
     FREQ,
     which_comp=1,
@@ -127,13 +127,13 @@ frequencies as x-axis ticks, while short grids retain every requested tick.
 This affects figure readability only and does not alter the analyzed frequency
 vector or numerical output.
 
-`FREQNESS_EntropyLandscape` computes and returns both quadratic Rényi entropy
-(`H2`) and effective dimensionality (`ED`) to preserve MATLAB numerical
-compatibility. `FREQ.evals` always contains the complete normalized
+`FREQNESS_EntropyLandscape` returns one `ENTR` result containing quadratic
+Rényi entropy (`ENTR.H2`), effective dimensionality (`ENTR.ED`), and the
+frequency axis (`ENTR.frex`). `FREQ.evals` always contains the complete normalized
 eigenspectrum, independently of the number of eigenvectors, patterns, and time
 series retained through `ncomps`. Entropy therefore uses every eigenvalue while
 component-dependent outputs remain memory-limited. Its figures intentionally
-show only `H2`.
+show only `ENTR.H2`.
 
 `FREQNESS_ExponentialDK` fits `A * exp(-lambda * frequency)` to one component
 using MATLAB-compatible one-based component numbering. It returns one decay
