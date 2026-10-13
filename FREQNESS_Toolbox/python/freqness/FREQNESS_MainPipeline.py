@@ -53,6 +53,7 @@ from .FREQNESS_LandscapeComparison import FREQNESS_LandscapeComparison
 from .FREQNESS_NetworkEstimation import FREQNESS_NetworkEstimation
 from .FREQNESS_NetworkRemoval import FREQNESS_NetworkRemoval
 from .FREQNESS_SpatialComparison import FREQNESS_SpatialComparison
+from .FREQNESS_StabilityIndex import FREQNESS_StabilityIndex
 from .FREQNESS_Startup import FREQNESS_Startup, _load_participant
 from .FREQNESS_Visualizer import FREQNESS_Visualizer
 
@@ -66,6 +67,7 @@ EXPONENTIAL_DK = "FREQNESS_ExponentialDK"
 FREQ_GRADIENTS = "FREQNESS_FreqGradients"
 COMP_GRADIENTS = "FREQNESS_CompGradients"
 CROSS_COUPLING = "FREQNESS_CrossCoupling"
+STABILITY_INDEX = "FREQNESS_StabilityIndex"
 BACK_PROJECTION = "FREQNESS_BackProjection"
 NETWORK_REMOVAL = "FREQNESS_NetworkRemoval"
 SPATIAL_COMPARISON = "FREQNESS_SpatialComparison"
@@ -79,6 +81,7 @@ ALL_ANALYSES = (
     FREQ_GRADIENTS,
     COMP_GRADIENTS,
     CROSS_COUPLING,
+    STABILITY_INDEX,
     BACK_PROJECTION,
     NETWORK_REMOVAL,
 )
@@ -127,6 +130,15 @@ class FREQNESSPipelineConfig:
         default_factory=lambda: np.array([1, 5], dtype=np.int64)
     )
     lfo_freq: float = 2.0
+    stability_which_comp: NDArray[np.int64] = field(
+        default_factory=lambda: np.array([1], dtype=np.int64)
+    )
+    stability_frex2model: FloatArray | None = None
+    stability_fwhm: FloatArray | float | None = None
+    stability_median_window: float = 0.4
+    stability_time_window: FloatArray | None = None
+    stability_keep_frequency_sliding: bool = False
+    stability_plot_avg: bool = True
     backproj_freq2project: float = 8.4
     backproj_comps2project: NDArray[np.int64] = field(
         default_factory=lambda: np.array([1], dtype=np.int64)
@@ -207,6 +219,8 @@ def _validate_config(config: FREQNESSPipelineConfig) -> tuple[str, ...]:
         (config.show, "show"),
         (config.save_nifti, "save_nifti"),
         (config.netrem_plot_landscape, "netrem_plot_landscape"),
+        (config.stability_keep_frequency_sliding, "stability_keep_frequency_sliding"),
+        (config.stability_plot_avg, "stability_plot_avg"),
         (config.run_spatial_comparison, "run_spatial_comparison"),
         (config.run_landscape_comparison, "run_landscape_comparison"),
         (config.comparison_plot_results, "comparison_plot_results"),
@@ -717,6 +731,24 @@ def FREQNESS_MainPipeline(
                     )
                 )
 
+            if STABILITY_INDEX in selected:
+                condition_result.outputs[STABILITY_INDEX] = (
+                    FREQNESS_StabilityIndex(
+                        FREQ,
+                        which_comp=config.stability_which_comp,
+                        frex2model=config.stability_frex2model,
+                        fwhm=config.stability_fwhm,
+                        median_window=config.stability_median_window,
+                        time_window=config.stability_time_window,
+                        keep_frequency_sliding=(
+                            config.stability_keep_frequency_sliding
+                        ),
+                        plot_avg=config.stability_plot_avg,
+                        plot_all=config.plot_all,
+                        show=config.show,
+                    )
+                )
+
             if BACK_PROJECTION in selected:
                 condition_result.outputs[BACK_PROJECTION] = FREQNESS_BackProjection(
                     FREQ,
@@ -869,12 +901,23 @@ def FREQNESS_MainPipeline(
                         "amplitude_normalized",
                         "carrier_frex",
                     ),
+                    "stability_index": (
+                        STABILITY_INDEX,
+                        "stability_index",
+                        "frex",
+                    ),
+                    "mean_frequency": (
+                        STABILITY_INDEX,
+                        "mean_frequency",
+                        "frex",
+                    ),
                 }
                 if measure_key not in secondary_sources:
                     raise ValueError(
-                        "Block 3 can assemble evals, H2, ED, amplitude_raw, or "
-                        "amplitude_normalized. Pass other compact landscapes "
-                        "directly to FREQNESS_LandscapeComparison."
+                        "Block 3 can assemble evals, H2, ED, amplitude_raw, "
+                        "amplitude_normalized, stability_index, or "
+                        "mean_frequency. Pass other compact landscapes directly "
+                        "to FREQNESS_LandscapeComparison."
                     )
                 analysis_name, measure_name, axis_name = secondary_sources[measure_key]
                 if (
@@ -1030,6 +1073,7 @@ __all__ = [
     "NETWORK_ESTIMATION",
     "NETWORK_REMOVAL",
     "SPATIAL_COMPARISON",
+    "STABILITY_INDEX",
     "VISUALIZER",
     "main",
 ]

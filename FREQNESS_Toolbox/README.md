@@ -85,7 +85,8 @@ The MATLAB pipeline is organized into four blocks:
   time, estimates its networks, saves the complete `FREQ` structure, and releases
   the participant data and result before proceeding to the next file.
 - **Block 2 — Optional group analyses:** combines the saved participant results
-  and runs the established visualization and secondary-analysis sections.
+  and runs the established visualization and secondary-analysis sections,
+  including `FREQNESS_StabilityIndex` when `run_stability_index = true`.
 - **Block 3 — Selective comparisons:** matches participant identifiers and
   builds compact statistical inputs containing only the requested landscape,
   its frequency axis, and the participant dimension. It never reconstructs
@@ -121,9 +122,10 @@ Block 3 can run directly from matching CORE files for spatial-pattern and
 eigenvalue comparisons. It reads only selected `pats` or `evals` slices and
 applies frequency/component selection before concatenating participants.
 Entropy (`H2`/`ED`) and cross-coupling amplitude comparisons use the already
-compact corresponding Block 2 outputs. Within-subject comparisons reorder the
-second condition by participant identifier; between-group comparisons permit
-different participant counts.
+compact corresponding Block 2 outputs. Stability Index comparisons similarly
+use `STAB.stability_index` or `STAB.mean_frequency` produced in Block 2.
+Within-subject comparisons reorder the second condition by participant
+identifier; between-group comparisons permit different participant counts.
 
 The original `[allData,MNI,path_home] = FREQNESS_Startup()` call still loads all
 datasets. Use `[~,MNI,path_home,folder_data] = FREQNESS_Startup(false)` to inspect
