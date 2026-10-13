@@ -24,7 +24,7 @@ import json
 import os
 from pathlib import Path
 import tempfile
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence
 
 import numpy as np
 
@@ -100,4 +100,43 @@ def FREQNESS_LoadCore(path: str | Path) -> FREQNESSResult:
     return FREQNESSResult(**values)
 
 
-__all__ = ["FREQNESS_LoadCore", "FREQNESS_SaveCore"]
+def FREQNESS_LoadCoreFields(
+    path: str | Path,
+    field_names: Sequence[str],
+) -> dict[str, np.ndarray]:
+    """Load selected FREQ fields without reconstructing the complete result.
+
+    This loader is intended for memory-conscious comparisons across participant
+    CORE files. Only the requested NPZ members are decompressed; callers can
+    slice frequencies and components before concatenating participant arrays.
+    """
+    requested = tuple(field_names)
+    valid = {item.name for item in fields(FREQNESSResult)}
+    if not requested or any(name not in valid for name in requested):
+        raise ValueError(
+            "field_names must contain one or more valid FREQNESSResult fields"
+        )
+    if len(set(requested)) != len(requested):
+        raise ValueError("field_names must not contain duplicates")
+    with np.load(Path(path), allow_pickle=False) as saved:
+        missing = [name for name in requested if "FREQ_" + name not in saved.files]
+        if missing:
+            raise ValueError(
+                "CORE file is missing FREQ field(s): " + ", ".join(missing)
+            )
+        return {name: saved["FREQ_" + name] for name in requested}
+
+
+def _core_participant(path: str | Path) -> dict[str, Any]:
+    """Read only the participant metadata stored in one CORE file."""
+    with np.load(Path(path), allow_pickle=False) as saved:
+        if "PARTICIPANT" not in saved.files:
+            raise ValueError(f"CORE file is missing PARTICIPANT metadata: {path}")
+        return json.loads(saved["PARTICIPANT"].item())
+
+
+__all__ = [
+    "FREQNESS_LoadCore",
+    "FREQNESS_LoadCoreFields",
+    "FREQNESS_SaveCore",
+]

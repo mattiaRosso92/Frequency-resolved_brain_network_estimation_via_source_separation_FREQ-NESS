@@ -33,9 +33,11 @@
 %    3) Saves each FREQ in FREQNESS_Results/CORE/<condition>/<participant>_FREQ.mat
 %    4) Optionally combines saved results for the existing group analyses
 %
-%  BLOCK 0 defines the settings used by both analysis blocks.
+%  BLOCK 0 defines the settings used by all analysis blocks.
 %  BLOCK 1 estimates and saves the participant core results.
 %  BLOCK 2 runs the optional group analyses and is disabled by default.
+%  BLOCK 3 statistically compares selected outputs between two conditions
+%  or groups without reconstructing the complete group FREQ structures.
 %  Run Block 0 before running either analysis block separately.
 %
 %  Recommended workflow: first run with run_core = true and
@@ -141,7 +143,32 @@
 % BLOCK 0 - STARTUP AND ANALYSIS SETTINGS
 % ========================================================================
 
-clear
+% ========================================================================
+% SELECT WHAT TO RUN
+%
+% These are the first decisions to make before editing analysis settings.
+% ========================================================================
+
+run_core                 = true;
+run_group_analyses       = false;
+run_spatial_comparison   = false;
+run_landscape_comparison = false;
+
+% Optional Block 2 analyses, used only when run_group_analyses is true.
+run_visualizer        = true;
+run_entropy_landscape = true;
+run_exponential_dk    = true;
+run_freq_gradients    = true;
+run_comp_gradients    = true;
+run_cross_coupling    = true;
+run_backprojection    = true;
+run_network_removal   = true;
+
+% Clear stale workspace outputs while preserving the choices above.
+clearvars -except run_core run_group_analyses run_spatial_comparison ...
+    run_landscape_comparison run_visualizer run_entropy_landscape ...
+    run_exponential_dk run_freq_gradients run_comp_gradients ...
+    run_cross_coupling run_backprojection run_network_removal
 close all
 clc
 
@@ -154,24 +181,9 @@ clc
 %  Edit this section before running the pipeline
 % ========================================================================
 
-% Select the blocks to run. Group analyses require saved participant FREQ files.
-run_core              = true;
-run_group_analyses     = false;
-
 % Core results are saved outside FREQNESS_Data, in one folder per condition.
 path_results = fullfile(path_home,'FREQNESS_Results');
 overwrite_core = false; % set true to replace previously saved core results
-
-% Select the optional analyses for Block 2 (used only when run_group_analyses
-% is true). These sections preserve the existing group-level calculations.
-run_visualizer        = true;
-run_entropy_landscape = true;
-run_exponential_dk    = true;
-run_freq_gradients    = true;
-run_comp_gradients    = true;
-run_cross_coupling    = true;
-run_backprojection    = true;
-run_network_removal   = true;
 
 % ------------------------------------------------------------------------
 % 1) FREQNESS_NetworkEstimation
@@ -251,6 +263,32 @@ netrem_comps2remove     = 1;   % component(s) to remove
 netrem_plot_landscape   = true; % re-estimate and plot the cleaned landscape
 netrem_landscape_ncomps = 3;    % cleaned components to visualize
 
+% ------------------------------------------------------------------------
+% 10) SELECTIVE CONDITION/GROUP COMPARISONS
+% ------------------------------------------------------------------------
+% Leave empty to compare the first two non-empty folders, or provide two
+% folder names, e.g. {'Condition_1','Condition_2'}.
+comparison_conditions = [];
+comparison_design = 'within'; % 'within' or 'between'
+comparison_plot_results = true;
+
+% Spatial comparison imports only the selected pats slices from CORE files.
+spatialcomparison_test = []; % [] defaults to ttest
+spatialcomparison_frex = [2.4 8.4];
+spatialcomparison_comps = 1;
+spatialcomparison_cluster_forming_alpha = .001;
+spatialcomparison_alpha = .05;
+spatialcomparison_n_permutations = 'auto';
+
+% Landscape comparison assembles one thin input containing only the selected
+% landscape, frequency axis, and participants. Evals are read selectively
+% from CORE; H2/ED and CFC amplitudes use the corresponding Block 2 outputs.
+landscapecomparison_test = []; % []: signrank within; ranksum between
+landscapecomparison_measure = 'evals';
+landscapecomparison_frex = []; % [] analyzes every frequency
+landscapecomparison_comps = 1;
+landscapecomparison_correction = 'fdr';
+
 % Store network settings with each participant result. Existing files are
 % reused only when these settings and their source-file metadata match.
 NETWORK_SETTINGS = struct('frex',frex,'srate',srate, ...
@@ -305,7 +343,8 @@ if run_core
                 S = load(output_file,'PARTICIPANT','NETWORK_SETTINGS');
                 saved_info = whos('-file',output_file);
                 if ~isfield(S,'PARTICIPANT') || ~isfield(S,'NETWORK_SETTINGS') || ...
-                        ~ismember('FREQ',{saved_info.name}) || ...
+                        ~all(ismember({'FREQ','FREQ_evals','FREQ_pats','FREQ_frex'}, ...
+                        {saved_info.name})) || ...
                         ~isequaln(S.PARTICIPANT,PARTICIPANT) || ...
                         ~isequaln(S.NETWORK_SETTINGS,NETWORK_SETTINGS)
                     error(['Existing core file does not match the current inputs or settings: %s. ' ...
@@ -348,7 +387,13 @@ if run_core
             % Version 7.3 supports large component time-series arrays.
             temporary_file = [tempname(core_path) '.mat'];
             try
-                save(temporary_file,'FREQ','PARTICIPANT','NETWORK_SETTINGS','-v7.3');
+                % Small top-level comparison caches permit selective loading
+                % without importing the much larger evecs and ts fields.
+                FREQ_evals = FREQ.evals;
+                FREQ_pats = FREQ.pats;
+                FREQ_frex = FREQ.frex;
+                save(temporary_file,'FREQ','FREQ_evals','FREQ_pats','FREQ_frex', ...
+                    'PARTICIPANT','NETWORK_SETTINGS','-v7.3');
                 [saved,message] = movefile(temporary_file,output_file,'f');
                 if ~saved
                     error('Could not finalize core file %s: %s',output_file,message);
@@ -362,7 +407,7 @@ if run_core
             fprintf('Saved core output: %s\n',output_file);
 
             % Release this participant before importing the next data file
-            clear FREQ PARTICIPANT
+            clear FREQ FREQ_evals FREQ_pats FREQ_frex PARTICIPANT
         end
     end
 
@@ -604,6 +649,144 @@ if run_group_analyses
 end
 
 %% ========================================================================
+% BLOCK 3 - SELECTIVE CONDITION/GROUP COMPARISONS
+% ========================================================================
+
+% Block 3 compares selected spatial patterns or frequency landscapes between
+% two conditions or groups. It supports paired and independent designs,
+% matches paired participants by identifier, and returns the statistical
+% results in STATS_spatial and/or STATS_landscape.
+%
+% To keep memory use low, the block never reconstructs a complete group FREQ.
+% It assembles one temporary structure per sample containing only the selected
+% landscape, its frequency axis, and participants along the last dimension.
+% Pats and evals are read selectively from CORE; ENTR/CFC measures use the
+% corresponding compact Block 2 outputs.
+STATS_spatial = [];
+STATS_landscape = [];
+if run_spatial_comparison || run_landscape_comparison
+    [condition_a,condition_b] = resolve_comparison_conditions( ...
+        folder_data,comparison_conditions);
+    design = canonical_comparison_design(comparison_design);
+    [participant_a,core_files_a] = comparison_records( ...
+        folder_data(condition_a),path_results,NETWORK_SETTINGS);
+    [participant_b,core_files_b] = comparison_records( ...
+        folder_data(condition_b),path_results,NETWORK_SETTINGS);
+    original_core_files_a = core_files_a;
+    original_core_files_b = core_files_b;
+    [participant_a,core_files_a,participant_b,core_files_b] = ...
+        match_comparison_participants(participant_a,core_files_a, ...
+        participant_b,core_files_b,design);
+    [~,order_a] = ismember(core_files_a,original_core_files_a);
+    [~,order_b] = ismember(core_files_b,original_core_files_b);
+    sample_labels = {folder_data(condition_a).name,folder_data(condition_b).name};
+
+    if run_spatial_comparison
+        if isempty(MNI)
+            error('FREQNESS_SpatialComparison requires matching MNI coordinates.');
+        end
+        [comparison_a,original_components] = load_comparison_core( ...
+            core_files_a,'FREQ_pats',spatialcomparison_frex, ...
+            spatialcomparison_comps);
+        [comparison_b,components_b] = load_comparison_core( ...
+            core_files_b,'FREQ_pats',spatialcomparison_frex, ...
+            spatialcomparison_comps);
+        if ~isequal(original_components,components_b)
+            error('Internal spatial component selection mismatch.');
+        end
+        STATS_spatial = FREQNESS_SpatialComparison(comparison_a,comparison_b,MNI, ...
+            'frex2compare',comparison_a.frex, ...
+            'comps2compare',1:numel(original_components), ...
+            'design',design,'test',spatialcomparison_test, ...
+            'condition_labels',sample_labels, ...
+            'cluster_forming_alpha',spatialcomparison_cluster_forming_alpha, ...
+            'alpha',spatialcomparison_alpha, ...
+            'n_permutations',spatialcomparison_n_permutations, ...
+            'plot_results',comparison_plot_results);
+        STATS_spatial.comps = original_components;
+        for clusteri = 1:numel(STATS_spatial.clusters)
+            compact_component = STATS_spatial.clusters(clusteri).comp;
+            STATS_spatial.clusters(clusteri).comp = ...
+                original_components(compact_component);
+        end
+        clear comparison_a comparison_b components_b original_components
+    end
+
+    if run_landscape_comparison
+        requested_measure = char(string(landscapecomparison_measure));
+        measure_key = lower(requested_measure);
+        if strcmp(measure_key,'evals')
+            measure_name = 'evals';
+            [comparison_a,original_components] = load_comparison_core( ...
+                core_files_a,'FREQ_evals',landscapecomparison_frex, ...
+                landscapecomparison_comps);
+            [comparison_b,components_b] = load_comparison_core( ...
+                core_files_b,'FREQ_evals',landscapecomparison_frex, ...
+                landscapecomparison_comps);
+        elseif any(strcmp(measure_key,{'h2','ed'}))
+            if ~exist('ENTR','var') || isempty(ENTR{condition_a}) || ...
+                    isempty(ENTR{condition_b})
+                error(['landscapecomparison_measure=''' requested_measure ...
+                    ''' requires FREQNESS_EntropyLandscape to be selected ' ...
+                    'and Block 2 to be run.']);
+            end
+            if strcmp(measure_key,'h2')
+                measure_name = 'H2';
+            else
+                measure_name = 'ED';
+            end
+            [comparison_a,original_components] = load_comparison_output( ...
+                ENTR{condition_a},measure_name,'frex',landscapecomparison_frex, ...
+                landscapecomparison_comps,order_a);
+            [comparison_b,components_b] = load_comparison_output( ...
+                ENTR{condition_b},measure_name,'frex',landscapecomparison_frex, ...
+                landscapecomparison_comps,order_b);
+        elseif any(strcmp(measure_key,{'amplitude_raw','amplitude_normalized'}))
+            if ~exist('CFC','var') || isempty(CFC{condition_a}) || ...
+                    isempty(CFC{condition_b})
+                error(['landscapecomparison_measure=''' requested_measure ...
+                    ''' requires FREQNESS_CrossCoupling to be selected ' ...
+                    'and Block 2 to be run.']);
+            end
+            measure_name = measure_key;
+            [comparison_a,original_components] = load_comparison_output( ...
+                CFC{condition_a},measure_name,'carrier_frex', ...
+                landscapecomparison_frex,landscapecomparison_comps,order_a);
+            [comparison_b,components_b] = load_comparison_output( ...
+                CFC{condition_b},measure_name,'carrier_frex', ...
+                landscapecomparison_frex,landscapecomparison_comps,order_b);
+        else
+            error(['Block 3 can assemble evals, H2, ED, amplitude_raw, or ' ...
+                'amplitude_normalized. Pass other compact landscapes directly ' ...
+                'to FREQNESS_LandscapeComparison.']);
+        end
+        if ~isequal(original_components,components_b)
+            error('Internal landscape component selection mismatch.');
+        end
+        if isfield(comparison_a,'carrier_frex')
+            comparison_frex = comparison_a.carrier_frex;
+        else
+            comparison_frex = comparison_a.frex;
+        end
+        STATS_landscape = FREQNESS_LandscapeComparison( ...
+            comparison_a,comparison_b, ...
+            'measure',measure_name,'design',design, ...
+            'test',landscapecomparison_test, ...
+            'which_comp',1:numel(original_components), ...
+            'frex2compare',comparison_frex, ...
+            'sample_labels',sample_labels, ...
+            'correction',landscapecomparison_correction, ...
+            'plot_results',comparison_plot_results);
+        STATS_landscape.(measure_name).comps = original_components;
+        clear comparison_a comparison_b comparison_frex components_b
+        clear original_components measure_key measure_name requested_measure
+    end
+
+    clear participant_a participant_b core_files_a core_files_b
+    clear original_core_files_a original_core_files_b order_a order_b
+end
+
+%% ========================================================================
 %  FINAL REMARKS
 % ========================================================================
 %
@@ -612,6 +795,8 @@ end
 % networks or run subsequent analyses without repeating network estimation.
 % Block 2 optionally combines these files and retains group outputs in the
 % workspace for comparisons across experimental Conditions or Groups.
+% Block 3 performs comparisons with compact temporary structures and never
+% concatenates evecs or ts across participants.
 %
 % For statistical analysis, decide which FREQNESS outputs
 % you want to compare and analyze them across experimental
@@ -649,3 +834,264 @@ end
 %     baseline_window,'which_comp',1,'plot_avg',true);
 
 %%
+
+function design = canonical_comparison_design(design)
+
+if isstring(design) && isscalar(design)
+    design = char(design);
+end
+if ~ischar(design)
+    error('comparison_design must be ''within'' or ''between''.');
+end
+if any(strcmpi(design,{'within','paired'}))
+    design = 'within';
+elseif any(strcmpi(design,{'between','independent'}))
+    design = 'between';
+else
+    error('comparison_design must be ''within'' or ''between''.');
+end
+
+end
+
+function [condition_a,condition_b] = ...
+    resolve_comparison_conditions(folder_data,requested)
+
+if isempty(requested)
+    populated = find(arrayfun(@(folder)~isempty(folder.files_mat),folder_data));
+    if numel(populated)<2
+        error('At least two non-empty conditions are required for comparisons.');
+    end
+    condition_a = populated(1);
+    condition_b = populated(2);
+    return
+end
+if isnumeric(requested)
+    if ~isvector(requested) || numel(requested)~=2 || ...
+            any(~isfinite(requested)) || any(requested~=round(requested)) || ...
+            any(requested<1) || any(requested>numel(folder_data))
+        error('comparison_conditions must contain two valid condition indices.');
+    end
+    indices = requested(:)';
+else
+    if isstring(requested)
+        requested = cellstr(requested);
+    end
+    if ~iscell(requested) || numel(requested)~=2 || ...
+            ~all(cellfun(@(name)ischar(name) && ~isempty(name),requested))
+        error('comparison_conditions must contain two condition names.');
+    end
+    names = {folder_data.name};
+    indices = zeros(1,2);
+    for conditioni = 1:2
+        match = find(strcmpi(requested{conditioni},names));
+        if numel(match)~=1
+            error('Unknown or ambiguous comparison condition: %s.', ...
+                requested{conditioni});
+        end
+        indices(conditioni) = match;
+    end
+end
+if indices(1)==indices(2)
+    error('comparison_conditions must identify two different conditions.');
+end
+condition_a = indices(1);
+condition_b = indices(2);
+
+end
+
+function [participant_names,core_files] = ...
+    comparison_records(folder,path_results,network_settings)
+
+files_mat = folder.files_mat;
+participant_names = cell(1,numel(files_mat));
+core_files = cell(1,numel(files_mat));
+for subi = 1:numel(files_mat)
+    source_file = fullfile(files_mat(subi).folder,files_mat(subi).name);
+    [~,participant_name] = fileparts(files_mat(subi).name);
+    core_file = fullfile(path_results,'CORE',folder.name, ...
+        [participant_name '_FREQ.mat']);
+    if ~exist(core_file,'file')
+        error('Core output missing: %s. Run Block 1 first.',core_file);
+    end
+    source_info = dir(source_file);
+    expected = struct('condition',folder.name,'name',participant_name, ...
+        'source_file',source_file,'source_size',folder.data_size, ...
+        'source_bytes',source_info.bytes,'source_datenum',source_info.datenum);
+    file_contents = whos('-file',core_file);
+    available = {file_contents.name};
+    required = {'PARTICIPANT','NETWORK_SETTINGS','FREQ_evals','FREQ_pats','FREQ_frex'};
+    if ~all(ismember(required,available))
+        error(['Core output predates selective comparisons: %s. Run Block 1 ' ...
+            'with overwrite_core set to true.'],core_file);
+    end
+    metadata = load(core_file,'PARTICIPANT','NETWORK_SETTINGS');
+    if ~isequaln(metadata.PARTICIPANT,expected) || ...
+            ~isequaln(metadata.NETWORK_SETTINGS,network_settings)
+        error(['Core output does not match the current inputs or settings: %s. ' ...
+            'Run Block 1 with overwrite_core set to true.'],core_file);
+    end
+    participant_names{subi} = metadata.PARTICIPANT.name;
+    core_files{subi} = core_file;
+end
+keys = lower(string(participant_names));
+if numel(unique(keys))~=numel(keys) || any(strlength(keys)==0)
+    error('Condition %s contains missing or duplicate participant identifiers.', ...
+        folder.name);
+end
+
+end
+
+function [participant_a,core_files_a,participant_b,core_files_b] = ...
+    match_comparison_participants(participant_a,core_files_a, ...
+    participant_b,core_files_b,design)
+
+if strcmp(design,'between')
+    return
+end
+keys_a = lower(string(participant_a));
+keys_b = lower(string(participant_b));
+if numel(keys_a)~=numel(keys_b) || ...
+        ~all(ismember(keys_a,keys_b)) || ~all(ismember(keys_b,keys_a))
+    error(['Within-subject comparisons require identical participant ' ...
+        'identifiers in both conditions.']);
+end
+[~,order_b] = ismember(keys_a,keys_b);
+participant_b = participant_b(order_b);
+core_files_b = core_files_b(order_b);
+
+end
+
+function [comparison,components] = load_comparison_core( ...
+    core_files,field_name,requested_frex,requested_components)
+
+if isempty(core_files)
+    error('A comparison condition contains no participant CORE files.');
+end
+first = load(core_files{1},field_name,'FREQ_frex');
+available_frex = double(first.FREQ_frex(:)');
+[frequency_indices,resolved_frex] = select_comparison_frequencies( ...
+    available_frex,requested_frex);
+values = first.(field_name);
+nsubs = numel(core_files);
+if strcmp(field_name,'FREQ_pats')
+    components = select_comparison_components(requested_components,size(values,2));
+    combined = zeros(size(values,1),numel(components), ...
+        numel(frequency_indices),nsubs,'like',values);
+    combined(:,:,:,1) = values(:,components,frequency_indices,1);
+    output_field = 'pats';
+elseif strcmp(field_name,'FREQ_evals')
+    components = select_comparison_components(requested_components,size(values,1));
+    combined = zeros(numel(components),numel(frequency_indices),nsubs,'like',values);
+    combined(:,:,1) = values(components,frequency_indices,1);
+    output_field = 'evals';
+else
+    error('Selective CORE comparisons support only FREQ_pats or FREQ_evals.');
+end
+clear first values
+
+for subi = 2:nsubs
+    participant = load(core_files{subi},field_name,'FREQ_frex');
+    this_frex = double(participant.FREQ_frex(:)');
+    if numel(this_frex)~=numel(available_frex) || ...
+            any(abs(this_frex-available_frex)>1e-10)
+        error('Participant CORE frequency grids do not match.');
+    end
+    values = participant.(field_name);
+    if strcmp(field_name,'FREQ_pats')
+        combined(:,:,:,subi) = values(:,components,frequency_indices,1);
+    else
+        combined(:,:,subi) = values(components,frequency_indices,1);
+    end
+    clear participant values
+end
+comparison = struct(output_field,combined,'frex',resolved_frex);
+
+end
+
+function [comparison,components] = load_comparison_output( ...
+    output,field_name,axis_name,requested_frex,requested_components,participant_order)
+
+if ~isstruct(output) || ~isfield(output,field_name) || ~isfield(output,axis_name)
+    error('Secondary output must contain %s and %s.',field_name,axis_name);
+end
+axis_values = output.(axis_name);
+available_frex = double(axis_values(:))';
+[frequency_indices,resolved_frex] = select_comparison_frequencies( ...
+    available_frex,requested_frex);
+values = output.(field_name);
+if ndims(values)==2
+    if size(values,1)~=numel(available_frex) || ...
+            size(values,2)~=numel(participant_order)
+        error('Secondary output %s must be [nFrex x nParticipants].',field_name);
+    end
+    components = select_comparison_components(requested_components,1);
+    combined = values(frequency_indices,participant_order);
+elseif ndims(values)==3
+    if size(values,2)~=numel(available_frex) || ...
+            size(values,3)~=numel(participant_order)
+        error(['Secondary output %s must be ' ...
+            '[nFeatures x nFrex x nParticipants].'],field_name);
+    end
+    components = select_comparison_components(requested_components,size(values,1));
+    combined = values(components,frequency_indices,participant_order);
+else
+    error('Secondary output %s must be two- or three-dimensional.',field_name);
+end
+comparison = struct(field_name,combined,axis_name,resolved_frex);
+
+end
+
+function [indices,resolved] = select_comparison_frequencies(available,requested)
+
+if isempty(requested) || ...
+        ((ischar(requested) || (isstring(requested) && isscalar(requested))) && ...
+        strcmpi(requested,'all'))
+    indices = 1:numel(available);
+    resolved = available;
+    return
+end
+if ~isnumeric(requested) || ~isvector(requested) || isempty(requested) || ...
+        any(~isfinite(requested))
+    error('Comparison frequencies must be numeric, empty, or ''all''.');
+end
+requested = requested(:)';
+if any(requested<available(1)) || any(requested>available(end))
+    error('Comparison frequencies fall outside the CORE frequency range.');
+end
+if isscalar(available)
+    tolerance = inf;
+else
+    tolerance = median(diff(available))/2;
+end
+indices = zeros(size(requested));
+for frexi = 1:numel(requested)
+    distances = abs(available-requested(frexi));
+    minimum = min(distances);
+    nearest = find(abs(distances-minimum)<=eps(max(max(distances),1))*8);
+    if numel(nearest)~=1 || minimum>tolerance+eps
+        error('No unique CORE frequency matches %.4g Hz.',requested(frexi));
+    end
+    indices(frexi) = nearest;
+end
+if numel(unique(indices))~=numel(indices)
+    error('Two requested comparison frequencies resolve to the same bin.');
+end
+resolved = available(indices);
+if any(abs(requested-resolved)>1e-12)
+    warning('Some comparison frequencies are unavailable; using closest CORE bins.');
+end
+
+end
+
+function components = select_comparison_components(requested,available)
+
+if ~isnumeric(requested) || ~isvector(requested) || isempty(requested) || ...
+        any(~isfinite(requested)) || any(requested~=round(requested)) || ...
+        any(requested<1) || any(requested>available) || ...
+        numel(unique(requested))~=numel(requested)
+    error('Comparison components must be unique integers between 1 and %d.', ...
+        available);
+end
+components = requested(:)';
+
+end

@@ -129,6 +129,9 @@ for condi = 1:2
         verifyEqual(testCase,saved.FREQ.duration,4);
         verifyEqual(testCase,saved.PARTICIPANT.condition,folder_data(condi).name);
         verifyEqual(testCase,saved.NETWORK_SETTINGS.ncomps,5);
+        verifyEqual(testCase,saved.FREQ_evals,saved.FREQ.evals);
+        verifyEqual(testCase,saved.FREQ_pats,saved.FREQ.pats);
+        verifyEqual(testCase,saved.FREQ_frex,saved.FREQ.frex);
         verify_participant(testCase,saved.FREQ,expected,subi);
     end
 end
@@ -234,6 +237,64 @@ for condi = 1:2
 end
 verifyEmpty(testCase,actual{3});
 verifyEqual(testCase,evalin('base','exist(''data2remove'',''var'')'),0);
+end
+
+function testSelectiveComparisonBlockUsesThinStructures(testCase)
+
+source = fullfile(testCase.TestData.test_root,'FREQNESS_Data', ...
+    'Dataset_1','participant_B.mat');
+destination = fullfile(testCase.TestData.test_root,'FREQNESS_Data', ...
+    'Dataset_2','participant_B.mat');
+copyfile(source,destination);
+run_pipeline(testCase.TestData.script_file);
+
+set_pipeline_setting(testCase.TestData.script_file,'run_core','false');
+set_pipeline_setting(testCase.TestData.script_file,'run_spatial_comparison','true');
+set_pipeline_setting(testCase.TestData.script_file,'run_landscape_comparison','true');
+set_pipeline_setting(testCase.TestData.script_file,'comparison_conditions', ...
+    '{''Dataset_1'',''Dataset_2''}');
+set_pipeline_setting(testCase.TestData.script_file,'comparison_design','''within''');
+set_pipeline_setting(testCase.TestData.script_file,'comparison_plot_results','false');
+set_pipeline_setting(testCase.TestData.script_file,'spatialcomparison_frex','8');
+set_pipeline_setting(testCase.TestData.script_file,'spatialcomparison_comps','1');
+set_pipeline_setting(testCase.TestData.script_file, ...
+    'spatialcomparison_n_permutations','8');
+set_pipeline_setting(testCase.TestData.script_file,'landscapecomparison_frex','8');
+set_pipeline_setting(testCase.TestData.script_file,'landscapecomparison_comps','1');
+run_pipeline(testCase.TestData.script_file);
+
+spatial = evalin('base','STATS_spatial');
+landscape = evalin('base','STATS_landscape');
+verifyEqual(testCase,spatial.design,'within');
+verifyEqual(testCase,spatial.n_A,2);
+verifyEqual(testCase,spatial.n_B,2);
+verifyEqual(testCase,spatial.frex,8);
+verifyEqual(testCase,landscape.design,'within');
+verifyEqual(testCase,landscape.evals.frex,8);
+verifyEqual(testCase,evalin('base','exist(''FREQ'',''var'')'),0);
+verifyEqual(testCase,evalin('base','exist(''comparison_a'',''var'')'),0);
+verifyEqual(testCase,evalin('base','exist(''comparison_b'',''var'')'),0);
+
+set_pipeline_setting(testCase.TestData.script_file,'run_group_analyses','true');
+set_pipeline_setting(testCase.TestData.script_file,'run_spatial_comparison','false');
+set_pipeline_setting(testCase.TestData.script_file,'run_visualizer','false');
+set_pipeline_setting(testCase.TestData.script_file,'run_entropy_landscape','true');
+set_pipeline_setting(testCase.TestData.script_file,'run_exponential_dk','false');
+set_pipeline_setting(testCase.TestData.script_file,'run_freq_gradients','false');
+set_pipeline_setting(testCase.TestData.script_file,'run_comp_gradients','false');
+set_pipeline_setting(testCase.TestData.script_file,'run_cross_coupling','false');
+set_pipeline_setting(testCase.TestData.script_file,'run_backprojection','false');
+set_pipeline_setting(testCase.TestData.script_file,'run_network_removal','false');
+set_pipeline_setting(testCase.TestData.script_file, ...
+    'landscapecomparison_measure','''H2''');
+run_pipeline(testCase.TestData.script_file);
+
+landscape = evalin('base','STATS_landscape');
+verifyEqual(testCase,landscape.measures,{'H2'});
+verifyEqual(testCase,landscape.H2.frex,8);
+verifySize(testCase,landscape.H2.values_A,[1 1 2]);
+verifySize(testCase,landscape.H2.values_B,[1 1 2]);
+
 end
 
 function run_pipeline(script_file)

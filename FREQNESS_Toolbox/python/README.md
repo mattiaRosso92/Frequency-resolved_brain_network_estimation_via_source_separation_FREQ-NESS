@@ -226,7 +226,7 @@ use the complete time series. Multi-frequency analyses warn that raw-Hz indices
 are most directly compared within frequency, and windows touching the complete
 recording boundaries warn about possible FFT and analytic-signal edge effects.
 
-`FREQNESS_MainPipeline` follows the same three blocks as MATLAB:
+`FREQNESS_MainPipeline` follows the same four blocks as MATLAB:
 
 1. **Block 0 — Startup and settings:** inspect participant files and load MNI
    coordinates, without importing participant data.
@@ -235,6 +235,9 @@ recording boundaries warn about possible FFT and analytic-signal edge effects.
 3. **Block 2 — Optional group analyses:** combine the saved participant results
    and run the established secondary analyses. This block retains group arrays
    in memory and is disabled by default.
+4. **Block 3 — Selective comparisons:** match participant identifiers and
+   assemble only the requested landscape, frequency axis, and participant
+   dimension. Complete group `ts` and `evecs` arrays are never created.
 
 Edit `RUN_CORE`, `RUN_GROUP_ANALYSES`, `PATH_RESULTS`, `OVERWRITE_CORE` and the
 analysis settings in `FREQNESS_MainPipeline.py`. Their configuration-API
@@ -276,6 +279,15 @@ and `run_group_analyses=True` with the settings used to create the files.
 Group NIfTI exports are separated under `FREQNESS_Results/GROUP/<condition>`.
 Network removal loads the original data for the current condition only when
 that analysis is selected, and preserves its existing cleaned-data outputs.
+
+Set `run_spatial_comparison=True` or `run_landscape_comparison=True` to enable
+Block 3. Spatial-pattern and eigenvalue tests selectively read `pats` or
+`evals` from each NPZ CORE file, slice requested frequencies/components first,
+and then add participants along the last dimension. `H2`, `ED`,
+`amplitude_raw`, and `amplitude_normalized` comparisons use the corresponding
+compact EntropyLandscape or CrossCoupling output from Block 2. Paired samples
+are matched and reordered by participant identifier; independent groups may
+have different participant counts.
 
 The original `FREQNESS_Startup(path)` three-output call still eagerly loads all
 datasets. Use

@@ -77,7 +77,7 @@ inputs do not trigger this warning.
    frequencies, and the analyses to run.
 3. Run the script. It initializes the toolbox automatically.
 
-The MATLAB pipeline is organized into three blocks:
+The MATLAB pipeline is organized into four blocks:
 
 - **Block 0 — Startup and settings:** inspects participant filenames and matrix
   dimensions, loads MNI coordinates, and defines the analysis settings.
@@ -86,12 +86,18 @@ The MATLAB pipeline is organized into three blocks:
   the participant data and result before proceeding to the next file.
 - **Block 2 — Optional group analyses:** combines the saved participant results
   and runs the established visualization and secondary-analysis sections.
+- **Block 3 — Selective comparisons:** matches participant identifiers and
+  builds compact statistical inputs containing only the requested landscape,
+  its frequency axis, and the participant dimension. It never reconstructs
+  group-level `ts` or `evecs` arrays.
 
 By default, `run_core = true` and `run_group_analyses = false`. Core results are
 saved under `FREQNESS_Results/CORE/<condition>/<participant>_FREQ.mat`. Each file
 contains `FREQ`, `PARTICIPANT` source-file metadata, and `NETWORK_SETTINGS`.
-The full component time series are retained for subsequent analyses. Files use
-MATLAB Version 7.3 to support large arrays.
+Small top-level `FREQ_evals`, `FREQ_pats`, and `FREQ_frex` caches support
+selective Block 3 loading; the full component time series remain only inside
+`FREQ` for subsequent analyses. Files use MATLAB Version 7.3 to support large
+arrays.
 
 The MATLAB MainPipeline retains five components per frequency by default
 (`network_ncomps = 5`). This setting limits `FREQ.evecs`, `FREQ.pats`, and
@@ -110,6 +116,14 @@ files. Block 2 restores the participant dimension, keeps group outputs in the
 workspace, and requires memory for the combined results. Network removal also
 loads the original data for the current condition. NIfTI exports are separated
 by condition under `FREQNESS_Results/GROUP`.
+
+Block 3 can run directly from matching CORE files for spatial-pattern and
+eigenvalue comparisons. It reads only selected `pats` or `evals` slices and
+applies frequency/component selection before concatenating participants.
+Entropy (`H2`/`ED`) and cross-coupling amplitude comparisons use the already
+compact corresponding Block 2 outputs. Within-subject comparisons reorder the
+second condition by participant identifier; between-group comparisons permit
+different participant counts.
 
 The original `[allData,MNI,path_home] = FREQNESS_Startup()` call still loads all
 datasets. Use `[~,MNI,path_home,folder_data] = FREQNESS_Startup(false)` to inspect

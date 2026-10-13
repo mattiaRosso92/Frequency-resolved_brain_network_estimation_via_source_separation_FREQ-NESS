@@ -18,7 +18,11 @@ leonardo.bonetti@clin.au.dk; leonardo.bonetti@psych.ox.ac.uk
 """
 
 from .FREQNESS_BackProjection import FREQNESS_BackProjection
-from .FREQNESS_CoreIO import FREQNESS_LoadCore, FREQNESS_SaveCore
+from .FREQNESS_CoreIO import (
+    FREQNESS_LoadCore,
+    FREQNESS_LoadCoreFields,
+    FREQNESS_SaveCore,
+)
 from .FREQNESS_CrossCoupling import (
     FREQNESS_CrossCoupling,
     FREQNESSCrossCouplingResult,
@@ -58,8 +62,10 @@ from .FREQNESS_MainPipeline import (
     FREQNESSPipelineConfig,
     FREQNESSPipelineResult,
     FREQ_GRADIENTS,
+    LANDSCAPE_COMPARISON,
     NETWORK_ESTIMATION,
     NETWORK_REMOVAL,
+    SPATIAL_COMPARISON,
     VISUALIZER,
 )
 from .FREQNESS_NetworkEstimation import (
@@ -114,6 +120,7 @@ __all__ = [
     "FREQNESSLandscapeComparisonResult",
     "FREQNESSLandscapeMeasureResult",
     "FREQNESS_LoadCore",
+    "FREQNESS_LoadCoreFields",
     "FREQNESS_SaveCore",
     "FREQNESS_MainPipeline",
     "FREQNESSPipelineConditionResult",
@@ -153,8 +160,10 @@ __all__ = [
     "ENTROPY_LANDSCAPE",
     "EXPONENTIAL_DK",
     "FREQ_GRADIENTS",
+    "LANDSCAPE_COMPARISON",
     "NETWORK_ESTIMATION",
     "NETWORK_REMOVAL",
+    "SPATIAL_COMPARISON",
     "VISUALIZER",
 ]
 
