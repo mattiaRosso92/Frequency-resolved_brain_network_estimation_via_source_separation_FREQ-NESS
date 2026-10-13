@@ -15,6 +15,7 @@ from freqness import (
     FREQNESS_ExponentialDK,
     FREQNESS_FreqGradients,
     FREQNESS_InducedResponses,
+    FREQNESS_LandscapeComparison,
     FREQNESS_MainPipeline,
     FREQNESS_NetworkEstimation,
     FREQNESS_NetworkRemoval,
@@ -93,6 +94,14 @@ STATS = FREQNESS_SpatialComparison(
     MNI,
     frex2compare=[8, 12],
     comps2compare=[1, 2],
+)
+LANDSCAPE_STATS = FREQNESS_LandscapeComparison(
+    FREQ_condition_1,
+    FREQ_condition_2,
+    measure="evals",
+    design="within",
+    test="ttest",
+    which_comp=[1, 2],
 )
 STAB = FREQNESS_StabilityIndex(
     FREQ,
@@ -183,6 +192,17 @@ with a two-sided MNI-adjacency cluster-mass sign-flip test. Each permutation
 uses the maximum cluster mass across every frequency and component requested
 in the call, providing family-wise error control over the complete comparison.
 Use `frex2compare="all"` to analyze the full frequency grid.
+
+`FREQNESS_LandscapeComparison` tests participant-level frequency landscapes
+between conditions or groups. Set `design="within"` for repeated observations
+or `design="between"` for independent groups. Within-subject analyses support
+paired `ttest` and `signrank`; between-subject analyses support Welch `ttest`
+and `ranksum`. Component numbers are one-based and default to component 1.
+Benjamini-Hochberg FDR correction is applied across tested frequencies,
+separately for each measure and component, by default. Omitting `measure`
+analyzes every recognized landscape shared by both inputs and preserves each
+source field name in the result, such as `STATS.evals`, `STATS.H2`, or
+`STATS.stability_index`.
 
 `FREQNESS_StabilityIndex` quantifies the temporal stability of selected
 network oscillations. Each broadband component time series is filtered at its

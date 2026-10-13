@@ -52,6 +52,9 @@ gradient modelling. `FREQNESS_SpatialComparison` uses the same coordinates to
 perform paired voxel-wise comparisons with MNI-adjacency cluster correction.
 `FREQNESS_StabilityIndex` quantifies the temporal frequency stability of
 selected network time series without requiring behavioral data.
+`FREQNESS_LandscapeComparison` compares participant-level landscapes between
+conditions or groups using paired or independent tests and applies internal
+Benjamini-Hochberg FDR correction across frequencies by default.
 
 For group analyses, every participant must use the same standardized source
 space: the source count, ordering, and anatomical correspondence must all
