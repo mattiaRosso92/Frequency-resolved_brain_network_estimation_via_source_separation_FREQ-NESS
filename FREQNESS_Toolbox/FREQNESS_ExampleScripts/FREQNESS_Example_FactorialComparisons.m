@@ -34,6 +34,22 @@
 %  in FREQ.pats.
 % ========================================================================
 
+%% 0. STARTUP
+
+% Locate the toolbox relative to this script, including after extraction
+% from FREQNESS.zip. Preserve study variables already in the workspace.
+path_home = fileparts(fileparts(mfilename('fullpath')));
+addpath(path_home)
+[~,MNI_startup,path_home] = FREQNESS_Startup(false);
+
+% Preserve study-specific coordinates when already supplied. Otherwise use
+% the coordinate file found by Startup in FREQNESS_MNI_Coordinates.
+if ~exist('MNI','var') || isempty(MNI)
+    MNI = MNI_startup;
+end
+clear MNI_startup
+
+
 %% 1. ASSIGN THE STUDY DATA
 
 % Load or create the following eight group-level FREQ structures before
@@ -48,9 +64,13 @@
 %   FREQ_clinical_task2
 %   FREQ_clinical_recovery
 %
-% Also load the matching MNI coordinate matrix:
+% Also load the matching MNI coordinate matrix if the coordinates fetched
+% by Startup do not describe your source space:
 %
 %   MNI [nVoxels x 3]
+%
+% Startup initializes paths and coordinates; it does not import these eight
+% previously computed FREQ structures. Supply them before running the script.
 
 % The dimensions of this cell array define the experimental design.
 % Rows represent Group; columns represent Condition.
