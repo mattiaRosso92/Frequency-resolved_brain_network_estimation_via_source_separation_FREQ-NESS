@@ -56,9 +56,12 @@ declared as within- or between-subject, while established two-structure calls
 remain supported.
 `FREQNESS_StabilityIndex` quantifies the temporal frequency stability of
 selected network time series without requiring behavioral data.
-`FREQNESS_LandscapeComparison` compares participant-level landscapes between
-conditions or groups using paired or independent tests and applies internal
-Benjamini-Hochberg FDR correction across frequencies by default.
+`FREQNESS_LandscapeComparison` compares participant-level landscapes using
+pairwise or multidimensional factorial designs. Generalized MATLAB calls use
+the same cell-array factor representation as `FREQNESS_SpatialComparison`
+and support within-subject, between-subject, and mixed designs. Internal
+Benjamini-Hochberg FDR correction is applied across tested frequencies for
+each effect, measure, and component by default.
 For both comparison functions, an incompatible non-parametric test selection
 is replaced by the design-appropriate test with a warning: `signrank` for
 within-subject data and `ranksum` for independent groups.
