@@ -1520,8 +1520,11 @@ effect_names = STATS.effect_names;
 for effecti = 1:numel(effect_names)
     result = STATS.effects.(effect_names{effecti});
     for compi = 1:numel(STATS.comps)
-        figure('Color','w','Name',sprintf('Spatial effect: %s',result.name));
-        tiledlayout(1,numel(STATS.frex),'TileSpacing','compact', ...
+        figure_width = max(760,440*numel(STATS.frex)+120);
+        current_figure = figure('Color','w', ...
+            'Name',sprintf('Spatial effect: %s',result.name), ...
+            'Position',[100 100 figure_width 520],'Renderer','painters');
+        layout = tiledlayout(1,numel(STATS.frex),'TileSpacing','compact', ...
             'Padding','compact');
         color_limit = max(result.statistic(:,:,compi),[],'all');
         if ~isfinite(color_limit) || color_limit<=0
@@ -1530,23 +1533,34 @@ for effecti = 1:numel(effect_names)
         for frexi = 1:numel(STATS.frex)
             nexttile
             values = result.statistic(:,frexi,compi);
-            scatter3(MNI(:,1),MNI(:,2),MNI(:,3),18,values,'filled');
+            scatter3(MNI(:,1),MNI(:,2),MNI(:,3),12,[.80 .83 .86], ...
+                'filled','MarkerFaceAlpha',.68,'MarkerEdgeColor','none');
             hold on
             significant = result.significant_mask(:,frexi,compi);
             if any(significant)
                 scatter3(MNI(significant,1),MNI(significant,2), ...
-                    MNI(significant,3),42,values(significant),'filled', ...
-                    'MarkerEdgeColor','k');
+                    MNI(significant,3),58,values(significant),'filled', ...
+                    'MarkerEdgeColor',[.09 .13 .17],'LineWidth',.75);
+            else
+                text(.5,.04,'No corrected clusters','Units','normalized', ...
+                    'HorizontalAlignment','center','Color',[.40 .44 .49], ...
+                    'FontSize',9);
             end
-            axis equal off
-            view(3)
-            colormap(gca,parula)
+            format_publication_spatial_axis(MNI)
             clim([0 color_limit])
-            title(sprintf('%g Hz',STATS.frex(frexi)))
+            title(sprintf('%g Hz',STATS.frex(frexi)), ...
+                'FontSize',12,'FontWeight','bold')
         end
-        colorbar
-        sgtitle(sprintf('%s | component %d | %s',result.name, ...
-            STATS.comps(compi),result.statistic_name),'Interpreter','none');
+        colormap(current_figure,publication_sequential_colormap(256))
+        current_colorbar = colorbar;
+        current_colorbar.Layout.Tile = 'east';
+        current_colorbar.Label.String = sprintf('%s statistic', ...
+            result.statistic_name);
+        current_colorbar.FontSize = 10;
+        title(layout,{sprintf('Spatial comparison - %s',result.name), ...
+            sprintf(['Component %d  |  Outlined markers: ' ...
+            'cluster-corrected p <= %.3g'],STATS.comps(compi),STATS.alpha)}, ...
+            'FontSize',15,'FontWeight','bold','Interpreter','none');
     end
 end
 
@@ -2026,45 +2040,73 @@ for frexi = 1:numel(STATS.frex)
         difference = STATS.mean_difference(:,frexi,compi);
         significant = STATS.significant_mask(:,frexi,compi);
         color_limit = max(max(abs(difference)),eps);
-        figure('Color','w','Position',[100 100 1100 480]);
+        current_figure = figure('Color','w','Position',[100 100 1120 520], ...
+            'Renderer','painters');
+        layout = tiledlayout(1,2,'TileSpacing','compact','Padding','compact');
 
-        subplot(1,2,1), hold on
-        scatter3(MNI(:,1),MNI(:,2),MNI(:,3),8,'k','filled', ...
-            'MarkerFaceAlpha',.18,'MarkerEdgeAlpha',.18);
-        scatter3(MNI(:,1),MNI(:,2),MNI(:,3),28,difference,'filled', ...
-            'MarkerFaceAlpha',.9,'MarkerEdgeAlpha',.25);
-        format_spatial_axis('Mean difference',cmap,color_limit);
+        nexttile, hold on
+        scatter3(MNI(:,1),MNI(:,2),MNI(:,3),12,[.80 .83 .86], ...
+            'filled','MarkerFaceAlpha',.68,'MarkerEdgeColor','none');
+        scatter3(MNI(:,1),MNI(:,2),MNI(:,3),36,difference,'filled', ...
+            'MarkerFaceAlpha',.95,'MarkerEdgeColor','none');
+        format_spatial_axis('Mean difference',color_limit);
 
-        subplot(1,2,2), hold on
-        scatter3(MNI(:,1),MNI(:,2),MNI(:,3),8,'k','filled', ...
-            'MarkerFaceAlpha',.18,'MarkerEdgeAlpha',.18);
+        nexttile, hold on
+        scatter3(MNI(:,1),MNI(:,2),MNI(:,3),12,[.80 .83 .86], ...
+            'filled','MarkerFaceAlpha',.68,'MarkerEdgeColor','none');
         if any(significant)
             scatter3(MNI(significant,1),MNI(significant,2),MNI(significant,3), ...
-                28,difference(significant),'filled','MarkerFaceAlpha',.9, ...
-                'MarkerEdgeAlpha',.25);
+                54,difference(significant),'filled','MarkerFaceAlpha',.95, ...
+                'MarkerEdgeColor',[.09 .13 .17],'LineWidth',.75);
         end
-        format_spatial_axis('Cluster-corrected difference',cmap,color_limit);
-        sgtitle(sprintf('%s - %s | %.4g Hz | Component #%d', ...
+        format_spatial_axis('Cluster-corrected difference',color_limit);
+        colormap(current_figure,cmap)
+        current_colorbar = colorbar;
+        current_colorbar.Layout.Tile = 'east';
+        current_colorbar.Label.String = 'Mean difference';
+        current_colorbar.FontSize = 10;
+        title(layout,{sprintf('%s - %s  |  %.4g Hz  |  Component %d', ...
             STATS.condition_labels{2},STATS.condition_labels{1}, ...
-            STATS.frex(frexi),STATS.comps(compi)),'FontSize',16);
+            STATS.frex(frexi),STATS.comps(compi)), ...
+            sprintf('Outlined markers: cluster-corrected p <= %.3g', ...
+            STATS.alpha)},'FontSize',15,'FontWeight','bold');
     end
 end
 
 end
 
-function format_spatial_axis(title_text,cmap,color_limit)
+function format_spatial_axis(title_text,color_limit)
 
-axis equal
-grid on
-view(42,24)
-xlabel('X (mm)')
-ylabel('Y (mm)')
-zlabel('Z (mm)')
-title(title_text)
-colormap(gca,cmap)
+format_publication_spatial_axis([])
+title(title_text,'FontSize',12,'FontWeight','bold')
 clim([-color_limit color_limit])
-colorbar
-set(gca,'FontSize',12)
+
+end
+
+function format_publication_spatial_axis(MNI)
+
+axis equal off
+axis vis3d
+view(-62,18)
+camproj orthographic
+if ~isempty(MNI)
+    xlim([min(MNI(:,1)) max(MNI(:,1))])
+    ylim([min(MNI(:,2)) max(MNI(:,2))])
+    zlim([min(MNI(:,3)) max(MNI(:,3))])
+end
+set(gca,'FontName','Helvetica','FontSize',10,'Clipping','off')
+
+end
+
+function cmap = publication_sequential_colormap(ncolors)
+
+anchors = [0.2670 0.0049 0.3294; 0.2297 0.3224 0.5457; ...
+    0.1276 0.5669 0.5506; 0.3692 0.7889 0.3829; ...
+    0.9932 0.9062 0.1439];
+source = linspace(0,1,size(anchors,1));
+target = linspace(0,1,ncolors);
+cmap = interp1(source,anchors,target,'pchip');
+cmap = min(max(cmap,0),1);
 
 end
 

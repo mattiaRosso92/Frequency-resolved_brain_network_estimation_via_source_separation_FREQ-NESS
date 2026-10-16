@@ -719,6 +719,31 @@ def _between_permutation_plan(
     return assignments, exact
 
 
+def _publication_spatial_colormap():
+    """Return the sequential palette shared by comparison figures."""
+    from matplotlib.colors import LinearSegmentedColormap
+
+    return LinearSegmentedColormap.from_list(
+        "freqness_spatial",
+        (
+            (0.2670, 0.0049, 0.3294),
+            (0.2297, 0.3224, 0.5457),
+            (0.1276, 0.5669, 0.5506),
+            (0.3692, 0.7889, 0.3829),
+            (0.9932, 0.9062, 0.1439),
+        ),
+    )
+
+
+def _format_publication_spatial_axis(axis, coordinates: FloatArray) -> None:
+    """Apply a consistent orthographic MNI view without decorative axes."""
+    extent = np.ptp(coordinates, axis=0)
+    axis.set_box_aspect(np.maximum(extent, 1.0))
+    axis.set_proj_type("ortho")
+    axis.view_init(elev=18, azim=-62)
+    axis.set_axis_off()
+
+
 def _plot_results(
     coordinates: FloatArray,
     result: FREQNESSSpatialComparisonResult,
@@ -731,7 +756,9 @@ def _plot_results(
             difference = result.mean_difference[:, freqi, compi]
             significant = result.significant_mask[:, freqi, compi]
             limit = max(float(np.max(np.abs(difference))), np.finfo(float).eps)
-            figure = plt.figure(figsize=(12, 5))
+            figure = plt.figure(figsize=(11.5, 5.2), dpi=140, facecolor="white")
+            axes = []
+            points = None
             for panel, (values, mask, title) in enumerate(
                 (
                     (difference, np.ones(difference.size, dtype=bool), "Mean difference"),
@@ -740,7 +767,15 @@ def _plot_results(
                 start=1,
             ):
                 axis = figure.add_subplot(1, 2, panel, projection="3d")
-                axis.scatter(*coordinates.T, s=6, c="black", alpha=0.18, linewidths=0)
+                axes.append(axis)
+                axis.scatter(
+                    *coordinates.T,
+                    s=9,
+                    c="#CBD2D9",
+                    alpha=0.65,
+                    linewidths=0,
+                    depthshade=False,
+                )
                 if np.any(mask):
                     points = axis.scatter(
                         *coordinates[mask].T,
@@ -748,21 +783,46 @@ def _plot_results(
                         cmap="coolwarm",
                         vmin=-limit,
                         vmax=limit,
-                        s=24,
-                        alpha=0.9,
-                        linewidths=0,
+                        s=34 if panel == 1 else 50,
+                        alpha=0.95,
+                        edgecolors="#17212B" if panel == 2 else "none",
+                        linewidths=0.7 if panel == 2 else 0,
+                        depthshade=False,
                     )
-                    figure.colorbar(points, ax=axis, shrink=0.65, pad=0.08)
-                axis.set_title(title)
-                axis.set_xlabel("X (mm)")
-                axis.set_ylabel("Y (mm)")
-                axis.set_zlabel("Z (mm)")
-                axis.set_box_aspect(np.ptp(coordinates, axis=0))
+                else:
+                    axis.text2D(
+                        0.5,
+                        0.04,
+                        "No corrected clusters",
+                        transform=axis.transAxes,
+                        ha="center",
+                        color="#66717D",
+                        fontsize=9,
+                    )
+                axis.set_title(title, fontsize=12, fontweight="bold", pad=8)
+                _format_publication_spatial_axis(axis, coordinates)
+            if points is not None:
+                colorbar = figure.colorbar(
+                    points, ax=axes, shrink=0.68, aspect=24, pad=0.015
+                )
+                colorbar.set_label("Mean difference", fontsize=10)
+                colorbar.outline.set_linewidth(0.6)
             figure.suptitle(
-                f"{result.condition_labels[1]} - {result.condition_labels[0]} | "
-                f"{frequency:g} Hz | Component #{component}"
+                f"{result.condition_labels[1]} − {result.condition_labels[0]}  ·  "
+                f"{frequency:g} Hz  ·  Component {component}",
+                fontsize=15,
+                fontweight="bold",
+                y=0.96,
             )
-            figure.tight_layout()
+            figure.text(
+                0.5,
+                0.025,
+                f"Outlined markers: cluster-corrected p ≤ {result.alpha:g}",
+                ha="center",
+                fontsize=9,
+                color="#52606D",
+            )
+            figure.subplots_adjust(left=0.01, right=0.91, top=0.86, bottom=0.08)
     if show:
         plt.show()
 
@@ -1140,45 +1200,84 @@ def _plot_factorial_results(
     """Plot omnibus spatial statistics and corrected clusters."""
     import matplotlib.pyplot as plt
 
+    from matplotlib.cm import ScalarMappable
+    from matplotlib.colors import Normalize
+
     figures: list[Figure] = []
+    cmap = _publication_spatial_colormap()
     for effect_name in result.effect_names:
         effect = result.effects[effect_name]
         for compi, component in enumerate(result.comps):
-            figure = plt.figure(figsize=(5 * result.frex.size, 4.5))
+            figure = plt.figure(
+                figsize=(4.5 * result.frex.size + 0.8, 5.0),
+                dpi=140,
+                facecolor="white",
+            )
             limit = max(float(np.nanmax(effect.statistic[:, :, compi])), 1.0)
+            axes = []
             for freqi, frequency in enumerate(result.frex):
                 axis = figure.add_subplot(
                     1, result.frex.size, freqi + 1, projection="3d"
                 )
+                axes.append(axis)
                 values = effect.statistic[:, freqi, compi]
-                points = axis.scatter(
+                axis.scatter(
                     *coordinates.T,
-                    s=14,
-                    c=values,
-                    cmap="viridis",
-                    vmin=0,
-                    vmax=limit,
+                    s=10,
+                    c="#CBD2D9",
+                    alpha=0.68,
                     linewidths=0,
+                    depthshade=False,
                 )
                 significant = effect.significant_mask[:, freqi, compi]
                 if np.any(significant):
                     axis.scatter(
                         *coordinates[significant].T,
-                        s=42,
+                        s=54,
                         c=values[significant],
-                        cmap="viridis",
+                        cmap=cmap,
                         vmin=0,
                         vmax=limit,
-                        edgecolors="black",
-                        linewidths=0.8,
+                        edgecolors="#17212B",
+                        linewidths=0.75,
+                        depthshade=False,
                     )
-                axis.set_title(f"{frequency:g} Hz")
-                axis.set_axis_off()
-                axis.set_box_aspect(np.ptp(coordinates, axis=0))
-            figure.colorbar(points, ax=figure.axes, shrink=0.7, pad=0.02)
-            figure.suptitle(
-                f"{effect.name} | component {component} | {effect.statistic_name}"
+                else:
+                    axis.text2D(
+                        0.5,
+                        0.04,
+                        "No corrected clusters",
+                        transform=axis.transAxes,
+                        ha="center",
+                        color="#66717D",
+                        fontsize=9,
+                    )
+                axis.set_title(
+                    f"{frequency:g} Hz", fontsize=12, fontweight="bold", pad=6
+                )
+                _format_publication_spatial_axis(axis, coordinates)
+            mapper = ScalarMappable(norm=Normalize(vmin=0, vmax=limit), cmap=cmap)
+            colorbar = figure.colorbar(
+                mapper, ax=axes, shrink=0.68, aspect=24, pad=0.018
             )
+            colorbar.set_label(f"{effect.statistic_name} statistic", fontsize=10)
+            colorbar.outline.set_linewidth(0.6)
+            figure.suptitle(
+                f"Spatial comparison — {effect.name}",
+                fontsize=15,
+                fontweight="bold",
+                y=0.97,
+            )
+            figure.text(
+                0.5,
+                0.91,
+                f"Component {component}  ·  Outlined markers: "
+                f"cluster-corrected p ≤ {result.alpha:g}",
+                ha="center",
+                fontsize=9.5,
+                color="#52606D",
+            )
+            figure.subplots_adjust(left=0.01, right=0.90, top=0.84, bottom=0.04)
             figures.append(figure)
     if figures and show:
         plt.show()

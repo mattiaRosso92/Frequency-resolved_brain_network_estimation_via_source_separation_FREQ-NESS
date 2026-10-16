@@ -708,6 +708,31 @@ def _compare_measure(
     )
 
 
+def _landscape_measure_label(measure: str) -> str:
+    """Convert stored field names into figure-ready scientific labels."""
+    labels = {
+        "evals": "Network landscape",
+        "h2": "Rényi entropy landscape",
+        "ed": "Effective dimensionality landscape",
+        "amplitude_raw": "Cross-frequency coupling landscape",
+        "amplitude_normalized": "Normalized cross-frequency coupling landscape",
+        "stability_index": "Network stability landscape",
+        "mean_frequency": "Mean instantaneous frequency landscape",
+        "values": "Landscape",
+    }
+    return labels.get(str(measure).lower(), str(measure).replace("_", " "))
+
+
+def _style_publication_landscape_axis(axis) -> None:
+    """Apply the restrained visual style used by FREQ-NESS landscapes."""
+    axis.spines[["top", "right"]].set_visible(False)
+    axis.spines[["left", "bottom"]].set_color("#344054")
+    axis.spines[["left", "bottom"]].set_linewidth(0.8)
+    axis.grid(axis="y", color="#D8DEE5", linewidth=0.75, alpha=0.75)
+    axis.tick_params(colors="#344054", labelsize=9, width=0.8)
+    axis.set_axisbelow(True)
+
+
 def _plot_measure(
     result: FREQNESSLandscapeMeasureResult,
     labels: tuple[str, str],
@@ -723,12 +748,15 @@ def _plot_measure(
         ) from error
 
     figures: list[Figure] = []
-    colors = plt.get_cmap("viridis")([0.15, 0.75])
+    colors = ("#0072B2", "#D55E00")
+    accent = "#009E73"
     for component_index, component in enumerate(result.comps):
         figure, axes = plt.subplots(
             2,
             1,
-            figsize=(9, 7),
+            figsize=(9.2, 7.0),
+            dpi=140,
+            facecolor="white",
             sharex=True,
             constrained_layout=True,
             gridspec_kw={"height_ratios": [2.0, 1.0]},
@@ -747,35 +775,55 @@ def _plot_measure(
                 colors[1],
             ),
         ):
-            axes[0].plot(result.frex, mean, linewidth=2, color=color, label=label)
+            axes[0].plot(
+                result.frex,
+                mean,
+                linewidth=2.25,
+                color=color,
+                marker="o",
+                markersize=4.5,
+                markerfacecolor="white",
+                markeredgewidth=1.0,
+                label=label,
+            )
             if np.any(np.isfinite(sem)):
                 axes[0].fill_between(
                     result.frex,
                     mean - sem,
                     mean + sem,
                     color=color,
-                    alpha=0.18,
+                    alpha=0.13,
                     linewidth=0,
                 )
-        axes[0].set_ylabel(result.measure, fontweight="bold")
-        axes[0].set_title(
-            f"{result.measure} landscape comparison - component #{component}",
-            fontweight="bold",
-        )
-        axes[0].legend(frameon=False)
-        axes[0].grid(True, alpha=0.25)
-        axes[0].spines[["top", "right"]].set_visible(False)
+        measure_label = _landscape_measure_label(result.measure)
+        axes[0].set_ylabel(measure_label, fontweight="bold", color="#17212B")
+        axes[0].legend(frameon=False, ncol=2, loc="best")
+        _style_publication_landscape_axis(axes[0])
 
         difference = result.mean_difference[component_index]
-        axes[1].axhline(0.0, color="black", linewidth=1, linestyle="--")
-        axes[1].plot(result.frex, difference, color="black", linewidth=1.8)
+        axes[1].axhline(0.0, color="#66717D", linewidth=0.9, linestyle="--")
+        axes[1].fill_between(
+            result.frex, 0.0, difference, color="#64748B", alpha=0.10, linewidth=0
+        )
+        axes[1].plot(
+            result.frex,
+            difference,
+            color="#344054",
+            linewidth=2.0,
+            marker="o",
+            markersize=3.8,
+            markerfacecolor="white",
+            markeredgewidth=0.9,
+        )
         significant = result.significant[component_index]
         if np.any(significant):
             axes[1].scatter(
                 result.frex[significant],
                 difference[significant],
-                s=42,
-                color=plt.get_cmap("viridis")(0.95),
+                s=52,
+                color=accent,
+                edgecolor="white",
+                linewidth=0.8,
                 zorder=3,
                 label=(
                     f"FDR q ≤ {alpha:g}"
@@ -784,10 +832,30 @@ def _plot_measure(
                 ),
             )
             axes[1].legend(frameon=False)
-        axes[1].set_xlabel("Frequency (Hz)", fontweight="bold")
-        axes[1].set_ylabel(f"{labels[0]} - {labels[1]}", fontweight="bold")
-        axes[1].grid(True, alpha=0.25)
-        axes[1].spines[["top", "right"]].set_visible(False)
+        axes[1].set_xlabel(
+            "Frequency (Hz)", fontweight="bold", color="#17212B"
+        )
+        axes[1].set_ylabel(
+            f"{labels[0]} − {labels[1]}",
+            fontweight="bold",
+            color="#17212B",
+        )
+        axes[1].set_xlim(result.frex[0], result.frex[-1])
+        _style_publication_landscape_axis(axes[1])
+        figure.suptitle(
+            f"{measure_label} comparison",
+            fontsize=15,
+            fontweight="bold",
+            color="#17212B",
+        )
+        figure.text(
+            0.5,
+            0.945,
+            f"Component {component}",
+            ha="center",
+            fontsize=9.5,
+            color="#52606D",
+        )
         figures.append(figure)
     return figures
 
@@ -1032,13 +1100,25 @@ def _plot_factorial_measure(
         ) from error
 
     figures: list[Figure] = []
+    primary = "#0072B2"
+    accent = "#D55E00"
     for component_index, component in enumerate(result.comps):
-        figure, axis = plt.subplots(figsize=(9, 5), constrained_layout=True)
+        figure, axis = plt.subplots(
+            figsize=(9.2, 5.3), dpi=140, facecolor="white", constrained_layout=True
+        )
+        values = result.statistic[component_index]
+        axis.fill_between(
+            result.frex, 0.0, values, color=primary, alpha=0.09, linewidth=0
+        )
         axis.plot(
             result.frex,
-            result.statistic[component_index],
-            color=plt.get_cmap("viridis")(0.45),
-            linewidth=2,
+            values,
+            color=primary,
+            linewidth=2.4,
+            marker="o",
+            markersize=4.8,
+            markerfacecolor="white",
+            markeredgewidth=1.1,
             label=result.statistic_name,
         )
         significant = result.significant[component_index]
@@ -1046,8 +1126,10 @@ def _plot_factorial_measure(
             axis.scatter(
                 result.frex[significant],
                 result.statistic[component_index, significant],
-                s=48,
-                color=plt.get_cmap("viridis")(0.95),
+                s=58,
+                color=accent,
+                edgecolor="white",
+                linewidth=0.9,
                 label=(
                     f"FDR q ≤ {alpha:g}"
                     if correction == "fdr"
@@ -1055,15 +1137,35 @@ def _plot_factorial_measure(
                 ),
                 zorder=3,
             )
-        axis.set_xlabel("Frequency (Hz)", fontweight="bold")
-        axis.set_ylabel(result.statistic_name, fontweight="bold")
-        axis.set_title(
-            f"{result.measure} - {result.name} - component #{component}",
-            fontweight="bold",
+        axis.set_xlabel(
+            "Frequency (Hz)", fontweight="bold", color="#17212B"
         )
-        axis.grid(True, alpha=0.25)
-        axis.spines[["top", "right"]].set_visible(False)
-        axis.legend(frameon=False)
+        axis.set_ylabel(
+            f"{result.statistic_name} statistic",
+            fontweight="bold",
+            color="#17212B",
+        )
+        axis.set_title(
+            f"{_landscape_measure_label(result.measure)} comparison — {result.name}",
+            loc="center",
+            fontsize=14,
+            fontweight="bold",
+            color="#17212B",
+            pad=18,
+        )
+        axis.text(
+            0.0,
+            1.01,
+            f"Component {component}",
+            transform=axis.transAxes,
+            fontsize=9.5,
+            color="#52606D",
+            va="bottom",
+        )
+        axis.set_xlim(result.frex[0], result.frex[-1])
+        axis.set_ylim(bottom=0)
+        _style_publication_landscape_axis(axis)
+        axis.legend(frameon=False, loc="upper right")
         figures.append(figure)
     return figures
 

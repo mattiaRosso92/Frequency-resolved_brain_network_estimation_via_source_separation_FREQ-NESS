@@ -1588,24 +1588,36 @@ end
 %% Helper Function: Plot Factorial Results
 function plot_factorial_landscape_results(result,correction,alpha)
 
+primary = [0 .45 .70];
+accent = [.84 .37 0];
+measure_label = landscape_measure_label(result.measure);
 for compi = 1:numel(result.comps)
-    figure('Color','w','Position',[100 100 900 500]);
+    figure('Color','w','Position',[100 100 920 530],'Renderer','painters');
     hold on
-    plot(result.frex,result.statistic(compi,:),'Color',[0 .45 .65], ...
-        'LineWidth',2,'DisplayName',result.statistic_name);
+    values = result.statistic(compi,:);
+    fill([result.frex fliplr(result.frex)], ...
+        [zeros(size(values)) fliplr(values)],primary,'FaceAlpha',.09, ...
+        'EdgeColor','none','HandleVisibility','off');
+    plot(result.frex,values,'Color',primary,'LineWidth',2.4, ...
+        'Marker','o','MarkerSize',5,'MarkerFaceColor','w', ...
+        'MarkerEdgeColor',primary,'DisplayName',result.statistic_name);
     significant = result.significant(compi,:);
     if any(significant)
         scatter(result.frex(significant), ...
-            result.statistic(compi,significant),48,[.85 .25 .15], ...
-            'filled','DisplayName',significance_label(correction,alpha));
+            values(significant),58,accent,'filled','MarkerEdgeColor','w', ...
+            'LineWidth',.9,'DisplayName',significance_label(correction,alpha));
     end
-    xlabel('Frequency (Hz)','FontWeight','bold')
-    ylabel(result.statistic_name,'FontWeight','bold')
-    title(sprintf('%s - %s - component #%d',result.measure, ...
-        result.name,result.comps(compi)),'Interpreter','none')
-    legend('Location','best','Box','off')
-    grid on
-    set(gca,'FontSize',12,'Box','off')
+    xlabel('Frequency (Hz)','FontWeight','bold','Color',[.09 .13 .17])
+    ylabel(sprintf('%s statistic',result.statistic_name), ...
+        'FontWeight','bold','Color',[.09 .13 .17])
+    title({sprintf('%s comparison - %s',measure_label,result.name), ...
+        sprintf('Component %d',result.comps(compi))}, ...
+        'FontSize',14,'FontWeight','bold','Interpreter','none')
+    xlim([result.frex(1) result.frex(end)])
+    current_limits = ylim;
+    ylim([0 max(current_limits(2),eps)])
+    legend('Location','northeast','Box','off')
+    style_publication_landscape_axis
 end
 
 end
@@ -1840,39 +1852,46 @@ end
 %% Helper Function: Plot Results
 function plot_landscape_results(result,sample_labels,correction,alpha)
 
-colors = parula(4);
-colors = colors([1 4],:);
+colors = [0 .45 .70; .84 .37 0];
+accent = [0 .62 .45];
+measure_label = landscape_measure_label(result.measure);
 for compi = 1:numel(result.comps)
-    figure('Color','w','Position',[100 100 900 700]);
-    tiledlayout(2,1,'TileSpacing','compact','Padding','compact');
+    figure('Color','w','Position',[100 100 920 700],'Renderer','painters');
+    layout = tiledlayout(2,1,'TileSpacing','compact','Padding','compact');
 
     nexttile, hold on
     plot_with_error(result.frex,result.mean_A(compi,:), ...
         result.sem_A(compi,:),colors(1,:),sample_labels{1});
     plot_with_error(result.frex,result.mean_B(compi,:), ...
         result.sem_B(compi,:),colors(2,:),sample_labels{2});
-    ylabel(result.measure,'FontWeight','bold')
-    title(sprintf('%s landscape comparison - component #%d', ...
-        result.measure,result.comps(compi)),'Interpreter','none')
-    legend('Location','best','Box','off')
-    grid on
-    set(gca,'FontSize',12,'Box','off')
+    ylabel(measure_label,'FontWeight','bold','Color',[.09 .13 .17])
+    legend('Location','best','Box','off','NumColumns',2)
+    style_publication_landscape_axis
 
     nexttile, hold on
-    yline(0,'--k','LineWidth',1);
-    plot(result.frex,result.mean_difference(compi,:),'k','LineWidth',1.8);
+    difference = result.mean_difference(compi,:);
+    yline(0,'--','Color',[.40 .44 .49],'LineWidth',.9);
+    fill([result.frex fliplr(result.frex)], ...
+        [zeros(size(difference)) fliplr(difference)],[.39 .45 .54], ...
+        'FaceAlpha',.10,'EdgeColor','none','HandleVisibility','off');
+    plot(result.frex,difference,'Color',[.20 .25 .31], ...
+        'LineWidth',2,'Marker','o','MarkerSize',4, ...
+        'MarkerFaceColor','w','MarkerEdgeColor',[.20 .25 .31]);
     significant = result.significant(compi,:);
     if any(significant)
         scatter(result.frex(significant), ...
-            result.mean_difference(compi,significant),42,colors(2,:), ...
-            'filled','DisplayName',significance_label(correction,alpha));
+            difference(significant),52,accent,'filled','MarkerEdgeColor','w', ...
+            'LineWidth',.8,'DisplayName',significance_label(correction,alpha));
         legend('Location','best','Box','off')
     end
-    xlabel('Frequency (Hz)','FontWeight','bold')
+    xlabel('Frequency (Hz)','FontWeight','bold','Color',[.09 .13 .17])
     ylabel(sprintf('%s - %s',sample_labels{1},sample_labels{2}), ...
-        'FontWeight','bold')
-    grid on
-    set(gca,'FontSize',12,'Box','off')
+        'FontWeight','bold','Color',[.09 .13 .17])
+    xlim([result.frex(1) result.frex(end)])
+    style_publication_landscape_axis
+    title(layout,{sprintf('%s comparison',measure_label), ...
+        sprintf('Component %d',result.comps(compi))}, ...
+        'FontSize',15,'FontWeight','bold','Interpreter','none')
 end
 
 end
@@ -1886,6 +1905,44 @@ if any(valid)
         color,'FaceAlpha',.18,'EdgeColor','none','HandleVisibility','off');
 end
 plot(frex,average,'Color',color,'LineWidth',2,'DisplayName',label);
+plot(frex,average,'LineStyle','none','Marker','o','MarkerSize',4.5, ...
+    'MarkerFaceColor','w','MarkerEdgeColor',color, ...
+    'HandleVisibility','off');
+
+end
+
+function style_publication_landscape_axis
+
+grid on
+set(gca,'FontName','Helvetica','FontSize',10,'Box','off', ...
+    'XGrid','off','YGrid','on','GridColor',[.85 .87 .90], ...
+    'GridAlpha',.75,'LineWidth',.8,'Layer','top', ...
+    'XColor',[.20 .25 .31],'YColor',[.20 .25 .31])
+
+end
+
+function label = landscape_measure_label(measure)
+
+switch lower(measure)
+    case 'evals'
+        label = 'Network landscape';
+    case 'h2'
+        label = 'Renyi entropy landscape';
+    case 'ed'
+        label = 'Effective dimensionality landscape';
+    case 'amplitude_raw'
+        label = 'Cross-frequency coupling landscape';
+    case 'amplitude_normalized'
+        label = 'Normalized cross-frequency coupling landscape';
+    case 'stability_index'
+        label = 'Network stability landscape';
+    case 'mean_frequency'
+        label = 'Mean instantaneous frequency landscape';
+    case 'values'
+        label = 'Landscape';
+    otherwise
+        label = strrep(measure,'_',' ');
+end
 
 end
 
