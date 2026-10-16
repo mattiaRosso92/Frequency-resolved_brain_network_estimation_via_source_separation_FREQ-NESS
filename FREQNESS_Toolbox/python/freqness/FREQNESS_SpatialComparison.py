@@ -1,4 +1,4 @@
-"""Within-subject or between-group comparison of spatial patterns.
+"""Pairwise or factorial comparison of spatial activation patterns.
 
 If you use this toolbox, please cite:
 Rosso, M., Fernández-Rubio, G., Keller, P. E., Brattico, E., Vuust, P.,
@@ -19,14 +19,33 @@ leonardo.bonetti@clin.au.dk; leonardo.bonetti@psych.ox.ac.uk
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Any, Mapping
+from dataclasses import dataclass, field
+from typing import Any, Mapping, Sequence, TYPE_CHECKING
 import warnings
 
 import numpy as np
 from numpy.typing import ArrayLike, NDArray
 from scipy import stats
 from scipy.spatial import cKDTree
+
+from ._factorial_utils import (
+    anova_statistics,
+    effect_definitions,
+    is_factorial_grid,
+    long_data,
+    match_subjects,
+    normalize_grid,
+    permutation_count,
+    permute_model,
+    rank_statistics,
+    validate_design,
+    validate_factor_names,
+    validate_level_labels,
+    validate_test,
+)
+
+if TYPE_CHECKING:
+    from matplotlib.figure import Figure
 
 
 FloatArray = NDArray[np.float64]
@@ -88,6 +107,77 @@ class FREQNESSSpatialComparisonResult:
     random_seed: int
     sign_flips_a: FloatArray
     sign_flips_b: FloatArray
+
+
+@dataclass(slots=True)
+class FREQNESSSpatialFactorialCluster:
+    """One cluster associated with a factorial main effect or interaction."""
+
+    effect: str
+    frex: float
+    comp: int
+    size: int
+    mass: float
+    p_corrected: float
+    peak_f: float
+    peak_statistic: float
+    peak_voxel: int
+    peak_mni: FloatArray
+
+
+@dataclass(slots=True)
+class FREQNESSSpatialFactorialEffect:
+    """Spatial statistics for one factorial effect."""
+
+    name: str
+    key: str
+    factors: tuple[int, ...]
+    statistic: FloatArray
+    statistic_name: str
+    effect_size: FloatArray
+    effect_size_name: str
+    p_uncorrected: FloatArray
+    p_cluster_corrected: FloatArray
+    significant_mask: BoolArray
+    cluster_labels: IntArray
+    clusters: list[FREQNESSSpatialFactorialCluster]
+    df1: FloatArray
+    df2: FloatArray
+
+
+@dataclass(slots=True)
+class FREQNESSSpatialFactorialComparisonResult:
+    """Outputs for a generalized factorial spatial comparison."""
+
+    analysis: str
+    requested_frex: FloatArray
+    frex: FloatArray
+    idx_frex: IntArray
+    comps: IntArray
+    factor_names: tuple[str, ...]
+    level_labels: tuple[tuple[str, ...], ...]
+    factor_design: tuple[str, ...]
+    design: tuple[str, ...]
+    input_shape: tuple[int, ...]
+    test: str
+    test_requested: str
+    effects: dict[str, FREQNESSSpatialFactorialEffect]
+    effect_names: tuple[str, ...]
+    cell_means: NDArray[np.object_]
+    cell_n_participants: IntArray
+    subject_ids: NDArray[np.object_]
+    map_mode: str
+    normalization: str
+    cluster_forming_alpha: float
+    alpha: float
+    connectivity: int
+    grid_spacing: FloatArray
+    correction_scope: str
+    n_permutations: int
+    exact_permutations: bool
+    random_seed: int
+    sign_flips: NDArray[np.object_]
+    figures: list[Figure] = field(default_factory=list)
 
 
 def _field(container: Any, name: str) -> Any:
@@ -677,7 +767,7 @@ def _plot_results(
         plt.show()
 
 
-def FREQNESS_SpatialComparison(
+def _pairwise_spatial_comparison(
     FREQ_A: Any,
     FREQ_B: Any,
     MNI: ArrayLike,
@@ -922,6 +1012,555 @@ def FREQNESS_SpatialComparison(
     return result
 
 
+def _factorial_maps(
+    patterns: NDArray[np.object_],
+    components: IntArray,
+    frequency_indices: IntArray,
+    map_mode: str,
+    normalization: str,
+) -> tuple[NDArray[np.object_], NDArray[np.object_]]:
+    """Select, align, and normalize maps from every factorial cell."""
+    maps = np.empty(patterns.shape, dtype=object)
+    flips = np.empty(patterns.shape, dtype=object)
+    for index in np.ndindex(patterns.shape):
+        current = patterns[index][:, components - 1][:, :, frequency_indices, :]
+        current = np.transpose(current, (0, 2, 1, 3)).copy()
+        maps[index] = current
+        flips[index] = np.ones(current.shape[1:], dtype=float)
+
+    if map_mode == "magnitude":
+        for index in np.ndindex(maps.shape):
+            maps[index] = np.abs(maps[index])
+    elif map_mode == "signed_aligned":
+        reference = maps.flat[0][..., 0].copy()
+        for freqi in range(reference.shape[1]):
+            for compi in range(reference.shape[2]):
+                if np.linalg.norm(reference[:, freqi, compi]) <= np.finfo(float).eps:
+                    reference[:, freqi, compi] = 1.0
+                for index in np.ndindex(maps.shape):
+                    for subject in range(maps[index].shape[3]):
+                        if np.dot(
+                            maps[index][:, freqi, compi, subject],
+                            reference[:, freqi, compi],
+                        ) < 0:
+                            maps[index][:, freqi, compi, subject] *= -1.0
+                            flips[index][freqi, compi, subject] = -1.0
+    else:
+        raise ValueError("map_mode must be 'magnitude' or 'signed_aligned'")
+
+    if normalization == "l2":
+        for index in np.ndindex(maps.shape):
+            norms = np.linalg.norm(maps[index], axis=0, keepdims=True)
+            if np.any(norms <= np.finfo(float).eps):
+                raise ValueError("A selected factorial pattern has zero L2 norm")
+            maps[index] = maps[index] / norms
+    elif normalization != "none":
+        raise ValueError("normalization must be 'l2' or 'none'")
+    return maps, flips
+
+
+def _correct_factorial_clusters(
+    result: dict[str, Any],
+    coordinates: FloatArray,
+    adjacency: list[IntArray],
+    null_maxima: FloatArray,
+    cluster_forming_alpha: float,
+    alpha: float,
+    n_permutations: int,
+    exact: bool,
+    frequencies: FloatArray,
+    components: IntArray,
+) -> FREQNESSSpatialFactorialEffect:
+    """Apply maximum-cluster correction to one factorial effect."""
+    statistic = result["statistic"]
+    p_uncorrected = result["p_uncorrected"]
+    corrected = np.ones(statistic.shape)
+    significant = np.zeros(statistic.shape, dtype=bool)
+    labels = np.zeros(statistic.shape, dtype=np.int64)
+    records: list[FREQNESSSpatialFactorialCluster] = []
+    definition = result["definition"]
+    for freqi, frequency in enumerate(frequencies):
+        for compi, component in enumerate(components):
+            spatial_map = statistic[:, freqi, compi]
+            mask = (
+                (p_uncorrected[:, freqi, compi] <= cluster_forming_alpha)
+                & (spatial_map > 0)
+            )
+            for cluster_index, members in enumerate(_clusters(mask, adjacency), start=1):
+                mass = float(np.sum(spatial_map[members]))
+                p_corrected = (
+                    float(np.mean(null_maxima >= mass))
+                    if exact
+                    else float(
+                        (1 + np.count_nonzero(null_maxima >= mass))
+                        / (n_permutations + 1)
+                    )
+                )
+                corrected[members, freqi, compi] = p_corrected
+                significant[members, freqi, compi] = p_corrected <= alpha
+                labels[members, freqi, compi] = cluster_index
+                peak = int(members[np.argmax(spatial_map[members])])
+                records.append(
+                    FREQNESSSpatialFactorialCluster(
+                        effect=definition.key,
+                        frex=float(frequency),
+                        comp=int(component),
+                        size=int(members.size),
+                        mass=mass,
+                        p_corrected=p_corrected,
+                        peak_f=float(spatial_map[peak]),
+                        peak_statistic=float(spatial_map[peak]),
+                        peak_voxel=peak,
+                        peak_mni=coordinates[peak].copy(),
+                    )
+                )
+    return FREQNESSSpatialFactorialEffect(
+        name=definition.name,
+        key=definition.key,
+        factors=definition.factors,
+        statistic=statistic,
+        statistic_name=result["statistic_name"],
+        effect_size=result["effect_size"],
+        effect_size_name=result["effect_size_name"],
+        p_uncorrected=p_uncorrected,
+        p_cluster_corrected=corrected,
+        significant_mask=significant,
+        cluster_labels=labels,
+        clusters=records,
+        df1=result["df1"],
+        df2=result["df2"],
+    )
+
+
+def _plot_factorial_results(
+    coordinates: FloatArray,
+    result: FREQNESSSpatialFactorialComparisonResult,
+    show: bool,
+) -> list[Figure]:
+    """Plot omnibus spatial statistics and corrected clusters."""
+    import matplotlib.pyplot as plt
+
+    figures: list[Figure] = []
+    for effect_name in result.effect_names:
+        effect = result.effects[effect_name]
+        for compi, component in enumerate(result.comps):
+            figure = plt.figure(figsize=(5 * result.frex.size, 4.5))
+            limit = max(float(np.nanmax(effect.statistic[:, :, compi])), 1.0)
+            for freqi, frequency in enumerate(result.frex):
+                axis = figure.add_subplot(
+                    1, result.frex.size, freqi + 1, projection="3d"
+                )
+                values = effect.statistic[:, freqi, compi]
+                points = axis.scatter(
+                    *coordinates.T,
+                    s=14,
+                    c=values,
+                    cmap="viridis",
+                    vmin=0,
+                    vmax=limit,
+                    linewidths=0,
+                )
+                significant = effect.significant_mask[:, freqi, compi]
+                if np.any(significant):
+                    axis.scatter(
+                        *coordinates[significant].T,
+                        s=42,
+                        c=values[significant],
+                        cmap="viridis",
+                        vmin=0,
+                        vmax=limit,
+                        edgecolors="black",
+                        linewidths=0.8,
+                    )
+                axis.set_title(f"{frequency:g} Hz")
+                axis.set_axis_off()
+                axis.set_box_aspect(np.ptp(coordinates, axis=0))
+            figure.colorbar(points, ax=figure.axes, shrink=0.7, pad=0.02)
+            figure.suptitle(
+                f"{effect.name} | component {component} | {effect.statistic_name}"
+            )
+            figures.append(figure)
+    if figures and show:
+        plt.show()
+    return figures
+
+
+def _factorial_spatial_comparison(
+    FREQ_GRID: Any,
+    MNI: ArrayLike,
+    *,
+    frex2compare: ArrayLike | str,
+    comps2compare: ArrayLike | None,
+    design: str | Sequence[str],
+    test: str | None,
+    condition_labels: tuple[str, str] | None,
+    factor_names: Sequence[str] | None,
+    level_labels: Sequence[Sequence[str]] | None,
+    subject_ids: Any,
+    effects: str | Sequence[str],
+    map_mode: str,
+    normalization: str,
+    cluster_forming_alpha: float,
+    alpha: float,
+    connectivity: int,
+    frex_tolerance: float | None,
+    correction_scope: str,
+    n_permutations: int | str,
+    random_seed: int,
+    plot_results: bool,
+    show: bool,
+) -> FREQNESSSpatialFactorialComparisonResult:
+    grid, factor_sizes, cell_levels = normalize_grid(FREQ_GRID)
+    names = validate_factor_names(factor_names, len(factor_sizes))
+    labels = validate_level_labels(
+        level_labels, names, factor_sizes, condition_labels
+    )
+    factor_design = validate_design(design, len(factor_sizes))
+    test_key, test_requested = validate_test(
+        test, factor_design, factor_sizes, pairwise_default="ttest"
+    )
+    definitions = effect_definitions(names, effects)
+    if correction_scope not in {"all_maps", "all_effects_and_maps"}:
+        raise ValueError(
+            "correction_scope must be 'all_maps' or 'all_effects_and_maps'"
+        )
+    for value, name in (
+        (cluster_forming_alpha, "cluster_forming_alpha"),
+        (alpha, "alpha"),
+    ):
+        if not np.isfinite(value) or not 0 < value < 1:
+            raise ValueError(f"{name} must lie strictly between 0 and 1")
+    if not isinstance(random_seed, (int, np.integer)) or isinstance(
+        random_seed, (bool, np.bool_)
+    ):
+        raise ValueError("random_seed must be an integer")
+
+    patterns = np.empty(grid.shape, dtype=object)
+    frequency_axis: FloatArray | None = None
+    reference_shape: tuple[int, int, int] | None = None
+    participant_counts = np.zeros(grid.shape, dtype=np.int64)
+    for index in np.ndindex(grid.shape):
+        current, current_frex = _canonical_freq(grid[index], f"FREQ_GRID{index}")
+        if frequency_axis is None:
+            frequency_axis = current_frex
+            reference_shape = current.shape[:3]
+        elif current.shape[:3] != reference_shape or not np.allclose(
+            current_frex, frequency_axis, atol=1e-10, rtol=0.0
+        ):
+            raise ValueError(
+                "All factorial FREQ inputs must share voxel, component, and "
+                "frequency dimensions and the same FREQ.frex grid"
+            )
+        if current.shape[3] < 2:
+            raise ValueError("Every factorial cell must contain at least two participants")
+        patterns[index] = current
+        participant_counts[index] = current.shape[3]
+    assert frequency_axis is not None and reference_shape is not None
+    coordinates = np.asarray(MNI, dtype=float)
+    if coordinates.shape != (reference_shape[0], 3) or not np.all(
+        np.isfinite(coordinates)
+    ):
+        raise ValueError("MNI must have shape (n_voxels, 3) and contain finite values")
+
+    orders, identifiers = match_subjects(
+        participant_counts, cell_levels, factor_design, subject_ids
+    )
+    for index in np.ndindex(grid.shape):
+        patterns[index] = patterns[index][..., orders[index]]
+    requested, resolved, frequency_indices = _frequency_selection(
+        frequency_axis, frex2compare, frex_tolerance
+    )
+    components = _component_selection(comps2compare, reference_shape[1])
+
+    pairwise_tests = {"ttest", "signrank", "ranksum"}
+    if len(factor_sizes) == 1 and factor_sizes[0] == 2 and test_key in pairwise_tests:
+        reordered = [
+            {"pats": patterns.flat[index], "frex": frequency_axis}
+            for index in range(2)
+        ]
+        pairwise = _pairwise_spatial_comparison(
+            reordered[0],
+            reordered[1],
+            coordinates,
+            frex2compare=frex2compare,
+            comps2compare=comps2compare,
+            design=factor_design[0],
+            test=test_key,
+            condition_labels=(labels[0][0], labels[0][1]),
+            map_mode=map_mode,
+            normalization=normalization,
+            cluster_forming_alpha=cluster_forming_alpha,
+            alpha=alpha,
+            connectivity=connectivity,
+            frex_tolerance=frex_tolerance,
+            correction_scope="all_maps",
+            n_permutations=n_permutations,
+            random_seed=random_seed,
+            plot_results=plot_results,
+            show=show,
+        )
+        definition = definitions[0]
+        effect = FREQNESSSpatialFactorialEffect(
+            name=definition.name,
+            key=definition.key,
+            factors=definition.factors,
+            statistic=pairwise.statistic,
+            statistic_name=pairwise.statistic_name,
+            effect_size=pairwise.effect_size,
+            effect_size_name=pairwise.effect_size_name,
+            p_uncorrected=pairwise.p_uncorrected,
+            p_cluster_corrected=pairwise.p_cluster_corrected,
+            significant_mask=pairwise.significant_mask,
+            cluster_labels=pairwise.cluster_labels,
+            clusters=[
+                FREQNESSSpatialFactorialCluster(
+                    effect=definition.key,
+                    frex=cluster.frex,
+                    comp=cluster.comp,
+                    size=cluster.size,
+                    mass=cluster.mass,
+                    p_corrected=cluster.p_corrected,
+                    peak_f=cluster.peak_statistic,
+                    peak_statistic=cluster.peak_statistic,
+                    peak_voxel=cluster.peak_voxel,
+                    peak_mni=cluster.peak_mni,
+                )
+                for cluster in pairwise.clusters
+            ],
+            df1=np.full(pairwise.statistic.shape, np.nan),
+            df2=np.full(pairwise.statistic.shape, np.nan),
+        )
+        prepared, flips = _factorial_maps(
+            patterns, components, frequency_indices, map_mode, normalization
+        )
+        _, _, _, cell_means, cell_counts = long_data(
+            prepared, cell_levels, factor_design
+        )
+        return FREQNESSSpatialFactorialComparisonResult(
+            analysis="pairwise",
+            requested_frex=pairwise.requested_frex,
+            frex=pairwise.frex,
+            idx_frex=pairwise.idx_frex,
+            comps=pairwise.comps,
+            factor_names=names,
+            level_labels=labels,
+            factor_design=factor_design,
+            design=factor_design,
+            input_shape=factor_sizes,
+            test=test_key,
+            test_requested=test_requested,
+            effects={definition.key: effect},
+            effect_names=(definition.key,),
+            cell_means=cell_means,
+            cell_n_participants=cell_counts,
+            subject_ids=identifiers,
+            map_mode=map_mode,
+            normalization=normalization,
+            cluster_forming_alpha=float(cluster_forming_alpha),
+            alpha=float(alpha),
+            connectivity=connectivity,
+            grid_spacing=pairwise.grid_spacing,
+            correction_scope="all_maps",
+            n_permutations=pairwise.n_permutations,
+            exact_permutations=pairwise.exact_permutations,
+            random_seed=int(random_seed),
+            sign_flips=flips,
+        )
+
+    maps, flips = _factorial_maps(
+        patterns, components, frequency_indices, map_mode, normalization
+    )
+    Y, observation_levels, subject_index, cell_means, cell_counts = long_data(
+        maps, cell_levels, factor_design
+    )
+    if test_key in {"friedman", "kruskalwallis"}:
+        raw_results, models = rank_statistics(
+            Y, observation_levels, subject_index, test_key, definitions
+        )
+    else:
+        raw_results, models = anova_statistics(
+            Y,
+            observation_levels,
+            subject_index,
+            factor_sizes,
+            factor_design,
+            definitions,
+        )
+    nvoxels = reference_shape[0]
+    nfrequencies = resolved.size
+    ncomponents = components.size
+    for result in raw_results:
+        for key in ("statistic", "effect_size", "p_uncorrected", "df1", "df2"):
+            result[key] = np.reshape(
+                result[key], (nvoxels, nfrequencies, ncomponents)
+            )
+
+    adjacency, spacing = _spatial_adjacency(coordinates, connectivity)
+    count = permutation_count(n_permutations)
+    print(
+        "\nFREQNESS Spatial Comparison: testing a "
+        f"{'/'.join(factor_design)} design with {len(factor_sizes)} factors, "
+        f"{grid.size} factorial cells, {resolved.size} frequencies, and "
+        f"{components.size} components using {test_key}."
+    )
+    print(f"Computing {count} Monte Carlo design-aware cluster permutations...")
+    rng = np.random.default_rng(random_seed)
+    null_maxima = np.zeros(count)
+    progress_step = max(1, count // 10)
+    for permutation in range(count):
+        maximum = 0.0
+        for model in models:
+            statistic, p_values = permute_model(model, rng)
+            statistic = statistic.reshape(nvoxels, nfrequencies, ncomponents)
+            p_values = p_values.reshape(nvoxels, nfrequencies, ncomponents)
+            maximum = max(
+                maximum,
+                _maximum_cluster_mass(
+                    statistic, p_values, cluster_forming_alpha, adjacency
+                ),
+            )
+        null_maxima[permutation] = maximum
+        if (permutation + 1) % progress_step == 0 or permutation + 1 == count:
+            print(f"  Permutation {permutation + 1}/{count}")
+
+    effect_results: dict[str, FREQNESSSpatialFactorialEffect] = {}
+    for raw_result in raw_results:
+        effect = _correct_factorial_clusters(
+            raw_result,
+            coordinates,
+            adjacency,
+            null_maxima,
+            cluster_forming_alpha,
+            alpha,
+            count,
+            False,
+            resolved,
+            components,
+        )
+        effect_results[effect.key] = effect
+    output = FREQNESSSpatialFactorialComparisonResult(
+        analysis="factorial",
+        requested_frex=requested,
+        frex=resolved,
+        idx_frex=frequency_indices,
+        comps=components,
+        factor_names=names,
+        level_labels=labels,
+        factor_design=factor_design,
+        design=factor_design,
+        input_shape=factor_sizes,
+        test=test_key,
+        test_requested=test_requested,
+        effects=effect_results,
+        effect_names=tuple(effect_results),
+        cell_means=cell_means,
+        cell_n_participants=cell_counts,
+        subject_ids=identifiers,
+        map_mode=map_mode,
+        normalization=normalization,
+        cluster_forming_alpha=float(cluster_forming_alpha),
+        alpha=float(alpha),
+        connectivity=connectivity,
+        grid_spacing=spacing,
+        correction_scope="all_effects_and_maps",
+        n_permutations=count,
+        exact_permutations=False,
+        random_seed=int(random_seed),
+        sign_flips=flips,
+    )
+    if plot_results:
+        output.figures.extend(_plot_factorial_results(coordinates, output, bool(show)))
+    return output
+
+
+def FREQNESS_SpatialComparison(
+    FREQ_A: Any,
+    FREQ_B: Any = None,
+    MNI: ArrayLike | None = None,
+    *,
+    frex2compare: ArrayLike | str,
+    comps2compare: ArrayLike | None = None,
+    design: str | Sequence[str] = "within",
+    test: str | None = None,
+    condition_labels: tuple[str, str] | None = None,
+    factor_names: Sequence[str] | None = None,
+    level_labels: Sequence[Sequence[str]] | None = None,
+    subject_ids: Any = None,
+    effects: str | Sequence[str] = "all",
+    map_mode: str = "magnitude",
+    normalization: str = "l2",
+    cluster_forming_alpha: float = 0.001,
+    alpha: float = 0.05,
+    connectivity: int = 6,
+    frex_tolerance: float | None = None,
+    correction_scope: str = "all_maps",
+    n_permutations: int | str = "auto",
+    random_seed: int = 0,
+    plot_results: bool = True,
+    show: bool = True,
+) -> FREQNESSSpatialComparisonResult | FREQNESSSpatialFactorialComparisonResult:
+    """Compare spatial patterns with pairwise or factorial cluster inference.
+
+    Existing calls pass ``FREQ_A, FREQ_B, MNI``. Generalized designs pass a
+    nested grid as the first argument and ``MNI`` as the second; grid axes are
+    experimental factors and grid cells contain their level combinations.
+    """
+    if is_factorial_grid(FREQ_A):
+        coordinates = MNI if MNI is not None else FREQ_B
+        if coordinates is None:
+            raise TypeError("A factorial FREQ grid must be followed by MNI")
+        return _factorial_spatial_comparison(
+            FREQ_A,
+            coordinates,
+            frex2compare=frex2compare,
+            comps2compare=comps2compare,
+            design=design,
+            test=test,
+            condition_labels=condition_labels,
+            factor_names=factor_names,
+            level_labels=level_labels,
+            subject_ids=subject_ids,
+            effects=effects,
+            map_mode=map_mode,
+            normalization=normalization,
+            cluster_forming_alpha=cluster_forming_alpha,
+            alpha=alpha,
+            connectivity=connectivity,
+            frex_tolerance=frex_tolerance,
+            correction_scope=correction_scope,
+            n_permutations=n_permutations,
+            random_seed=random_seed,
+            plot_results=plot_results,
+            show=show,
+        )
+    if FREQ_B is None or MNI is None:
+        raise TypeError("FREQ_A, FREQ_B, and MNI are required")
+    if not isinstance(design, str):
+        raise ValueError("Pairwise design must be 'within' or 'between'")
+    labels = ("A", "B") if condition_labels is None else condition_labels
+    return _pairwise_spatial_comparison(
+        FREQ_A,
+        FREQ_B,
+        MNI,
+        frex2compare=frex2compare,
+        comps2compare=comps2compare,
+        design=design,
+        test=test,
+        condition_labels=labels,
+        map_mode=map_mode,
+        normalization=normalization,
+        cluster_forming_alpha=cluster_forming_alpha,
+        alpha=alpha,
+        connectivity=connectivity,
+        frex_tolerance=frex_tolerance,
+        correction_scope=correction_scope,
+        n_permutations=n_permutations,
+        random_seed=random_seed,
+        plot_results=plot_results,
+        show=show,
+    )
+
+
 spatial_comparison = FREQNESS_SpatialComparison
 
 
@@ -929,5 +1568,8 @@ __all__ = [
     "FREQNESS_SpatialComparison",
     "FREQNESSSpatialCluster",
     "FREQNESSSpatialComparisonResult",
+    "FREQNESSSpatialFactorialCluster",
+    "FREQNESSSpatialFactorialComparisonResult",
+    "FREQNESSSpatialFactorialEffect",
     "spatial_comparison",
 ]

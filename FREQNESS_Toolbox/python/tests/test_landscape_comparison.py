@@ -11,6 +11,7 @@ import pytest
 from freqness import (
     FREQNESS_LandscapeComparison,
     FREQNESSLandscapeComparisonResult,
+    FREQNESSLandscapeFactorialComparisonResult,
     landscape_comparison,
 )
 
@@ -198,3 +199,155 @@ def test_design_test_recovery_and_plot_count():
     assert len(result.figures) == 2
     assert len(plt.get_fignums()) == 2
     assert landscape_comparison is FREQNESS_LandscapeComparison
+
+
+def test_factorial_within_subject_anova_applies_fdr_per_component():
+    rng = np.random.default_rng(73)
+    frex = np.arange(4.0, 18.0, 2.0)
+    grid = []
+    identifiers = []
+    participant_offset = rng.normal(0.0, 0.05, (2, 1, 10))
+    profile = np.exp(-((frex - 10.0) / 3.0) ** 2)
+    for level in range(3):
+        values = (
+            participant_offset
+            + rng.normal(0.0, 0.03, (2, frex.size, 10))
+            + level * 0.25 * profile.reshape(1, -1, 1)
+        )
+        grid.append(SimpleNamespace(evals=values, frex=frex))
+        identifiers.append([f"P{index}" for index in range(10)])
+
+    result = FREQNESS_LandscapeComparison(
+        grid,
+        measure="evals",
+        design="within",
+        factor_names=["Condition"],
+        level_labels=[["Low", "Medium", "High"]],
+        subject_ids=identifiers,
+        which_comp=[1, 2],
+        show=False,
+    )
+
+    assert isinstance(result, FREQNESSLandscapeFactorialComparisonResult)
+    assert result.analysis == "factorial"
+    assert result.test == "anova"
+    assert result.n_permutations == 0
+    assert result.correction_scope == (
+        "frequencies separately for each effect, measure, and component"
+    )
+    measure_result = result.effects["Condition"].evals
+    assert measure_result.statistic.shape == (2, frex.size)
+    assert measure_result.q_fdr.shape == (2, frex.size)
+    assert np.any(measure_result.significant[0])
+    assert len(result.figures) == 2
+
+
+def test_factorial_mixed_design_returns_all_effects():
+    rng = np.random.default_rng(74)
+    frex = np.array([4.0, 8.0, 12.0])
+    grid = [[None, None], [None, None]]
+    identifiers = [[None, None], [None, None]]
+    for group in range(2):
+        nsubjects = 6 + group
+        group_ids = [f"G{group}P{index}" for index in range(nsubjects)]
+        baseline = rng.normal(0.0, 0.06, (1, frex.size, nsubjects))
+        for condition in range(2):
+            values = baseline + rng.normal(0.0, 0.02, baseline.shape)
+            values += 0.2 * group + 0.3 * condition + 0.1 * group * condition
+            grid[group][condition] = SimpleNamespace(evals=values, frex=frex)
+            identifiers[group][condition] = group_ids
+
+    result = FREQNESS_LandscapeComparison(
+        grid,
+        measure="evals",
+        design=["between", "within"],
+        factor_names=["Group", "Condition"],
+        subject_ids=identifiers,
+        test="anova",
+        plot_results=False,
+    )
+
+    assert result.effect_names == ("Group", "Condition", "Group_x_Condition")
+    np.testing.assert_array_equal(result.cell_n_participants, [[6, 6], [7, 7]])
+    for effect in result.effects.values():
+        assert effect.evals.statistic.shape == (1, 3)
+        assert effect.evals.q_fdr.shape == (1, 3)
+
+
+def test_factorial_permutation_anova_is_explicit_and_then_fdr_corrected():
+    rng = np.random.default_rng(75)
+    grid = []
+    identifiers = []
+    for level in range(3):
+        grid.append(
+            SimpleNamespace(
+                evals=rng.normal(level * 0.2, 0.1, (1, 4, 8)),
+                frex=[4.0, 8.0, 12.0, 16.0],
+            )
+        )
+        identifiers.append([f"P{index}" for index in range(8)])
+
+    result = FREQNESS_LandscapeComparison(
+        grid,
+        measure="evals",
+        design="within",
+        test="permutation_anova",
+        subject_ids=identifiers,
+        n_permutations=19,
+        random_seed=4,
+        plot_results=False,
+    )
+
+    assert result.test == "permutation_anova"
+    assert result.n_permutations == 19
+    output = result.effects["Factor1"].evals
+    assert np.all(output.p_uncorrected[np.isfinite(output.p_uncorrected)] >= 0.05)
+    assert output.q_fdr.shape == output.p_uncorrected.shape
+
+
+def test_factorial_rank_tests_and_pairwise_grid_compatibility():
+    rng = np.random.default_rng(76)
+    frex = np.array([5.0, 10.0, 15.0])
+    within_grid = [
+        SimpleNamespace(evals=rng.normal(level, 0.2, (1, 3, 7)), frex=frex)
+        for level in range(3)
+    ]
+    identifiers = [[f"P{index}" for index in range(7)] for _ in range(3)]
+    friedman = FREQNESS_LandscapeComparison(
+        within_grid,
+        measure="evals",
+        design="within",
+        test="friedman",
+        subject_ids=identifiers,
+        plot_results=False,
+    )
+    assert friedman.test == "friedman"
+    assert friedman.effects["Factor1"].evals.statistic_name == "chi-square"
+
+    condition_a, condition_b = _paired_freq(77)
+    direct = FREQNESS_LandscapeComparison(
+        condition_a,
+        condition_b,
+        measure="evals",
+        test="ttest",
+        plot_results=False,
+    )
+    order = np.array([3, 1, 12, 0, 8, 5, 2, 13, 6, 10, 4, 9, 7, 11])
+    reordered_b = SimpleNamespace(
+        evals=condition_b.evals[..., order], frex=condition_b.frex
+    )
+    generalized = FREQNESS_LandscapeComparison(
+        [condition_a, reordered_b],
+        measure="evals",
+        design="within",
+        test="ttest",
+        subject_ids=[
+            [f"P{index}" for index in range(14)],
+            [f"P{index}" for index in order],
+        ],
+        plot_results=False,
+    )
+    np.testing.assert_allclose(
+        generalized.effects["Factor1"].evals.p_uncorrected,
+        direct.evals.p_uncorrected,
+    )

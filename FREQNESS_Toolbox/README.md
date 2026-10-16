@@ -57,8 +57,8 @@ remain supported.
 `FREQNESS_StabilityIndex` quantifies the temporal frequency stability of
 selected network time series without requiring behavioral data.
 `FREQNESS_LandscapeComparison` compares participant-level landscapes using
-pairwise or multidimensional factorial designs. Generalized MATLAB calls use
-the same cell-array factor representation as `FREQNESS_SpatialComparison`
+pairwise or multidimensional factorial designs. Generalized MATLAB and Python
+calls use the same factor-grid representation as `FREQNESS_SpatialComparison`
 and support within-subject, between-subject, and mixed designs. Internal
 Benjamini-Hochberg FDR correction is applied across tested frequencies for
 each effect, measure, and component by default.
