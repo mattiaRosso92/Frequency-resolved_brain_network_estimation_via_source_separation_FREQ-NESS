@@ -11,6 +11,7 @@ import pytest
 from freqness import (
     FREQNESS_SpatialComparison,
     FREQNESSSpatialComparisonResult,
+    FREQNESSSpatialFactorialComparisonResult,
     spatial_comparison,
 )
 
@@ -265,3 +266,112 @@ def test_incompatible_nonparametric_tests_warn_and_are_corrected(paired_patterns
 
 def test_public_alias_references_matlab_named_function():
     assert spatial_comparison is FREQNESS_SpatialComparison
+
+
+def test_factorial_within_subject_anova_uses_cluster_permutations():
+    coordinates = np.asarray(list(np.ndindex(3, 3, 3)), dtype=float) * 8.0
+    rng = np.random.default_rng(91)
+    frex = np.array([6.0, 10.0])
+    grid = []
+    identifiers = []
+    baseline = rng.normal(0.0, 0.08, (27, 1, 2, 7))
+    for level in range(3):
+        patterns = baseline + rng.normal(0.0, 0.03, baseline.shape)
+        patterns[[4, 5, 13, 14], 0, 1] += level * 0.35
+        grid.append(SimpleNamespace(pats=patterns, frex=frex))
+        identifiers.append([f"P{index}" for index in range(7)])
+
+    result = FREQNESS_SpatialComparison(
+        grid,
+        coordinates,
+        frex2compare="all",
+        design="within",
+        factor_names=["Condition"],
+        level_labels=[["Low", "Medium", "High"]],
+        subject_ids=identifiers,
+        normalization="none",
+        cluster_forming_alpha=0.05,
+        n_permutations=19,
+        show=False,
+    )
+
+    assert isinstance(result, FREQNESSSpatialFactorialComparisonResult)
+    assert result.analysis == "factorial"
+    assert result.test == "anova"
+    assert result.factor_names == ("Condition",)
+    assert result.effect_names == ("Condition",)
+    assert result.correction_scope == "all_effects_and_maps"
+    assert result.n_permutations == 19
+    assert result.effects["Condition"].statistic.shape == (27, 2, 1)
+    assert result.effects["Condition"].p_cluster_corrected.shape == (27, 2, 1)
+    assert len(result.figures) == 1
+
+
+def test_factorial_mixed_design_exposes_main_effects_and_interaction():
+    coordinates = np.asarray(list(np.ndindex(2, 2, 2)), dtype=float) * 8.0
+    rng = np.random.default_rng(92)
+    grid = [[None, None], [None, None]]
+    identifiers = [[None, None], [None, None]]
+    for group in range(2):
+        nsubjects = 5 + group
+        group_ids = [f"G{group}P{index}" for index in range(nsubjects)]
+        baseline = rng.normal(0.0, 0.1, (8, 1, 1, nsubjects))
+        for condition in range(2):
+            patterns = baseline + rng.normal(0.0, 0.03, baseline.shape)
+            patterns[:4] += 0.2 * group + 0.3 * condition
+            grid[group][condition] = SimpleNamespace(pats=patterns, frex=[8.0])
+            identifiers[group][condition] = group_ids
+
+    result = FREQNESS_SpatialComparison(
+        grid,
+        coordinates,
+        frex2compare=[8],
+        design=["between", "within"],
+        factor_names=["Group", "Condition"],
+        subject_ids=identifiers,
+        normalization="none",
+        cluster_forming_alpha=0.1,
+        n_permutations=9,
+        plot_results=False,
+    )
+
+    assert result.factor_design == ("between", "within")
+    assert result.effect_names == ("Group", "Condition", "Group_x_Condition")
+    np.testing.assert_array_equal(result.cell_n_participants, [[5, 5], [6, 6]])
+    for effect in result.effects.values():
+        assert effect.statistic.shape == (8, 1, 1)
+
+
+def test_factorial_two_level_grid_preserves_pairwise_statistics(paired_patterns):
+    condition_a, condition_b, coordinates, _ = paired_patterns
+    direct = FREQNESS_SpatialComparison(
+        condition_a,
+        condition_b,
+        coordinates,
+        frex2compare=[8],
+        normalization="none",
+        n_permutations=16,
+        plot_results=False,
+    )
+    order = np.array([2, 0, 5, 1, 4, 3])
+    reordered_b = SimpleNamespace(
+        pats=condition_b.pats[..., order], frex=condition_b.frex
+    )
+    generalized = FREQNESS_SpatialComparison(
+        [condition_a, reordered_b],
+        coordinates,
+        frex2compare=[8],
+        normalization="none",
+        subject_ids=[
+            [f"P{index}" for index in range(6)],
+            [f"P{index}" for index in order],
+        ],
+        n_permutations=16,
+        plot_results=False,
+    )
+
+    effect = generalized.effects["Factor1"]
+    np.testing.assert_allclose(effect.statistic, direct.statistic)
+    np.testing.assert_allclose(
+        effect.p_cluster_corrected, direct.p_cluster_corrected
+    )

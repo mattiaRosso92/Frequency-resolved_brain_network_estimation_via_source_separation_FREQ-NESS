@@ -49,13 +49,19 @@ The bundled `FREQNESS_MNI_Coordinates` file corresponds to the 3559-voxel
 MNI152 8-mm grid. Replace it when using a different source space or voxel
 ordering. Matching coordinates are required for spatial visualizations and
 gradient modelling. `FREQNESS_SpatialComparison` uses the same coordinates to
-perform within-subject or between-group voxel-wise comparisons with
-MNI-adjacency cluster correction.
+perform pairwise or multidimensional factorial voxel-wise comparisons with
+MNI-adjacency cluster correction. Generalized designs are supplied as a cell
+array whose dimensions represent experimental factors; each factor can be
+declared as within- or between-subject, while established two-structure calls
+remain supported.
 `FREQNESS_StabilityIndex` quantifies the temporal frequency stability of
 selected network time series without requiring behavioral data.
-`FREQNESS_LandscapeComparison` compares participant-level landscapes between
-conditions or groups using paired or independent tests and applies internal
-Benjamini-Hochberg FDR correction across frequencies by default.
+`FREQNESS_LandscapeComparison` compares participant-level landscapes using
+pairwise or multidimensional factorial designs. Generalized MATLAB and Python
+calls use the same factor-grid representation as `FREQNESS_SpatialComparison`
+and support within-subject, between-subject, and mixed designs. Internal
+Benjamini-Hochberg FDR correction is applied across tested frequencies for
+each effect, measure, and component by default.
 For both comparison functions, an incompatible non-parametric test selection
 is replaced by the design-appropriate test with a warning: `signrank` for
 within-subject data and `ranksum` for independent groups.

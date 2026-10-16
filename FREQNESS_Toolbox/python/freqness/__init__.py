@@ -48,6 +48,9 @@ from .FREQNESS_InducedResponses import (
 from .FREQNESS_LandscapeComparison import (
     FREQNESS_LandscapeComparison,
     FREQNESSLandscapeComparisonResult,
+    FREQNESSLandscapeFactorialComparisonResult,
+    FREQNESSLandscapeFactorialEffect,
+    FREQNESSLandscapeFactorialMeasureResult,
     FREQNESSLandscapeMeasureResult,
 )
 from .FREQNESS_MainPipeline import (
@@ -79,6 +82,9 @@ from .FREQNESS_SpatialComparison import (
     FREQNESS_SpatialComparison,
     FREQNESSSpatialCluster,
     FREQNESSSpatialComparisonResult,
+    FREQNESSSpatialFactorialCluster,
+    FREQNESSSpatialFactorialComparisonResult,
+    FREQNESSSpatialFactorialEffect,
 )
 from .FREQNESS_StabilityIndex import (
     FREQNESS_StabilityIndex,
@@ -119,6 +125,9 @@ __all__ = [
     "FREQNESSInducedResponsesResult",
     "FREQNESS_LandscapeComparison",
     "FREQNESSLandscapeComparisonResult",
+    "FREQNESSLandscapeFactorialComparisonResult",
+    "FREQNESSLandscapeFactorialEffect",
+    "FREQNESSLandscapeFactorialMeasureResult",
     "FREQNESSLandscapeMeasureResult",
     "FREQNESS_LoadCore",
     "FREQNESS_LoadCoreFields",
@@ -133,6 +142,9 @@ __all__ = [
     "FREQNESS_SpatialComparison",
     "FREQNESSSpatialCluster",
     "FREQNESSSpatialComparisonResult",
+    "FREQNESSSpatialFactorialCluster",
+    "FREQNESSSpatialFactorialComparisonResult",
+    "FREQNESSSpatialFactorialEffect",
     "FREQNESS_StabilityIndex",
     "FREQNESSStabilityIndexResult",
     "FREQNESSResult",

@@ -183,32 +183,48 @@ component indices for MATLAB compatibility. The legacy thresholds are exposed
 as `threshold_sd` (defaults: 1 for frequency gradients and 2 for component
 gradients), and retained-voxel counts are included in the fit diagnostics.
 
-`FREQNESS_SpatialComparison` quantitatively compares spatial patterns between
-two conditions or groups. Set `design="within"` for repeated observations or
-`design="between"` for independent groups, including groups with unequal
-sample sizes. Requested frequencies are resolved against the shared
-`FREQ.frex` grid, while component numbers remain one-based. The default
-magnitude and within-participant L2 normalization make the comparison robust
-to arbitrary GED sign and scale. Within-subject analyses use paired sign-flip
-permutations; between-group analyses use label permutations. Each permutation
-uses the maximum MNI-adjacency cluster mass across every frequency and
-component requested in the call, providing family-wise error control over the
-complete comparison. Use `frex2compare="all"` to analyze the full frequency
-grid.
+`FREQNESS_SpatialComparison` quantitatively compares spatial patterns using
+pairwise or multidimensional factorial designs. Existing calls accept two
+FREQ structures. Generalized calls accept a nested list or object array whose
+axes represent experimental factors and whose cells contain their level
+combinations. Factors can be within-subject, between-subject, or mixed, and
+participant identifiers can be supplied to match repeated observations.
+Requested frequencies are resolved against the shared `FREQ.frex` grid, while
+component numbers remain one-based. Each spatial analysis constructs a null
+distribution of the maximum MNI-adjacency cluster mass across the requested
+effects, frequencies, and components, providing family-wise error control over
+the complete comparison. Use `frex2compare="all"` to analyze the full grid.
 
 `FREQNESS_LandscapeComparison` tests participant-level frequency landscapes
-between conditions or groups. Set `design="within"` for repeated observations
-or `design="between"` for independent groups. Within-subject analyses support
-paired `ttest` and `signrank`; between-subject analyses support Welch `ttest`
-and `ranksum`. Component numbers are one-based and default to component 1.
+using the same pairwise or factorial-grid convention. Factors can be
+within-subject, between-subject, or mixed. Two-level analyses support paired
+or Welch `ttest`, `signrank`, and `ranksum`; generalized analyses support
+`anova`, `friedman`, `kruskalwallis`, and explicitly requested
+`permutation_anova`. Component numbers are one-based and default to component 1.
 If `ranksum` is requested for a within-subject design, or `signrank` for a
 between-subject design, the function warns and substitutes the compatible
 non-parametric test. `FREQNESS_SpatialComparison` applies the same safeguard.
 Benjamini-Hochberg FDR correction is applied across tested frequencies,
-separately for each measure and component, by default. Omitting `measure`
-analyzes every recognized landscape shared by both inputs and preserves each
-source field name in the result, such as `STATS.evals`, `STATS.H2`, or
-`STATS.stability_index`.
+separately for each effect, measure, and component, by default. Omitting
+`measure` analyzes every recognized landscape shared by all inputs. Pairwise
+results preserve attributes such as `STATS.evals`; generalized results use
+`STATS.effects["Group"].evals` and analogous interaction keys.
+
+For example, a mixed Group × Condition design can be expressed as:
+
+```python
+STATS = FREQNESS_LandscapeComparison(
+    [[CONTROL_PRE, CONTROL_POST], [PATIENT_PRE, PATIENT_POST]],
+    factor_names=["Group", "Condition"],
+    level_labels=[["Control", "Patient"], ["Pre", "Post"]],
+    design=["between", "within"],
+    subject_ids=participant_ids,
+    test="anova",
+)
+
+group_effect = STATS.effects["Group"].evals
+interaction = STATS.effects["Group_x_Condition"].evals
+```
 
 `FREQNESS_StabilityIndex` quantifies the temporal stability of selected
 network oscillations. Each broadband component time series is filtered at its

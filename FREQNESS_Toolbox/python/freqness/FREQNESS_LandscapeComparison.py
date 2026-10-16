@@ -1,4 +1,4 @@
-"""Statistical comparison of participant-level frequency landscapes.
+"""Pairwise or factorial comparison of participant-level landscapes.
 
 If you use this toolbox, please cite:
 Rosso, M., Fernández-Rubio, G., Keller, P. E., Brattico, E., Vuust, P.,
@@ -26,6 +26,22 @@ import warnings
 import numpy as np
 from numpy.typing import ArrayLike, NDArray
 from scipy import stats
+
+from ._factorial_utils import (
+    anova_statistics,
+    effect_definitions,
+    is_factorial_grid,
+    long_data,
+    match_subjects,
+    normalize_grid,
+    permutation_anova_p_values,
+    permutation_count,
+    rank_statistics,
+    validate_design,
+    validate_factor_names,
+    validate_level_labels,
+    validate_test,
+)
 
 if TYPE_CHECKING:
     from matplotlib.figure import Figure
@@ -104,6 +120,75 @@ class FREQNESSLandscapeComparisonResult:
         if name in results:
             return results[name]
         raise AttributeError(name)
+
+
+@dataclass(slots=True)
+class FREQNESSLandscapeFactorialMeasureResult:
+    """Frequency-wise statistics for one measure and factorial effect."""
+
+    measure: str
+    name: str
+    key: str
+    factors: tuple[int, ...]
+    requested_frex: FloatArray
+    frex: FloatArray
+    idx_frex: IntArray
+    comps: IntArray
+    values: NDArray[np.object_]
+    statistic: FloatArray
+    statistic_name: str
+    effect_size: FloatArray
+    effect_size_name: str
+    p_uncorrected: FloatArray
+    q_fdr: FloatArray
+    significant: BoolArray
+    fdr_threshold: FloatArray
+    df1: FloatArray
+    df2: FloatArray
+    figures: list[Figure] = field(default_factory=list)
+
+
+@dataclass
+class FREQNESSLandscapeFactorialEffect:
+    """All analyzed landscape measures for one factorial effect."""
+
+    name: str
+    key: str
+    factors: tuple[int, ...]
+    results: dict[str, FREQNESSLandscapeFactorialMeasureResult]
+
+    def __getattr__(self, name: str) -> FREQNESSLandscapeFactorialMeasureResult:
+        results = self.__dict__.get("results", {})
+        if name in results:
+            return results[name]
+        raise AttributeError(name)
+
+
+@dataclass(slots=True)
+class FREQNESSLandscapeFactorialComparisonResult:
+    """Outputs for a generalized factorial landscape comparison."""
+
+    analysis: str
+    factor_names: tuple[str, ...]
+    level_labels: tuple[tuple[str, ...], ...]
+    factor_design: tuple[str, ...]
+    design: tuple[str, ...]
+    input_shape: tuple[int, ...]
+    test: str
+    test_requested: str
+    tail: str
+    alpha: float
+    correction: str
+    correction_scope: str
+    measures: tuple[str, ...]
+    effects: dict[str, FREQNESSLandscapeFactorialEffect]
+    effect_names: tuple[str, ...]
+    cell_means: dict[str, NDArray[np.object_]]
+    cell_n_participants: IntArray
+    subject_ids: NDArray[np.object_]
+    n_permutations: int
+    random_seed: int
+    figures: list[Figure] = field(default_factory=list)
 
 
 def _field_name(container: Any, requested: str) -> str | None:
@@ -623,6 +708,31 @@ def _compare_measure(
     )
 
 
+def _landscape_measure_label(measure: str) -> str:
+    """Convert stored field names into figure-ready scientific labels."""
+    labels = {
+        "evals": "Network landscape",
+        "h2": "Rényi entropy landscape",
+        "ed": "Effective dimensionality landscape",
+        "amplitude_raw": "Cross-frequency coupling landscape",
+        "amplitude_normalized": "Normalized cross-frequency coupling landscape",
+        "stability_index": "Network stability landscape",
+        "mean_frequency": "Mean instantaneous frequency landscape",
+        "values": "Landscape",
+    }
+    return labels.get(str(measure).lower(), str(measure).replace("_", " "))
+
+
+def _style_publication_landscape_axis(axis) -> None:
+    """Apply the restrained visual style used by FREQ-NESS landscapes."""
+    axis.spines[["top", "right"]].set_visible(False)
+    axis.spines[["left", "bottom"]].set_color("#344054")
+    axis.spines[["left", "bottom"]].set_linewidth(0.8)
+    axis.grid(axis="y", color="#D8DEE5", linewidth=0.75, alpha=0.75)
+    axis.tick_params(colors="#344054", labelsize=9, width=0.8)
+    axis.set_axisbelow(True)
+
+
 def _plot_measure(
     result: FREQNESSLandscapeMeasureResult,
     labels: tuple[str, str],
@@ -638,12 +748,15 @@ def _plot_measure(
         ) from error
 
     figures: list[Figure] = []
-    colors = plt.get_cmap("viridis")([0.15, 0.75])
+    colors = ("#0072B2", "#D55E00")
+    accent = "#009E73"
     for component_index, component in enumerate(result.comps):
         figure, axes = plt.subplots(
             2,
             1,
-            figsize=(9, 7),
+            figsize=(9.2, 7.0),
+            dpi=140,
+            facecolor="white",
             sharex=True,
             constrained_layout=True,
             gridspec_kw={"height_ratios": [2.0, 1.0]},
@@ -662,35 +775,55 @@ def _plot_measure(
                 colors[1],
             ),
         ):
-            axes[0].plot(result.frex, mean, linewidth=2, color=color, label=label)
+            axes[0].plot(
+                result.frex,
+                mean,
+                linewidth=2.25,
+                color=color,
+                marker="o",
+                markersize=4.5,
+                markerfacecolor="white",
+                markeredgewidth=1.0,
+                label=label,
+            )
             if np.any(np.isfinite(sem)):
                 axes[0].fill_between(
                     result.frex,
                     mean - sem,
                     mean + sem,
                     color=color,
-                    alpha=0.18,
+                    alpha=0.13,
                     linewidth=0,
                 )
-        axes[0].set_ylabel(result.measure, fontweight="bold")
-        axes[0].set_title(
-            f"{result.measure} landscape comparison - component #{component}",
-            fontweight="bold",
-        )
-        axes[0].legend(frameon=False)
-        axes[0].grid(True, alpha=0.25)
-        axes[0].spines[["top", "right"]].set_visible(False)
+        measure_label = _landscape_measure_label(result.measure)
+        axes[0].set_ylabel(measure_label, fontweight="bold", color="#17212B")
+        axes[0].legend(frameon=False, ncol=2, loc="best")
+        _style_publication_landscape_axis(axes[0])
 
         difference = result.mean_difference[component_index]
-        axes[1].axhline(0.0, color="black", linewidth=1, linestyle="--")
-        axes[1].plot(result.frex, difference, color="black", linewidth=1.8)
+        axes[1].axhline(0.0, color="#66717D", linewidth=0.9, linestyle="--")
+        axes[1].fill_between(
+            result.frex, 0.0, difference, color="#64748B", alpha=0.10, linewidth=0
+        )
+        axes[1].plot(
+            result.frex,
+            difference,
+            color="#344054",
+            linewidth=2.0,
+            marker="o",
+            markersize=3.8,
+            markerfacecolor="white",
+            markeredgewidth=0.9,
+        )
         significant = result.significant[component_index]
         if np.any(significant):
             axes[1].scatter(
                 result.frex[significant],
                 difference[significant],
-                s=42,
-                color=plt.get_cmap("viridis")(0.95),
+                s=52,
+                color=accent,
+                edgecolor="white",
+                linewidth=0.8,
                 zorder=3,
                 label=(
                     f"FDR q ≤ {alpha:g}"
@@ -699,15 +832,35 @@ def _plot_measure(
                 ),
             )
             axes[1].legend(frameon=False)
-        axes[1].set_xlabel("Frequency (Hz)", fontweight="bold")
-        axes[1].set_ylabel(f"{labels[0]} - {labels[1]}", fontweight="bold")
-        axes[1].grid(True, alpha=0.25)
-        axes[1].spines[["top", "right"]].set_visible(False)
+        axes[1].set_xlabel(
+            "Frequency (Hz)", fontweight="bold", color="#17212B"
+        )
+        axes[1].set_ylabel(
+            f"{labels[0]} − {labels[1]}",
+            fontweight="bold",
+            color="#17212B",
+        )
+        axes[1].set_xlim(result.frex[0], result.frex[-1])
+        _style_publication_landscape_axis(axes[1])
+        figure.suptitle(
+            f"{measure_label} comparison",
+            fontsize=15,
+            fontweight="bold",
+            color="#17212B",
+        )
+        figure.text(
+            0.5,
+            0.945,
+            f"Component {component}",
+            ha="center",
+            fontsize=9.5,
+            color="#52606D",
+        )
         figures.append(figure)
     return figures
 
 
-def FREQNESS_LandscapeComparison(
+def _pairwise_landscape_comparison(
     LANDSCAPE_A: Any,
     LANDSCAPE_B: Any,
     *,
@@ -822,12 +975,556 @@ def FREQNESS_LandscapeComparison(
     )
 
 
+def _factorial_measure_selection(
+    grid: NDArray[np.object_],
+    measure: str | Sequence[str] | None,
+) -> tuple[str, ...]:
+    """Select landscape fields shared by every factorial cell."""
+    numeric = tuple(_is_numeric_input(item) for item in grid.flat)
+    if any(numeric) and not all(numeric):
+        raise TypeError("All factorial cells must use the same input format")
+    if all(numeric):
+        requested = () if measure is None else (
+            (measure,) if isinstance(measure, str) else tuple(measure)
+        )
+        if requested and (
+            len(requested) != 1 or str(requested[0]).lower() != "values"
+        ):
+            raise ValueError("Raw numeric factorial cells support measure='values'")
+        return ("values",)
+    if measure is None:
+        selected = tuple(
+            name
+            for name in _AUTO_MEASURES
+            if all(_field_name(item, name) is not None for item in grid.flat)
+        )
+        if not selected:
+            raise ValueError(
+                "No shared landscape fields were recognized; supply measure explicitly"
+            )
+        return selected
+    requested = (measure,) if isinstance(measure, str) else tuple(measure)
+    if not requested or not all(isinstance(name, str) and name for name in requested):
+        raise ValueError("measure must be text or a non-empty sequence")
+    selected: list[str] = []
+    for requested_name in requested:
+        actual = _field_name(grid.flat[0], requested_name)
+        if actual is None or not all(
+            _field_name(item, requested_name) is not None for item in grid.flat
+        ):
+            raise ValueError(
+                f"Every factorial cell must contain measure '{requested_name}'"
+            )
+        if actual not in selected:
+            selected.append(actual)
+    return tuple(selected)
+
+
+def _factorial_landscape_values(
+    grid: NDArray[np.object_],
+    measures: tuple[str, ...],
+    supplied_frex: ArrayLike | None,
+) -> tuple[dict[str, NDArray[np.object_]], dict[str, FloatArray], IntArray]:
+    """Validate every selected measure and participant dimension."""
+    values: dict[str, NDArray[np.object_]] = {}
+    frequency_axes: dict[str, FloatArray] = {}
+    participant_counts = np.zeros(grid.shape, dtype=np.int64)
+    for measure_index, measure in enumerate(measures):
+        current_grid = np.empty(grid.shape, dtype=object)
+        reference_frex: FloatArray | None = None
+        reference_features: int | None = None
+        for index in np.ndindex(grid.shape):
+            frequencies = _frequency_axis(grid[index], measure, supplied_frex)
+            current = _canonical_values(
+                grid[index], measure, frequencies, f"LANDSCAPE_GRID{index}"
+            )
+            if reference_frex is None:
+                reference_frex = frequencies
+                reference_features = current.shape[0]
+            elif current.shape[0] != reference_features or not np.allclose(
+                frequencies, reference_frex, atol=1e-10, rtol=0.0
+            ):
+                raise ValueError(
+                    f"All factorial cells must share the feature dimension and "
+                    f"frequency grid for measure '{measure}'"
+                )
+            if current.shape[2] < 2:
+                raise ValueError(
+                    "Every factorial cell must contain at least two participants"
+                )
+            if measure_index == 0:
+                participant_counts[index] = current.shape[2]
+            elif current.shape[2] != participant_counts[index]:
+                raise ValueError(
+                    "Selected measures within each factorial cell must have "
+                    "matching participant counts"
+                )
+            current_grid[index] = current
+        assert reference_frex is not None
+        values[measure] = current_grid
+        frequency_axes[measure] = reference_frex
+    return values, frequency_axes, participant_counts
+
+
+def _factorial_fdr(
+    p_values: FloatArray,
+    correction: str,
+    alpha: float,
+) -> tuple[FloatArray, FloatArray, BoolArray]:
+    """Correct frequencies independently within every component."""
+    q_values = np.full(p_values.shape, np.nan)
+    thresholds = np.full(p_values.shape[0], np.nan)
+    if correction == "fdr":
+        for component in range(p_values.shape[0]):
+            q_values[component], thresholds[component] = _bh_fdr(
+                p_values[component], alpha
+            )
+    else:
+        q_values[:] = p_values
+        thresholds[:] = alpha
+    return q_values, thresholds, np.isfinite(q_values) & (q_values <= alpha)
+
+
+def _plot_factorial_measure(
+    result: FREQNESSLandscapeFactorialMeasureResult,
+    correction: str,
+    alpha: float,
+) -> list[Figure]:
+    """Plot one omnibus statistic landscape per selected component."""
+    try:
+        import matplotlib.pyplot as plt
+    except ImportError as error:
+        raise ImportError(
+            "FREQNESS_LandscapeComparison plotting requires matplotlib. "
+            "Install freqness[plot]."
+        ) from error
+
+    figures: list[Figure] = []
+    primary = "#0072B2"
+    accent = "#D55E00"
+    for component_index, component in enumerate(result.comps):
+        figure, axis = plt.subplots(
+            figsize=(9.2, 5.3), dpi=140, facecolor="white", constrained_layout=True
+        )
+        values = result.statistic[component_index]
+        axis.fill_between(
+            result.frex, 0.0, values, color=primary, alpha=0.09, linewidth=0
+        )
+        axis.plot(
+            result.frex,
+            values,
+            color=primary,
+            linewidth=2.4,
+            marker="o",
+            markersize=4.8,
+            markerfacecolor="white",
+            markeredgewidth=1.1,
+            label=result.statistic_name,
+        )
+        significant = result.significant[component_index]
+        if np.any(significant):
+            axis.scatter(
+                result.frex[significant],
+                result.statistic[component_index, significant],
+                s=58,
+                color=accent,
+                edgecolor="white",
+                linewidth=0.9,
+                label=(
+                    f"FDR q ≤ {alpha:g}"
+                    if correction == "fdr"
+                    else f"p ≤ {alpha:g}"
+                ),
+                zorder=3,
+            )
+        axis.set_xlabel(
+            "Frequency (Hz)", fontweight="bold", color="#17212B"
+        )
+        axis.set_ylabel(
+            f"{result.statistic_name} statistic",
+            fontweight="bold",
+            color="#17212B",
+        )
+        axis.set_title(
+            f"{_landscape_measure_label(result.measure)} comparison — {result.name}",
+            loc="center",
+            fontsize=14,
+            fontweight="bold",
+            color="#17212B",
+            pad=18,
+        )
+        axis.text(
+            0.0,
+            1.01,
+            f"Component {component}",
+            transform=axis.transAxes,
+            fontsize=9.5,
+            color="#52606D",
+            va="bottom",
+        )
+        axis.set_xlim(result.frex[0], result.frex[-1])
+        axis.set_ylim(bottom=0)
+        _style_publication_landscape_axis(axis)
+        axis.legend(frameon=False, loc="upper right")
+        figures.append(figure)
+    return figures
+
+
+def _factorial_landscape_comparison(
+    LANDSCAPE_GRID: Any,
+    *,
+    measure: str | Sequence[str] | None,
+    design: str | Sequence[str],
+    test: str | None,
+    which_comp: ArrayLike | None,
+    frex: ArrayLike | None,
+    frex2compare: ArrayLike | str | None,
+    sample_labels: tuple[str, str] | None,
+    factor_names: Sequence[str] | None,
+    level_labels: Sequence[Sequence[str]] | None,
+    subject_ids: Any,
+    effects: str | Sequence[str],
+    tail: str,
+    alpha: float,
+    correction: str,
+    frex_tolerance: float | None,
+    n_permutations: int | str,
+    random_seed: int,
+    plot_results: bool,
+    show: bool,
+) -> FREQNESSLandscapeFactorialComparisonResult:
+    grid, factor_sizes, cell_levels = normalize_grid(LANDSCAPE_GRID)
+    names = validate_factor_names(factor_names, len(factor_sizes))
+    labels = validate_level_labels(level_labels, names, factor_sizes, sample_labels)
+    factor_design = validate_design(design, len(factor_sizes))
+    test_key, test_requested = validate_test(
+        test, factor_design, factor_sizes, pairwise_default="rank"
+    )
+    definitions = effect_definitions(names, effects)
+    tail_key = str(tail).lower()
+    if tail_key not in {"both", "left", "right"}:
+        raise ValueError("tail must be 'both', 'left', or 'right'")
+    if tail_key != "both" and test_key not in {"ttest", "signrank", "ranksum"}:
+        warnings.warn(
+            "Factorial omnibus tests are non-directional. Using tail='both' instead.",
+            UserWarning,
+            stacklevel=3,
+        )
+        tail_key = "both"
+    if not np.isfinite(alpha) or not 0 < alpha < 1:
+        raise ValueError("alpha must lie strictly between 0 and 1")
+    correction_key = str(correction).lower()
+    if correction_key not in {"fdr", "none"}:
+        raise ValueError("correction must be 'fdr' or 'none'")
+    if not isinstance(random_seed, (int, np.integer)) or isinstance(
+        random_seed, (bool, np.bool_)
+    ):
+        raise ValueError("random_seed must be an integer")
+    if not isinstance(plot_results, (bool, np.bool_)) or not isinstance(
+        show, (bool, np.bool_)
+    ):
+        raise TypeError("plot_results and show must be Boolean")
+
+    measures = _factorial_measure_selection(grid, measure)
+    value_grids, frequency_axes, participant_counts = _factorial_landscape_values(
+        grid, measures, frex
+    )
+    orders, identifiers = match_subjects(
+        participant_counts, cell_levels, factor_design, subject_ids
+    )
+    for measure_name in measures:
+        for index in np.ndindex(grid.shape):
+            value_grids[measure_name][index] = value_grids[measure_name][index][
+                :, :, orders[index]
+            ]
+
+    print(
+        "\nFREQNESS Landscape Comparison: testing a "
+        f"{'/'.join(factor_design)} design with {len(factor_sizes)} factors, "
+        f"{grid.size} factorial cells, and {len(measures)} measure(s) "
+        f"using {test_key}."
+    )
+    effect_outputs = {
+        definition.key: FREQNESSLandscapeFactorialEffect(
+            name=definition.name,
+            key=definition.key,
+            factors=definition.factors,
+            results={},
+        )
+        for definition in definitions
+    }
+    cell_means: dict[str, NDArray[np.object_]] = {}
+    figures: list[Figure] = []
+    permutations_used = 0
+
+    for measure_name in measures:
+        frequencies = frequency_axes[measure_name]
+        components = _component_selection(
+            which_comp, value_grids[measure_name].flat[0].shape[0]
+        )
+        requested, resolved, frequency_indices = _frequency_selection(
+            frequencies, frex2compare, frex_tolerance
+        )
+        selected = np.empty(grid.shape, dtype=object)
+        for index in np.ndindex(grid.shape):
+            selected[index] = value_grids[measure_name][index][
+                components - 1
+            ][:, frequency_indices, :]
+        Y, observation_levels, participant_index, means, _ = long_data(
+            selected, cell_levels, factor_design
+        )
+        cell_means[measure_name] = means
+        print(
+            f"  {measure_name}: {resolved.size} frequencies, "
+            f"component(s) {components.tolist()}."
+        )
+
+        pairwise_tests = {"ttest", "signrank", "ranksum"}
+        if (
+            len(factor_sizes) == 1
+            and factor_sizes[0] == 2
+            and test_key in pairwise_tests
+        ):
+            pairwise = _compare_measure(
+                measure_name,
+                value_grids[measure_name].flat[0],
+                value_grids[measure_name].flat[1],
+                requested,
+                resolved,
+                frequency_indices,
+                components,
+                factor_design[0],
+                test_key,
+                tail_key,
+                float(alpha),
+                correction_key,
+            )
+            definition = definitions[0]
+            output = FREQNESSLandscapeFactorialMeasureResult(
+                measure=measure_name,
+                name=definition.name,
+                key=definition.key,
+                factors=definition.factors,
+                requested_frex=requested,
+                frex=resolved,
+                idx_frex=frequency_indices,
+                comps=components,
+                values=selected,
+                statistic=pairwise.statistic,
+                statistic_name=pairwise.statistic_name,
+                effect_size=pairwise.effect_size,
+                effect_size_name=pairwise.effect_size_name,
+                p_uncorrected=pairwise.p_uncorrected,
+                q_fdr=pairwise.q_fdr,
+                significant=pairwise.significant,
+                fdr_threshold=pairwise.fdr_threshold,
+                df1=np.full(pairwise.statistic.shape, np.nan),
+                df2=np.full(pairwise.statistic.shape, np.nan),
+            )
+            if plot_results:
+                pairwise.figures.extend(
+                    _plot_measure(
+                        pairwise,
+                        (labels[0][0], labels[0][1]),
+                        correction_key,
+                        float(alpha),
+                    )
+                )
+                output.figures.extend(pairwise.figures)
+                figures.extend(pairwise.figures)
+            effect_outputs[definition.key].results[measure_name] = output
+            continue
+
+        if test_key in {"friedman", "kruskalwallis"}:
+            raw_results, models = rank_statistics(
+                Y, observation_levels, participant_index, test_key, definitions
+            )
+        else:
+            raw_results, models = anova_statistics(
+                Y,
+                observation_levels,
+                participant_index,
+                factor_sizes,
+                factor_design,
+                definitions,
+            )
+        if test_key == "permutation_anova":
+            permutations_used = permutation_count(n_permutations)
+            print(
+                f"    Computing {permutations_used} design-aware "
+                "Monte Carlo permutations."
+            )
+            rng = np.random.default_rng(random_seed)
+            for raw_result, model in zip(raw_results, models, strict=True):
+                raw_result["p_uncorrected"] = permutation_anova_p_values(
+                    model,
+                    raw_result["statistic"],
+                    permutations_used,
+                    rng,
+                )
+
+        for raw_result in raw_results:
+            definition = raw_result["definition"]
+            shape = (components.size, resolved.size)
+            p_uncorrected = np.reshape(raw_result["p_uncorrected"], shape)
+            q_values, thresholds, significant = _factorial_fdr(
+                p_uncorrected, correction_key, float(alpha)
+            )
+            output = FREQNESSLandscapeFactorialMeasureResult(
+                measure=measure_name,
+                name=definition.name,
+                key=definition.key,
+                factors=definition.factors,
+                requested_frex=requested,
+                frex=resolved,
+                idx_frex=frequency_indices,
+                comps=components,
+                values=selected,
+                statistic=np.reshape(raw_result["statistic"], shape),
+                statistic_name=raw_result["statistic_name"],
+                effect_size=np.reshape(raw_result["effect_size"], shape),
+                effect_size_name=raw_result["effect_size_name"],
+                p_uncorrected=p_uncorrected,
+                q_fdr=q_values,
+                significant=significant,
+                fdr_threshold=thresholds,
+                df1=np.reshape(raw_result["df1"], shape),
+                df2=np.reshape(raw_result["df2"], shape),
+            )
+            if plot_results:
+                output.figures.extend(
+                    _plot_factorial_measure(output, correction_key, float(alpha))
+                )
+                figures.extend(output.figures)
+            effect_outputs[definition.key].results[measure_name] = output
+
+    if figures and show:
+        import matplotlib.pyplot as plt
+
+        plt.show()
+    return FREQNESSLandscapeFactorialComparisonResult(
+        analysis=(
+            "pairwise"
+            if len(factor_sizes) == 1
+            and factor_sizes[0] == 2
+            and test_key in {"ttest", "signrank", "ranksum"}
+            else "factorial"
+        ),
+        factor_names=names,
+        level_labels=labels,
+        factor_design=factor_design,
+        design=factor_design,
+        input_shape=factor_sizes,
+        test=test_key,
+        test_requested=test_requested,
+        tail=tail_key,
+        alpha=float(alpha),
+        correction=correction_key,
+        correction_scope=(
+            "frequencies separately for each effect, measure, and component"
+        ),
+        measures=measures,
+        effects=effect_outputs,
+        effect_names=tuple(effect_outputs),
+        cell_means=cell_means,
+        cell_n_participants=participant_counts,
+        subject_ids=identifiers,
+        n_permutations=permutations_used,
+        random_seed=int(random_seed),
+        figures=figures,
+    )
+
+
+def FREQNESS_LandscapeComparison(
+    LANDSCAPE_A: Any,
+    LANDSCAPE_B: Any = None,
+    *,
+    measure: str | Sequence[str] | None = None,
+    design: str | Sequence[str] = "within",
+    test: str | None = None,
+    which_comp: ArrayLike | None = None,
+    frex: ArrayLike | None = None,
+    frex2compare: ArrayLike | str | None = None,
+    sample_labels: tuple[str, str] | None = None,
+    factor_names: Sequence[str] | None = None,
+    level_labels: Sequence[Sequence[str]] | None = None,
+    subject_ids: Any = None,
+    effects: str | Sequence[str] = "all",
+    tail: str = "both",
+    alpha: float = 0.05,
+    correction: str = "fdr",
+    frex_tolerance: float | None = None,
+    n_permutations: int | str = 10_000,
+    random_seed: int = 0,
+    plot_results: bool = True,
+    show: bool = True,
+) -> FREQNESSLandscapeComparisonResult | FREQNESSLandscapeFactorialComparisonResult:
+    """Compare frequency landscapes using pairwise or factorial designs.
+
+    Existing calls pass two landscapes. Generalized designs pass one nested
+    grid whose axes are experimental factors and whose cells contain the
+    corresponding participant-level landscapes.
+    """
+    if is_factorial_grid(LANDSCAPE_A):
+        if LANDSCAPE_B is not None:
+            raise TypeError(
+                "A factorial landscape grid is followed directly by keyword options"
+            )
+        return _factorial_landscape_comparison(
+            LANDSCAPE_A,
+            measure=measure,
+            design=design,
+            test=test,
+            which_comp=which_comp,
+            frex=frex,
+            frex2compare=frex2compare,
+            sample_labels=sample_labels,
+            factor_names=factor_names,
+            level_labels=level_labels,
+            subject_ids=subject_ids,
+            effects=effects,
+            tail=tail,
+            alpha=alpha,
+            correction=correction,
+            frex_tolerance=frex_tolerance,
+            n_permutations=n_permutations,
+            random_seed=random_seed,
+            plot_results=plot_results,
+            show=show,
+        )
+    if LANDSCAPE_B is None:
+        raise TypeError("LANDSCAPE_A and LANDSCAPE_B are required")
+    if not isinstance(design, str):
+        raise ValueError("Pairwise design must be 'within' or 'between'")
+    labels = ("A", "B") if sample_labels is None else sample_labels
+    return _pairwise_landscape_comparison(
+        LANDSCAPE_A,
+        LANDSCAPE_B,
+        measure=measure,
+        design=design,
+        test=test,
+        which_comp=which_comp,
+        frex=frex,
+        frex2compare=frex2compare,
+        sample_labels=labels,
+        tail=tail,
+        alpha=alpha,
+        correction=correction,
+        frex_tolerance=frex_tolerance,
+        plot_results=plot_results,
+        show=show,
+    )
+
+
 landscape_comparison = FREQNESS_LandscapeComparison
 
 
 __all__ = [
     "FREQNESS_LandscapeComparison",
     "FREQNESSLandscapeComparisonResult",
+    "FREQNESSLandscapeFactorialComparisonResult",
+    "FREQNESSLandscapeFactorialEffect",
+    "FREQNESSLandscapeFactorialMeasureResult",
     "FREQNESSLandscapeMeasureResult",
     "landscape_comparison",
 ]

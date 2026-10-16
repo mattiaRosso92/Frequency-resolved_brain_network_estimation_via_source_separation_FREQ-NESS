@@ -1,5 +1,23 @@
 function STATS = FREQNESS_SpatialComparison(FREQ_A,FREQ_B,MNI,varargin)
 
+% Preserve the established two-structure interface while accepting one
+% multidimensional cell array for generalized factorial designs.
+if iscell(FREQ_A)
+    if nargin<2
+        error('A cell-array input must be followed by MNI coordinates.');
+    end
+    if nargin>=3
+        factorial_options = [{MNI},varargin];
+    else
+        factorial_options = {};
+    end
+    STATS = factorial_spatial_comparison(FREQ_A,FREQ_B, ...
+        factorial_options{:});
+    return
+elseif nargin<3
+    error('FREQ_A, FREQ_B, and MNI coordinates are required.');
+end
+
 % ========================================================================
 %
 %  FREQUENCY-RESOLVED NETWORK ESTIMATION TOOLBOX
@@ -13,10 +31,9 @@ function STATS = FREQNESS_SpatialComparison(FREQ_A,FREQ_B,MNI,varargin)
 %  https://doi.org/10.1002/advs.202413195
 %
 % ========================================================================
-%  This function performs a within-subject or between-group spatial
-%  comparison of FREQ-NESS activation patterns. Voxel-wise statistics are
-%  combined with a non-parametric cluster-mass permutation test based on MNI
-%  adjacency.
+%  This function performs pairwise or factorial spatial comparisons of
+%  FREQ-NESS activation patterns. Voxel-wise statistics are combined with a
+%  non-parametric cluster-mass permutation test based on MNI adjacency.
 %  The maximum cluster mass is calculated across all requested frequencies
 %  and components in every permutation, controlling the family-wise error
 %  rate across the complete analysis requested in one call.
@@ -26,6 +43,13 @@ function STATS = FREQNESS_SpatialComparison(FREQ_A,FREQ_B,MNI,varargin)
 %  By default, absolute activation patterns are L2-normalized within
 %  participant before comparison, making the analysis invariant to
 %  arbitrary GED signs and global pattern scale.
+%
+%  Generalized designs use one cell array whose dimensions represent the
+%  experimental factors and whose entries contain the FREQ structure for
+%  every combination of factor levels. For example, a 2-by-3 cell array
+%  represents two factors with two and three levels. Each factor can be
+%  declared as within- or between-subject. Existing calls using FREQ_A and
+%  FREQ_B remain unchanged.
 % ========================================================================
 
 % ------------------------------------------------------------------------
@@ -35,6 +59,9 @@ function STATS = FREQNESS_SpatialComparison(FREQ_A,FREQ_B,MNI,varargin)
 %  - FREQ_A, FREQ_B : structures containing
 %           • pats -> [nVoxels x nComp x nFrex x nSubs]
 %           • frex -> analyzed frequencies in Hz
+%        Alternatively, the first input can be an N-dimensional cell array
+%        containing one FREQ structure per factorial cell, followed directly
+%        by MNI as the second input.
 %
 %  - MNI : MNI coordinates [nVoxels x 3], ordered as FREQ.pats.
 %
@@ -44,13 +71,37 @@ function STATS = FREQNESS_SpatialComparison(FREQ_A,FREQ_B,MNI,varargin)
 %  - comps2compare : one-based component numbers. Default: 1.
 %
 %  - design : 'within' (default) or 'between'.
+%             For factorial cell inputs, supply one value per factor, for
+%             example {'between','within'}. A single value is applied to all
+%             factors.
 %
 %  - test : 'ttest' (default), 'signrank', or 'ranksum'. An incompatible
 %           non-parametric choice is corrected with a warning: ranksum is
 %           replaced by signrank for within-subject designs, and signrank is
 %           replaced by ranksum for between-group designs.
+%           Factorial cell inputs additionally support 'auto', 'anova',
+%           'friedman', 'kruskalwallis', and 'permutation_anova'. 'auto'
+%           preserves the pairwise t test for two levels and otherwise uses
+%           factorial ANOVA with design-aware permutation inference.
 %
 %  - condition_labels : two labels for FREQ_A and FREQ_B. Default: {'A','B'}.
+%                       Retained for established pairwise calls.
+%
+%  - factor_names : names of the factorial dimensions. Defaults to
+%                   {'Factor1','Factor2',...}.
+%
+%  - level_labels : one cell array of level names per factor. Defaults to
+%                   {'Level1','Level2',...} within each factor.
+%
+%  - subject_ids : optional cell array matching the factorial input. Each
+%                  entry contains participant identifiers for that FREQ
+%                  structure. Repeated observations are reordered and
+%                  matched by identifier when supplied. Otherwise participant
+%                  order is assumed for within-subject factors with a warning.
+%
+%  - effects : 'all' (default) or a cell array selecting main effects and
+%              interactions by factor name, for example
+%              {'Task','Group_x_Task'}.
 %
 %  - map_mode : 'magnitude' (default) or 'signed_aligned'.
 %
@@ -91,7 +142,7 @@ function STATS = FREQNESS_SpatialComparison(FREQ_A,FREQ_B,MNI,varargin)
 %  leonardo.bonetti@clin.au.dk; leonardo.bonetti@psych.ox.ac.uk
 %  Center for Music in the Brain, Aarhus University
 %  Centre for Eudaimonia and Human Flourishing, Linacre College, University of Oxford
-%  Aarhus (DK), Oxford (UK), 12/10/2026
+%  Aarhus (DK), Oxford (UK), 16/10/2026
 %
 % ========================================================================
 
@@ -331,6 +382,1186 @@ STATS.sign_flips_b = sign_flips_b;
 
 if opts.plot_results
     plot_spatial_results(MNI,STATS);
+end
+
+end
+
+%% Factorial Spatial Comparison
+function STATS = factorial_spatial_comparison(FREQ_GRID,MNI,varargin)
+
+opts = struct('frex2compare', [], 'comps2compare', [], ...
+    'design', 'within', 'test', 'auto', 'condition_labels', [], ...
+    'factor_names', [], 'level_labels', [], 'subject_ids', [], ...
+    'effects', 'all', 'map_mode', 'magnitude', ...
+    'normalization', 'l2', 'cluster_forming_alpha', .001, ...
+    'alpha', .05, 'connectivity', 6, 'frex_tolerance', [], ...
+    'correction_scope', 'all_maps', 'n_permutations', 'auto', ...
+    'random_seed', 0, 'plot_results', true);
+opts = parse_name_value_pairs(opts,varargin{:});
+
+if isempty(opts.frex2compare)
+    error(['frex2compare is a mandatory name-value input. Supply numeric ' ...
+        'values in Hz or use ''all''.']);
+end
+
+[FREQ_GRID,factor_sizes,cell_levels] = normalize_factorial_grid(FREQ_GRID);
+nFactors = numel(factor_sizes);
+factor_names = validate_factor_names(opts.factor_names,nFactors);
+level_labels = validate_level_labels(opts.level_labels, ...
+    opts.condition_labels,factor_names,factor_sizes);
+factor_design = validate_factor_design(opts.design,nFactors);
+[test,test_requested] = validate_factorial_test(opts.test, ...
+    factor_design,factor_sizes);
+effect_definitions = factorial_effect_definitions(factor_names,opts.effects);
+
+map_mode = validatestring(opts.map_mode,{'magnitude','signed_aligned'});
+normalization = validatestring(opts.normalization,{'l2','none'});
+if ~any(strcmpi(opts.correction_scope,{'all_maps','all_effects_and_maps'}))
+    error(['correction_scope supports ''all_maps'' or ' ...
+        '''all_effects_and_maps'' for factorial inputs.']);
+end
+validate_probability(opts.cluster_forming_alpha,'cluster_forming_alpha');
+validate_probability(opts.alpha,'alpha');
+if ~isnumeric(opts.connectivity) || ~isscalar(opts.connectivity) || ...
+        ~ismember(opts.connectivity,[6 18 26])
+    error('connectivity must be 6, 18, or 26.');
+end
+if ~isnumeric(opts.random_seed) || ~isscalar(opts.random_seed) || ...
+        ~isfinite(opts.random_seed) || opts.random_seed~=round(opts.random_seed)
+    error('random_seed must be one finite integer.');
+end
+if ~islogical(opts.plot_results) || ~isscalar(opts.plot_results)
+    error('plot_results must be one logical value.');
+end
+
+[FREQ_GRID,subject_ids] = match_factorial_subjects(FREQ_GRID, ...
+    cell_levels,factor_design,opts.subject_ids);
+
+% Preserve the complete established implementation for generalized calls
+% that still represent one two-level pairwise comparison.
+pairwise_tests = {'ttest','signrank','ranksum'};
+if nFactors==1 && factor_sizes(1)==2 && ismember(test,pairwise_tests)
+    pairwise_options = {'frex2compare',opts.frex2compare, ...
+        'comps2compare',opts.comps2compare,'design',factor_design{1}, ...
+        'test',test,'condition_labels',level_labels{1}, ...
+        'map_mode',map_mode,'normalization',normalization, ...
+        'cluster_forming_alpha',opts.cluster_forming_alpha, ...
+        'alpha',opts.alpha,'connectivity',opts.connectivity, ...
+        'frex_tolerance',opts.frex_tolerance, ...
+        'correction_scope',opts.correction_scope, ...
+        'n_permutations',opts.n_permutations, ...
+        'random_seed',opts.random_seed,'plot_results',opts.plot_results};
+    STATS = FREQNESS_SpatialComparison(FREQ_GRID{1},FREQ_GRID{2},MNI, ...
+        pairwise_options{:});
+    STATS.analysis = 'pairwise';
+    STATS.test_requested = test_requested;
+    STATS.factor_names = factor_names;
+    STATS.level_labels = level_labels;
+    STATS.factor_design = factor_design;
+    STATS.input_shape = factor_sizes;
+    STATS.subject_ids = subject_ids;
+    effect_key = effect_definitions(1).key;
+    STATS.effects = struct;
+    STATS.effects.(effect_key) = pairwise_effect_result(STATS, ...
+        effect_definitions(1));
+    return
+end
+
+[patterns,frex] = validate_factorial_freq(FREQ_GRID);
+[nvoxs,nComp,~,~] = size(patterns{1});
+if ~isnumeric(MNI) || ~isreal(MNI) || any(~isfinite(MNI(:))) || ...
+        ~isequal(size(MNI),[nvoxs 3])
+    error('MNI must be [nVox x 3], finite, real, and match FREQ.pats.');
+end
+[requested_frex,frex2compare,idx_frex2compare] = ...
+    select_frequencies(frex,opts.frex2compare,opts.frex_tolerance);
+comps2compare = select_components(opts.comps2compare,nComp);
+
+[maps,sign_flips] = prepare_factorial_maps(patterns,comps2compare, ...
+    idx_frex2compare,map_mode,normalization);
+[Y,observation_levels,subject_index,cell_means,cell_n] = ...
+    factorial_long_data(maps,cell_levels,factor_design);
+[adjacency,grid_spacing] = spatial_adjacency(MNI,opts.connectivity);
+
+fprintf(['\nFREQNESS Spatial Comparison: testing a %s design with %d factors, ' ...
+    '%d factorial cells, %d frequencies, and %d components using %s.\n'], ...
+    strjoin(factor_design,'/'),nFactors,numel(FREQ_GRID), ...
+    numel(frex2compare),numel(comps2compare),test);
+
+if ismember(test,{'friedman','kruskalwallis'})
+    [effect_results,permutation_models] = factorial_rank_statistics(Y, ...
+        observation_levels,subject_index,test, ...
+        effect_definitions,nvoxs,numel(frex2compare),numel(comps2compare));
+else
+    [effect_results,permutation_models] = factorial_anova_statistics(Y, ...
+        observation_levels,subject_index,factor_sizes,factor_design, ...
+        effect_definitions,nvoxs,numel(frex2compare),numel(comps2compare));
+end
+
+[n_permutations,exact_permutations] = factorial_permutation_count( ...
+    opts.n_permutations);
+fprintf('Computing %d Monte Carlo design-aware permutations...\n', ...
+    n_permutations);
+rng_state = rng;
+rng(opts.random_seed,'twister');
+rng_cleanup = onCleanup(@()rng(rng_state));
+null_maxima = zeros(n_permutations,1);
+progress_step = max(1,floor(n_permutations/10));
+for permi = 1:n_permutations
+    maximum = 0;
+    for effecti = 1:numel(permutation_models)
+        model = permutation_models(effecti);
+        [permuted_statistic,permuted_p] = permute_factorial_model(model);
+        permuted_statistic = reshape(permuted_statistic, ...
+            [nvoxs numel(frex2compare) numel(comps2compare)]);
+        permuted_p = reshape(permuted_p, ...
+            [nvoxs numel(frex2compare) numel(comps2compare)]);
+        maximum = max(maximum,maximum_positive_cluster_mass( ...
+            permuted_statistic,permuted_p,opts.cluster_forming_alpha, ...
+            adjacency));
+    end
+    null_maxima(permi) = maximum;
+    if mod(permi,progress_step)==0 || permi==n_permutations
+        fprintf('  Permutation %d/%d\n',permi,n_permutations);
+    end
+end
+clear rng_cleanup
+
+for effecti = 1:numel(effect_results)
+    effect_results(effecti) = correct_factorial_clusters( ...
+        effect_results(effecti),MNI,adjacency,null_maxima, ...
+        opts.cluster_forming_alpha,opts.alpha,n_permutations, ...
+        exact_permutations,frex2compare,comps2compare);
+end
+
+STATS.analysis = 'factorial';
+STATS.requested_frex = requested_frex;
+STATS.frex = frex2compare;
+STATS.idx_frex = idx_frex2compare;
+STATS.comps = comps2compare;
+STATS.factor_names = factor_names;
+STATS.level_labels = level_labels;
+STATS.factor_design = factor_design;
+STATS.design = factor_design;
+STATS.input_shape = factor_sizes;
+STATS.test = test;
+STATS.test_requested = test_requested;
+STATS.effects = struct;
+STATS.effect_names = cell(1,numel(effect_results));
+for effecti = 1:numel(effect_results)
+    key = effect_results(effecti).key;
+    STATS.effects.(key) = effect_results(effecti);
+    STATS.effect_names{effecti} = key;
+end
+STATS.cell_means = reshape(cell_means,size(FREQ_GRID));
+STATS.cell_n_participants = reshape(cell_n,size(FREQ_GRID));
+STATS.subject_ids = subject_ids;
+STATS.map_mode = map_mode;
+STATS.normalization = normalization;
+STATS.cluster_forming_alpha = opts.cluster_forming_alpha;
+STATS.alpha = opts.alpha;
+STATS.connectivity = opts.connectivity;
+STATS.grid_spacing = grid_spacing;
+STATS.correction_scope = 'all_effects_and_maps';
+STATS.n_permutations = n_permutations;
+STATS.exact_permutations = exact_permutations;
+STATS.random_seed = opts.random_seed;
+STATS.sign_flips = reshape(sign_flips,size(FREQ_GRID));
+
+if opts.plot_results
+    plot_factorial_spatial_results(MNI,STATS);
+end
+
+end
+
+%% Helper Function: Normalize Factorial Grid
+function [FREQ_GRID,factor_sizes,cell_levels] = ...
+    normalize_factorial_grid(FREQ_GRID)
+
+if ~iscell(FREQ_GRID) || isempty(FREQ_GRID) || ...
+        any(cellfun(@isempty,FREQ_GRID(:)))
+    error('Factorial input must be a non-empty cell array of FREQ structures.');
+end
+grid_size = size(FREQ_GRID);
+factor_dimensions = find(grid_size>1);
+if isempty(factor_dimensions)
+    error('Factorial input must contain at least two cells.');
+end
+factor_sizes = grid_size(factor_dimensions);
+if isscalar(factor_sizes)
+    FREQ_GRID = reshape(FREQ_GRID,[factor_sizes 1]);
+else
+    FREQ_GRID = reshape(FREQ_GRID,factor_sizes);
+end
+nFactors = numel(factor_sizes);
+cell_levels = zeros(numel(FREQ_GRID),nFactors);
+grid_shape = factor_sizes;
+if nFactors==1
+    grid_shape = [factor_sizes 1];
+end
+for celli = 1:numel(FREQ_GRID)
+    indices = cell(1,nFactors);
+    [indices{:}] = ind2sub(grid_shape,celli);
+    cell_levels(celli,:) = cellfun(@double,indices);
+end
+
+end
+
+%% Helper Function: Validate Factor Names
+function factor_names = validate_factor_names(factor_names,nFactors)
+
+if isempty(factor_names)
+    factor_names = arrayfun(@(value)sprintf('Factor%d',value), ...
+        1:nFactors,'UniformOutput',false);
+elseif isstring(factor_names)
+    factor_names = cellstr(factor_names);
+end
+if ~iscell(factor_names) || numel(factor_names)~=nFactors || ...
+        ~all(cellfun(@(value)ischar(value) && ~isempty(strtrim(value)), ...
+        factor_names))
+    error('factor_names must contain one non-empty text name per factor.');
+end
+factor_names = reshape(factor_names,1,[]);
+keys = cellfun(@matlab.lang.makeValidName,factor_names, ...
+    'UniformOutput',false);
+if numel(unique(lower(string(keys))))~=nFactors
+    error('factor_names must remain unique when converted to MATLAB fields.');
+end
+
+end
+
+%% Helper Function: Validate Level Labels
+function level_labels = validate_level_labels(level_labels,condition_labels, ...
+    factor_names,factor_sizes)
+
+nFactors = numel(factor_sizes);
+if isempty(level_labels)
+    level_labels = cell(1,nFactors);
+    for factori = 1:nFactors
+        level_labels{factori} = arrayfun(@(value)sprintf('Level%d',value), ...
+            1:factor_sizes(factori),'UniformOutput',false);
+    end
+    if ~isempty(condition_labels)
+        if nFactors~=1 || factor_sizes(1)~=2
+            error(['condition_labels can only be used with a one-factor, ' ...
+                'two-level cell input. Use level_labels instead.']);
+        end
+        level_labels{1} = validate_condition_labels(condition_labels);
+    end
+elseif ~iscell(level_labels) || numel(level_labels)~=nFactors
+    error('level_labels must contain one cell array per factor.');
+end
+
+for factori = 1:nFactors
+    labels = level_labels{factori};
+    if isstring(labels)
+        labels = cellstr(labels);
+    end
+    if ~iscell(labels) || numel(labels)~=factor_sizes(factori) || ...
+            ~all(cellfun(@(value)ischar(value) && ~isempty(strtrim(value)),labels))
+        error(['level_labels{%d} must contain %d non-empty labels for ' ...
+            '%s.'],factori,factor_sizes(factori),factor_names{factori});
+    end
+    level_labels{factori} = reshape(labels,1,[]);
+end
+
+end
+
+%% Helper Function: Validate Factorial Design
+function factor_design = validate_factor_design(design,nFactors)
+
+if ischar(design) || (isstring(design) && isscalar(design))
+    factor_design = repmat({char(design)},1,nFactors);
+elseif isstring(design)
+    factor_design = cellstr(design);
+else
+    factor_design = design;
+end
+if ~iscell(factor_design) || numel(factor_design)~=nFactors
+    error('design must contain one ''within'' or ''between'' value per factor.');
+end
+for factori = 1:nFactors
+    value = factor_design{factori};
+    if isstring(value) && isscalar(value)
+        value = char(value);
+    end
+    if ~ischar(value)
+        error('design values must be ''within'' or ''between''.');
+    elseif any(strcmpi(value,{'within','paired'}))
+        factor_design{factori} = 'within';
+    elseif any(strcmpi(value,{'between','independent'}))
+        factor_design{factori} = 'between';
+    else
+        error('design values must be ''within'' or ''between''.');
+    end
+end
+factor_design = reshape(factor_design,1,[]);
+
+end
+
+%% Helper Function: Validate Factorial Test
+function [test,test_requested] = validate_factorial_test(test,design,factor_sizes)
+
+if isempty(test)
+    test = 'auto';
+elseif isstring(test) && isscalar(test)
+    test = char(test);
+end
+test = validatestring(test,{'auto','ttest','signrank','ranksum', ...
+    'anova','friedman','kruskalwallis','permutation_anova'});
+test_requested = test;
+nFactors = numel(factor_sizes);
+
+if strcmp(test,'auto')
+    if nFactors==1 && factor_sizes(1)==2
+        test = 'ttest';
+    else
+        test = 'anova';
+    end
+    return
+end
+
+if nFactors==1 && factor_sizes(1)==2
+    if strcmp(design{1},'within') && strcmp(test,'ranksum')
+        warning(['test=''ranksum'' is incompatible with a within-subject ' ...
+            'factor. Using test=''signrank'' instead.']);
+        test = 'signrank';
+    elseif strcmp(design{1},'between') && strcmp(test,'signrank')
+        warning(['test=''signrank'' is incompatible with a between-subject ' ...
+            'factor. Using test=''ranksum'' instead.']);
+        test = 'ranksum';
+    elseif strcmp(test,'friedman')
+        warning('Two-level Friedman analysis is equivalent to signrank here.');
+        test = 'signrank';
+    elseif strcmp(test,'kruskalwallis')
+        warning('Two-level Kruskal-Wallis analysis is equivalent to ranksum here.');
+        test = 'ranksum';
+    end
+    return
+end
+
+if nFactors==1
+    if strcmp(test,'ttest')
+        warning('ttest supports two levels only. Using anova instead.');
+        test = 'anova';
+    elseif strcmp(test,'signrank')
+        warning('signrank supports two levels only. Using friedman instead.');
+        test = 'friedman';
+    elseif strcmp(test,'ranksum')
+        warning('ranksum supports two levels only. Using kruskalwallis instead.');
+        test = 'kruskalwallis';
+    end
+    if strcmp(design{1},'within') && strcmp(test,'kruskalwallis')
+        warning(['kruskalwallis is an independent-samples test. Using ' ...
+            'friedman for this within-subject factor instead.']);
+        test = 'friedman';
+    elseif strcmp(design{1},'between') && strcmp(test,'friedman')
+        warning(['friedman is a repeated-measures test. Using ' ...
+            'kruskalwallis for this between-subject factor instead.']);
+        test = 'kruskalwallis';
+    end
+else
+    if ismember(test,{'signrank','ranksum','friedman','kruskalwallis'})
+        warning(['The selected rank test does not model factorial ' ...
+            'interactions. Using permutation_anova instead.']);
+        test = 'permutation_anova';
+    elseif strcmp(test,'ttest')
+        warning('ttest does not model factorial effects. Using anova instead.');
+        test = 'anova';
+    end
+end
+
+end
+
+%% Helper Function: Define Factorial Effects
+function effects = factorial_effect_definitions(factor_names,requested)
+
+nFactors = numel(factor_names);
+effects = repmat(struct('name','','key','','factors',[]), ...
+    1,2^nFactors-1);
+for mask = 1:(2^nFactors-1)
+    factors = find(bitget(mask,1:nFactors));
+    names = factor_names(factors);
+    key_names = cellfun(@matlab.lang.makeValidName,names, ...
+        'UniformOutput',false);
+    effects(mask) = struct('name',strjoin(names,' x '), ...
+        'key',strjoin(key_names,'_x_'),'factors',factors);
+end
+
+if ischar(requested) || (isstring(requested) && isscalar(requested))
+    if strcmpi(requested,'all')
+        return
+    end
+    requested = {char(requested)};
+elseif isstring(requested)
+    requested = cellstr(requested);
+end
+if ~iscell(requested) || isempty(requested) || ...
+        ~all(cellfun(@(value)ischar(value) && ~isempty(value),requested))
+    error('effects must be ''all'' or a non-empty cell array of effect names.');
+end
+
+keep = false(1,numel(effects));
+for requesti = 1:numel(requested)
+    value = requested{requesti};
+    matches = strcmpi(value,{effects.key}) | strcmpi(value,{effects.name});
+    if ~any(matches)
+        value = regexprep(value,'\s+[xX]\s+|[:*]','_x_');
+        value = matlab.lang.makeValidName(value);
+        matches = strcmpi(value,{effects.key});
+    end
+    if ~any(matches)
+        error('Unknown factorial effect: %s.',requested{requesti});
+    end
+    keep = keep | matches;
+end
+effects = effects(keep);
+
+end
+
+%% Helper Function: Match Repeated Participants
+function [FREQ_GRID,subject_ids] = match_factorial_subjects(FREQ_GRID, ...
+    cell_levels,design,subject_ids)
+
+nCells = numel(FREQ_GRID);
+nsubs = zeros(nCells,1);
+for celli = 1:nCells
+    [patterns,~] = validate_freq(FREQ_GRID{celli},sprintf('FREQ_GRID{%d}',celli));
+    nsubs(celli) = size(patterns,4);
+    if nsubs(celli)<2
+        error('Every factorial cell must contain at least two participants.');
+    end
+end
+
+within_factors = find(strcmp(design,'within'));
+between_factors = find(strcmp(design,'between'));
+if isempty(subject_ids)
+    subject_ids = cell(size(FREQ_GRID));
+    for celli = 1:nCells
+        subject_ids{celli} = arrayfun(@(value)sprintf('S%d',value), ...
+            1:nsubs(celli),'UniformOutput',false);
+    end
+    if ~isempty(within_factors)
+        warning(['subject_ids were not supplied. Repeated observations are ' ...
+            'assumed to have identical participant order within each ' ...
+            'between-subject stratum.']);
+    end
+else
+    if ~iscell(subject_ids) || numel(subject_ids)~=nCells
+        error('subject_ids must be a cell array matching the factorial input.');
+    end
+    subject_ids = reshape(subject_ids,size(FREQ_GRID));
+    for celli = 1:nCells
+        subject_ids{celli} = normalize_subject_ids(subject_ids{celli}, ...
+            nsubs(celli),celli);
+    end
+end
+
+if isempty(within_factors)
+    return
+end
+if isempty(between_factors)
+    strata = ones(nCells,1);
+else
+    [~,~,strata] = unique(cell_levels(:,between_factors),'rows','stable');
+end
+for stratum = unique(strata(:))'
+    cells = find(strata==stratum);
+    reference = cells(1);
+    reference_ids = subject_ids{reference};
+    for celli = cells(:)'
+        ids = subject_ids{celli};
+        if numel(ids)~=numel(reference_ids)
+            error(['Within-subject cells in the same between-subject stratum ' ...
+                'must contain matching participant counts.']);
+        end
+        [present,order] = ismember(reference_ids,ids);
+        if ~all(present) || numel(unique(order))~=numel(order)
+            error(['subject_ids must identify the same participants across ' ...
+                'all repeated-measures cells in a stratum.']);
+        end
+        FREQ_GRID{celli}.pats = FREQ_GRID{celli}.pats(:,:,:,order);
+        subject_ids{celli} = reference_ids;
+    end
+end
+
+end
+
+function ids = normalize_subject_ids(ids,nsubs,celli)
+
+if isnumeric(ids) || islogical(ids) || isstring(ids) || iscell(ids)
+    ids = cellstr(string(ids(:)));
+else
+    error('subject_ids{%d} must contain numeric or text identifiers.',celli);
+end
+if numel(ids)~=nsubs || any(cellfun(@isempty,ids)) || ...
+        numel(unique(ids))~=numel(ids)
+    error(['subject_ids{%d} must contain one unique, non-empty identifier ' ...
+        'per participant.'],celli);
+end
+ids = reshape(ids,1,[]);
+
+end
+
+%% Helper Function: Validate Factorial FREQ Inputs
+function [patterns,frex] = validate_factorial_freq(FREQ_GRID)
+
+patterns = cell(size(FREQ_GRID));
+frex = [];
+reference_size = [];
+for celli = 1:numel(FREQ_GRID)
+    [patterns{celli},current_frex] = validate_freq(FREQ_GRID{celli}, ...
+        sprintf('FREQ_GRID{%d}',celli));
+    current_size = size(patterns{celli});
+    current_size(end+1:4) = 1;
+    if celli==1
+        frex = current_frex;
+        reference_size = current_size(1:3);
+    elseif any(current_size(1:3)~=reference_size) || ...
+            numel(current_frex)~=numel(frex) || ...
+            any(abs(current_frex-frex)>1e-10)
+        error(['All factorial FREQ inputs must share voxel, component, and ' ...
+            'frequency dimensions and the same FREQ.frex grid.']);
+    end
+end
+
+end
+
+%% Helper Function: Prepare Factorial Maps
+function [maps,sign_flips] = prepare_factorial_maps(patterns,components, ...
+    frequency_indices,map_mode,normalization)
+
+maps = cell(size(patterns));
+sign_flips = cell(size(patterns));
+for celli = 1:numel(patterns)
+    maps{celli} = permute(patterns{celli}(:,components, ...
+        frequency_indices,:),[1 3 2 4]);
+    sign_flips{celli} = ones(size(maps{celli},2),size(maps{celli},3), ...
+        size(maps{celli},4));
+end
+
+if strcmp(map_mode,'magnitude')
+    maps = cellfun(@abs,maps,'UniformOutput',false);
+else
+    reference = maps{1}(:,:,:,1);
+    for frexi = 1:size(reference,2)
+        for compi = 1:size(reference,3)
+            if norm(reference(:,frexi,compi))<=eps
+                reference(:,frexi,compi) = 1;
+            end
+            for celli = 1:numel(maps)
+                for subi = 1:size(maps{celli},4)
+                    if maps{celli}(:,frexi,compi,subi)'* ...
+                            reference(:,frexi,compi)<0
+                        maps{celli}(:,frexi,compi,subi) = ...
+                            -maps{celli}(:,frexi,compi,subi);
+                        sign_flips{celli}(frexi,compi,subi) = -1;
+                    end
+                end
+            end
+        end
+    end
+end
+
+if strcmp(normalization,'l2')
+    for celli = 1:numel(maps)
+        scales = sqrt(sum(maps{celli}.^2,1));
+        scales(scales<=eps) = 1;
+        maps{celli} = maps{celli}./scales;
+    end
+end
+
+end
+
+%% Helper Function: Assemble Long Factorial Data
+function [Y,levels,subject_index,cell_means,cell_n] = ...
+    factorial_long_data(maps,cell_levels,design)
+
+nCells = numel(maps);
+nFactors = size(cell_levels,2);
+within_factors = find(strcmp(design,'within'));
+between_factors = find(strcmp(design,'between'));
+cell_n = cellfun(@(value)size(value,4),maps(:));
+cell_means = cell(size(maps));
+Y = [];
+levels = zeros(sum(cell_n),nFactors);
+subject_index = zeros(sum(cell_n),1);
+row_start = 1;
+
+if isempty(within_factors)
+    strata = (1:nCells)';
+else
+    if isempty(between_factors)
+        strata = ones(nCells,1);
+    else
+        [~,~,strata] = unique(cell_levels(:,between_factors),'rows','stable');
+    end
+end
+stratum_values = unique(strata(:))';
+stratum_offsets = zeros(max(stratum_values),1);
+next_subject = 0;
+if ~isempty(within_factors)
+    for stratum = stratum_values
+        first_cell = find(strata==stratum,1);
+        stratum_offsets(stratum) = next_subject;
+        next_subject = next_subject+cell_n(first_cell);
+    end
+else
+    next_subject = 0;
+end
+
+for celli = 1:nCells
+    current = maps{celli};
+    cell_means{celli} = mean(current,4);
+    nsubs = size(current,4);
+    rows = row_start:(row_start+nsubs-1);
+    current_Y = reshape(permute(current,[4 1 2 3]),nsubs,[]);
+    Y = [Y;current_Y]; %#ok<AGROW>
+    levels(rows,:) = repmat(cell_levels(celli,:),nsubs,1);
+    if isempty(within_factors)
+        subject_index(rows) = next_subject+(1:nsubs);
+        next_subject = next_subject+nsubs;
+    else
+        subject_index(rows) = stratum_offsets(strata(celli))+(1:nsubs);
+    end
+    row_start = row_start+nsubs;
+end
+
+end
+
+%% Helper Function: Convert Pairwise Effect
+function effect = pairwise_effect_result(STATS,definition)
+
+effect.name = definition.name;
+effect.key = definition.key;
+effect.factors = definition.factors;
+effect.statistic = STATS.statistic;
+effect.statistic_name = STATS.statistic_name;
+effect.effect_size = STATS.effect_size;
+effect.effect_size_name = STATS.effect_size_name;
+effect.p_uncorrected = STATS.p_uncorrected;
+effect.p_cluster_corrected = STATS.p_cluster_corrected;
+effect.significant_mask = STATS.significant_mask;
+effect.cluster_labels = STATS.cluster_labels;
+effect.clusters = STATS.clusters;
+
+end
+
+%% Helper Function: Factorial ANOVA Statistics
+function [results,models] = factorial_anova_statistics(Y,levels, ...
+    subject_index,factor_sizes,design,effects,nvoxs,nfrex,ncomps)
+
+nFactors = numel(factor_sizes);
+factor_codings = cell(1,nFactors);
+for factori = 1:nFactors
+    factor_codings{factori} = effect_coding(levels(:,factori), ...
+        factor_sizes(factori));
+end
+all_definitions = numeric_effect_definitions(nFactors);
+all_matrices = cell(1,numel(all_definitions));
+for effecti = 1:numel(all_definitions)
+    all_matrices{effecti} = interaction_matrix( ...
+        factor_codings(all_definitions{effecti}));
+end
+
+results = repmat(empty_factorial_effect,1,numel(effects));
+models = repmat(empty_permutation_model,1,numel(effects));
+for effecti = 1:numel(effects)
+    target_factors = effects(effecti).factors;
+    between_only = all(strcmp(design(target_factors),'between'));
+    if between_only
+        [current_Y,current_levels,current_subjects] = ...
+            subject_average_data(Y,levels,subject_index);
+        current_codings = cell(1,nFactors);
+        for factori = 1:nFactors
+            current_codings{factori} = effect_coding( ...
+                current_levels(:,factori),factor_sizes(factori));
+        end
+        included = cellfun(@(factors) ...
+            all(strcmp(design(factors),'between')),all_definitions);
+        X_full = ones(size(current_Y,1),1);
+        target_columns = [];
+        for definitioni = find(included)
+            columns = interaction_matrix( ...
+                current_codings(all_definitions{definitioni}));
+            new_columns = size(X_full,2)+(1:size(columns,2));
+            X_full = [X_full columns]; %#ok<AGROW>
+            if isequal(all_definitions{definitioni},target_factors)
+                target_columns = new_columns;
+            end
+        end
+        permutation_mode = 'between';
+        block_index = current_subjects;
+    else
+        current_Y = Y;
+        current_levels = levels; %#ok<NASGU>
+        block_index = subject_index;
+        subjects = unique(subject_index,'stable');
+        X_full = zeros(size(Y,1),numel(subjects));
+        for subi = 1:numel(subjects)
+            X_full(subject_index==subjects(subi),subi) = 1;
+        end
+        target_columns = [];
+        for definitioni = 1:numel(all_definitions)
+            factors = all_definitions{definitioni};
+            if ~any(strcmp(design(factors),'within'))
+                continue
+            end
+            columns = all_matrices{definitioni};
+            new_columns = size(X_full,2)+(1:size(columns,2));
+            X_full = [X_full columns]; %#ok<AGROW>
+            if isequal(factors,target_factors)
+                target_columns = new_columns;
+            end
+        end
+        permutation_mode = 'within';
+    end
+    if isempty(target_columns)
+        error('The requested effect %s is not estimable.',effects(effecti).name);
+    end
+    X_reduced = X_full;
+    X_reduced(:,target_columns) = [];
+    [statistic,p_values,effect_size,model] = partial_f_model( ...
+        current_Y,X_full,X_reduced,permutation_mode,block_index);
+    results(effecti) = initialize_factorial_effect(effects(effecti), ...
+        statistic,p_values,effect_size,'F','partial eta squared', ...
+        model.df1,model.df2,nvoxs,nfrex,ncomps);
+    model.key = effects(effecti).key;
+    models(effecti) = model;
+end
+
+end
+
+function coding = effect_coding(levels,nlevels)
+
+coding = zeros(numel(levels),nlevels-1);
+for leveli = 1:(nlevels-1)
+    coding(levels==leveli,leveli) = 1;
+end
+coding(levels==nlevels,:) = -1;
+
+end
+
+function definitions = numeric_effect_definitions(nFactors)
+
+definitions = cell(1,2^nFactors-1);
+for mask = 1:(2^nFactors-1)
+    definitions{mask} = find(bitget(mask,1:nFactors));
+end
+
+end
+
+function output = interaction_matrix(matrices)
+
+output = ones(size(matrices{1},1),1);
+for matrixi = 1:numel(matrices)
+    current = matrices{matrixi};
+    combined = zeros(size(output,1),size(output,2)*size(current,2));
+    column = 1;
+    for lefti = 1:size(output,2)
+        for righti = 1:size(current,2)
+            combined(:,column) = output(:,lefti).*current(:,righti);
+            column = column+1;
+        end
+    end
+    output = combined;
+end
+
+end
+
+function [Y_subject,levels_subject,subjects] = ...
+    subject_average_data(Y,levels,subject_index)
+
+subjects = unique(subject_index,'stable');
+Y_subject = zeros(numel(subjects),size(Y,2));
+levels_subject = zeros(numel(subjects),size(levels,2));
+for subi = 1:numel(subjects)
+    rows = subject_index==subjects(subi);
+    Y_subject(subi,:) = mean(Y(rows,:),1);
+    levels_subject(subi,:) = levels(find(rows,1),:);
+end
+
+end
+
+function [statistic,p_values,effect_size,model] = partial_f_model( ...
+    Y,X_full,X_reduced,permutation_mode,block_index)
+
+tolerance = max(size(X_full))*eps(norm(X_full));
+rank_full = rank(X_full,tolerance);
+rank_reduced = rank(X_reduced,tolerance);
+df1 = rank_full-rank_reduced;
+df2 = size(X_full,1)-rank_full;
+if df1<1 || df2<1
+    error(['The factorial design does not contain enough independent ' ...
+        'observations to estimate the requested effect.']);
+end
+projection_full = eye(size(X_full,1))-X_full*pinv(X_full);
+projection_reduced = eye(size(X_reduced,1))-X_reduced*pinv(X_reduced);
+residual_full = projection_full*Y;
+residual_reduced = projection_reduced*Y;
+sse_full = sum(residual_full.^2,1);
+sse_reduced = sum(residual_reduced.^2,1);
+numerator = max(sse_reduced-sse_full,0)/df1;
+denominator = sse_full/df2;
+statistic = zeros(1,size(Y,2));
+valid = denominator>eps;
+statistic(valid) = numerator(valid)./denominator(valid);
+statistic(~valid & numerator>eps) = inf;
+p_values = 1-fcdf(statistic,df1,df2);
+effect_size = zeros(size(statistic));
+denominator_eta = statistic*df1+df2;
+valid_eta = denominator_eta>0;
+effect_size(valid_eta) = statistic(valid_eta)*df1./ ...
+    denominator_eta(valid_eta);
+
+model = empty_permutation_model;
+model.kind = 'anova';
+model.Y_fitted_reduced = Y-residual_reduced;
+model.residuals_reduced = residual_reduced;
+model.projection_full = projection_full;
+model.projection_reduced = projection_reduced;
+model.permutation_mode = permutation_mode;
+model.block_index = block_index;
+model.df1 = df1;
+model.df2 = df2;
+
+end
+
+%% Helper Function: Factorial Rank Statistics
+function [results,models] = factorial_rank_statistics(Y,levels, ...
+    subject_index,test,effects,nvoxs,nfrex,ncomps)
+
+if size(levels,2)~=1 || numel(effects)~=1
+    error('friedman and kruskalwallis support one factorial effect only.');
+end
+nlevels = max(levels(:,1));
+definition = effects(1);
+model = empty_permutation_model;
+
+if strcmp(test,'kruskalwallis')
+    [statistic,p_values,effect_size] = kruskalwallis_columns( ...
+        Y,levels(:,1),nlevels);
+    model.kind = 'kruskalwallis';
+    model.Y = Y;
+    model.group_levels = levels(:,1);
+    model.nlevels = nlevels;
+    model.df1 = nlevels-1;
+    model.df2 = inf;
+    effect_name = 'epsilon squared';
+else
+    subjects = unique(subject_index,'stable');
+    repeated = zeros(numel(subjects),nlevels,size(Y,2));
+    for subi = 1:numel(subjects)
+        for leveli = 1:nlevels
+            row = subject_index==subjects(subi) & levels(:,1)==leveli;
+            if sum(row)~=1
+                error(['Friedman analysis requires one observation per ' ...
+                    'participant at every factor level.']);
+            end
+            repeated(subi,leveli,:) = Y(row,:);
+        end
+    end
+    [statistic,p_values,effect_size] = friedman_columns(repeated);
+    model.kind = 'friedman';
+    model.Y = repeated;
+    model.nlevels = nlevels;
+    model.df1 = nlevels-1;
+    model.df2 = inf;
+    effect_name = 'Kendall''s W';
+end
+
+results = initialize_factorial_effect(definition,statistic,p_values, ...
+    effect_size,ternary(strcmp(test,'friedman'),'chi-square','H'), ...
+    effect_name,model.df1,model.df2,nvoxs,nfrex,ncomps);
+model.key = definition.key;
+models = model;
+
+end
+
+function [statistic,p_values,effect_size] = ...
+    kruskalwallis_columns(Y,groups,nlevels)
+
+[ranks,tie_sum] = rank_columns(Y);
+nobservations = size(Y,1);
+rank_sums = zeros(nlevels,size(Y,2));
+group_n = zeros(nlevels,1);
+for leveli = 1:nlevels
+    rows = groups==leveli;
+    group_n(leveli) = sum(rows);
+    rank_sums(leveli,:) = sum(ranks(rows,:),1);
+end
+statistic = 12/(nobservations*(nobservations+1))* ...
+    sum(rank_sums.^2./group_n,1)-3*(nobservations+1);
+tie_correction = 1-tie_sum/(nobservations^3-nobservations);
+valid = tie_correction>eps;
+statistic(valid) = statistic(valid)./tie_correction(valid);
+statistic(~valid) = 0;
+statistic = max(statistic,0);
+p_values = 1-chi2cdf(statistic,nlevels-1);
+effect_size = max((statistic-nlevels+1)/(nobservations-nlevels),0);
+
+end
+
+function [statistic,p_values,effect_size] = friedman_columns(Y)
+
+[nsubjects,nlevels,nmaps] = size(Y);
+rank_sums = zeros(nlevels,nmaps);
+tie_sum = zeros(1,nmaps);
+for subi = 1:nsubjects
+    values = reshape(Y(subi,:,:),nlevels,nmaps);
+    [ranks,current_ties] = rank_columns(values);
+    rank_sums = rank_sums+ranks;
+    tie_sum = tie_sum+current_ties;
+end
+statistic = 12/(nsubjects*nlevels*(nlevels+1))* ...
+    sum(rank_sums.^2,1)-3*nsubjects*(nlevels+1);
+tie_correction = 1-tie_sum/(nsubjects*nlevels*(nlevels^2-1));
+valid = tie_correction>eps;
+statistic(valid) = statistic(valid)./tie_correction(valid);
+statistic(~valid) = 0;
+statistic = max(statistic,0);
+p_values = 1-chi2cdf(statistic,nlevels-1);
+effect_size = statistic/(nsubjects*(nlevels-1));
+
+end
+
+function [ranks,tie_sum] = rank_columns(values)
+
+[nrows,ncolumns] = size(values);
+ranks = zeros(nrows,ncolumns);
+tie_sum = zeros(1,ncolumns);
+for column = 1:ncolumns
+    [sorted,order] = sort(values(:,column));
+    current = 1;
+    while current<=nrows
+        last = current;
+        while last<nrows && sorted(last+1)==sorted(current)
+            last = last+1;
+        end
+        ranks(order(current:last),column) = (current+last)/2;
+        count = last-current+1;
+        if count>1
+            tie_sum(column) = tie_sum(column)+count^3-count;
+        end
+        current = last+1;
+    end
+end
+
+end
+
+%% Helper Function: Initialize Factorial Result
+function result = initialize_factorial_effect(definition,statistic,p_values, ...
+    effect_size,statistic_name,effect_size_name,df1,df2,nvoxs,nfrex,ncomps)
+
+result = empty_factorial_effect;
+result.name = definition.name;
+result.key = definition.key;
+result.factors = definition.factors;
+result.statistic = reshape(statistic,[nvoxs nfrex ncomps]);
+result.statistic_name = statistic_name;
+result.effect_size = reshape(effect_size,[nvoxs nfrex ncomps]);
+result.effect_size_name = effect_size_name;
+result.p_uncorrected = reshape(p_values,[nvoxs nfrex ncomps]);
+result.df1 = df1;
+result.df2 = df2;
+
+end
+
+function result = empty_factorial_effect
+
+result = struct('name','','key','','factors',[],'statistic',[], ...
+    'statistic_name','','effect_size',[],'effect_size_name','', ...
+    'p_uncorrected',[],'p_cluster_corrected',[], ...
+    'significant_mask',[],'cluster_labels',[],'clusters',[], ...
+    'df1',[],'df2',[]);
+
+end
+
+function model = empty_permutation_model
+
+model = struct('key','','kind','','Y',[],'Y_fitted_reduced',[], ...
+    'residuals_reduced',[],'projection_full',[], ...
+    'projection_reduced',[],'permutation_mode','', ...
+    'block_index',[],'group_levels',[],'nlevels',[], ...
+    'df1',[],'df2',[]);
+
+end
+
+%% Helper Function: Factorial Permutations
+function [count,exact] = factorial_permutation_count(requested)
+
+exact = false;
+if ischar(requested) || (isstring(requested) && isscalar(requested))
+    requested = char(requested);
+    validatestring(requested,{'auto','exact'});
+    if strcmpi(requested,'exact')
+        error(['Exact enumeration is not available for generalized ' ...
+            'factorial designs. Use Monte Carlo permutations.']);
+    end
+    count = 10000;
+elseif isnumeric(requested) && isscalar(requested) && ...
+        isfinite(requested) && requested>0 && requested==round(requested)
+    count = requested;
+else
+    error('n_permutations must be a positive integer or ''auto''.');
+end
+
+end
+
+function [statistic,p_values] = permute_factorial_model(model)
+
+switch model.kind
+    case 'anova'
+        if strcmp(model.permutation_mode,'between')
+            order = randperm(size(model.residuals_reduced,1));
+        else
+            order = (1:size(model.residuals_reduced,1))';
+            subjects = unique(model.block_index,'stable');
+            for subi = 1:numel(subjects)
+                rows = find(model.block_index==subjects(subi));
+                order(rows) = rows(randperm(numel(rows)));
+            end
+        end
+        permuted = model.Y_fitted_reduced+model.residuals_reduced(order,:);
+        sse_full = sum((model.projection_full*permuted).^2,1);
+        sse_reduced = sum((model.projection_reduced*permuted).^2,1);
+        numerator = max(sse_reduced-sse_full,0)/model.df1;
+        denominator = sse_full/model.df2;
+        statistic = zeros(1,size(permuted,2));
+        valid = denominator>eps;
+        statistic(valid) = numerator(valid)./denominator(valid);
+        statistic(~valid & numerator>eps) = inf;
+        p_values = 1-fcdf(statistic,model.df1,model.df2);
+    case 'kruskalwallis'
+        groups = model.group_levels(randperm(numel(model.group_levels)));
+        [statistic,p_values] = kruskalwallis_columns( ...
+            model.Y,groups,model.nlevels);
+    case 'friedman'
+        permuted = model.Y;
+        for subi = 1:size(permuted,1)
+            permuted(subi,:,:) = permuted(subi,randperm(model.nlevels),:);
+        end
+        [statistic,p_values] = friedman_columns(permuted);
+    otherwise
+        error('Unknown factorial permutation model.');
+end
+
+end
+
+function maximum = maximum_positive_cluster_mass(statistic,p_values, ...
+    cluster_alpha,adjacency)
+
+maximum = 0;
+for frexi = 1:size(statistic,2)
+    for compi = 1:size(statistic,3)
+        spatial_map = statistic(:,frexi,compi);
+        mask = p_values(:,frexi,compi)<=cluster_alpha & spatial_map>0;
+        clusters = connected_components(mask,adjacency);
+        for clusteri = 1:numel(clusters)
+            maximum = max(maximum,sum(spatial_map(clusters{clusteri})));
+        end
+    end
+end
+
+end
+
+%% Helper Function: Correct Factorial Clusters
+function result = correct_factorial_clusters(result,MNI,adjacency, ...
+    null_maxima,cluster_alpha,alpha,n_permutations,exact,frex,components)
+
+result.p_cluster_corrected = ones(size(result.statistic));
+result.significant_mask = false(size(result.statistic));
+result.cluster_labels = zeros(size(result.statistic));
+result.clusters = empty_factorial_cluster_structure;
+for frexi = 1:numel(frex)
+    for compi = 1:numel(components)
+        spatial_map = result.statistic(:,frexi,compi);
+        mask = result.p_uncorrected(:,frexi,compi)<=cluster_alpha & ...
+            spatial_map>0;
+        clusters = connected_components(mask,adjacency);
+        for clusteri = 1:numel(clusters)
+            members = clusters{clusteri};
+            mass = sum(spatial_map(members));
+            if exact
+                p_corrected = mean(null_maxima>=mass);
+            else
+                p_corrected = (1+sum(null_maxima>=mass))/(n_permutations+1);
+            end
+            result.p_cluster_corrected(members,frexi,compi) = p_corrected;
+            result.significant_mask(members,frexi,compi) = p_corrected<=alpha;
+            result.cluster_labels(members,frexi,compi) = clusteri;
+            [~,peak_local] = max(spatial_map(members));
+            peak_voxel = members(peak_local);
+            record = struct('effect',result.name,'frex',frex(frexi), ...
+                'comp',components(compi),'size',numel(members), ...
+                'mass',mass,'p_corrected',p_corrected, ...
+                'peak_f',spatial_map(peak_voxel), ...
+                'peak_statistic',spatial_map(peak_voxel), ...
+                'peak_voxel',peak_voxel,'peak_mni',MNI(peak_voxel,:));
+            result.clusters(end+1) = record;
+        end
+    end
+end
+
+end
+
+function clusters = empty_factorial_cluster_structure
+
+clusters = struct('effect',{},'frex',{},'comp',{},'size',{}, ...
+    'mass',{},'p_corrected',{},'peak_f',{},'peak_statistic',{}, ...
+    'peak_voxel',{},'peak_mni',{});
+
+end
+
+%% Helper Function: Plot Factorial Spatial Results
+function plot_factorial_spatial_results(MNI,STATS)
+
+effect_names = STATS.effect_names;
+for effecti = 1:numel(effect_names)
+    result = STATS.effects.(effect_names{effecti});
+    for compi = 1:numel(STATS.comps)
+        figure_width = max(760,440*numel(STATS.frex)+120);
+        current_figure = figure('Color','w', ...
+            'Name',sprintf('Spatial effect: %s',result.name), ...
+            'Position',[100 100 figure_width 520],'Renderer','painters');
+        layout = tiledlayout(1,numel(STATS.frex),'TileSpacing','compact', ...
+            'Padding','compact');
+        color_limit = max(result.statistic(:,:,compi),[],'all');
+        if ~isfinite(color_limit) || color_limit<=0
+            color_limit = 1;
+        end
+        for frexi = 1:numel(STATS.frex)
+            nexttile
+            values = result.statistic(:,frexi,compi);
+            scatter3(MNI(:,1),MNI(:,2),MNI(:,3),12,[.80 .83 .86], ...
+                'filled','MarkerFaceAlpha',.68,'MarkerEdgeColor','none');
+            hold on
+            significant = result.significant_mask(:,frexi,compi);
+            if any(significant)
+                scatter3(MNI(significant,1),MNI(significant,2), ...
+                    MNI(significant,3),58,values(significant),'filled', ...
+                    'MarkerEdgeColor',[.09 .13 .17],'LineWidth',.75);
+            else
+                text(.5,.04,'No corrected clusters','Units','normalized', ...
+                    'HorizontalAlignment','center','Color',[.40 .44 .49], ...
+                    'FontSize',9);
+            end
+            format_publication_spatial_axis(MNI)
+            clim([0 color_limit])
+            title(sprintf('%g Hz',STATS.frex(frexi)), ...
+                'FontSize',12,'FontWeight','bold')
+        end
+        colormap(current_figure,publication_sequential_colormap(256))
+        current_colorbar = colorbar;
+        current_colorbar.Layout.Tile = 'east';
+        current_colorbar.Label.String = sprintf('%s statistic', ...
+            result.statistic_name);
+        current_colorbar.FontSize = 10;
+        title(layout,{sprintf('Spatial comparison - %s',result.name), ...
+            sprintf(['Component %d  |  Outlined markers: ' ...
+            'cluster-corrected p <= %.3g'],STATS.comps(compi),STATS.alpha)}, ...
+            'FontSize',15,'FontWeight','bold','Interpreter','none');
+    end
 end
 
 end
@@ -809,45 +2040,73 @@ for frexi = 1:numel(STATS.frex)
         difference = STATS.mean_difference(:,frexi,compi);
         significant = STATS.significant_mask(:,frexi,compi);
         color_limit = max(max(abs(difference)),eps);
-        figure('Color','w','Position',[100 100 1100 480]);
+        current_figure = figure('Color','w','Position',[100 100 1120 520], ...
+            'Renderer','painters');
+        layout = tiledlayout(1,2,'TileSpacing','compact','Padding','compact');
 
-        subplot(1,2,1), hold on
-        scatter3(MNI(:,1),MNI(:,2),MNI(:,3),8,'k','filled', ...
-            'MarkerFaceAlpha',.18,'MarkerEdgeAlpha',.18);
-        scatter3(MNI(:,1),MNI(:,2),MNI(:,3),28,difference,'filled', ...
-            'MarkerFaceAlpha',.9,'MarkerEdgeAlpha',.25);
-        format_spatial_axis('Mean difference',cmap,color_limit);
+        nexttile, hold on
+        scatter3(MNI(:,1),MNI(:,2),MNI(:,3),12,[.80 .83 .86], ...
+            'filled','MarkerFaceAlpha',.68,'MarkerEdgeColor','none');
+        scatter3(MNI(:,1),MNI(:,2),MNI(:,3),36,difference,'filled', ...
+            'MarkerFaceAlpha',.95,'MarkerEdgeColor','none');
+        format_spatial_axis('Mean difference',color_limit);
 
-        subplot(1,2,2), hold on
-        scatter3(MNI(:,1),MNI(:,2),MNI(:,3),8,'k','filled', ...
-            'MarkerFaceAlpha',.18,'MarkerEdgeAlpha',.18);
+        nexttile, hold on
+        scatter3(MNI(:,1),MNI(:,2),MNI(:,3),12,[.80 .83 .86], ...
+            'filled','MarkerFaceAlpha',.68,'MarkerEdgeColor','none');
         if any(significant)
             scatter3(MNI(significant,1),MNI(significant,2),MNI(significant,3), ...
-                28,difference(significant),'filled','MarkerFaceAlpha',.9, ...
-                'MarkerEdgeAlpha',.25);
+                54,difference(significant),'filled','MarkerFaceAlpha',.95, ...
+                'MarkerEdgeColor',[.09 .13 .17],'LineWidth',.75);
         end
-        format_spatial_axis('Cluster-corrected difference',cmap,color_limit);
-        sgtitle(sprintf('%s - %s | %.4g Hz | Component #%d', ...
+        format_spatial_axis('Cluster-corrected difference',color_limit);
+        colormap(current_figure,cmap)
+        current_colorbar = colorbar;
+        current_colorbar.Layout.Tile = 'east';
+        current_colorbar.Label.String = 'Mean difference';
+        current_colorbar.FontSize = 10;
+        title(layout,{sprintf('%s - %s  |  %.4g Hz  |  Component %d', ...
             STATS.condition_labels{2},STATS.condition_labels{1}, ...
-            STATS.frex(frexi),STATS.comps(compi)),'FontSize',16);
+            STATS.frex(frexi),STATS.comps(compi)), ...
+            sprintf('Outlined markers: cluster-corrected p <= %.3g', ...
+            STATS.alpha)},'FontSize',15,'FontWeight','bold');
     end
 end
 
 end
 
-function format_spatial_axis(title_text,cmap,color_limit)
+function format_spatial_axis(title_text,color_limit)
 
-axis equal
-grid on
-view(42,24)
-xlabel('X (mm)')
-ylabel('Y (mm)')
-zlabel('Z (mm)')
-title(title_text)
-colormap(gca,cmap)
+format_publication_spatial_axis([])
+title(title_text,'FontSize',12,'FontWeight','bold')
 clim([-color_limit color_limit])
-colorbar
-set(gca,'FontSize',12)
+
+end
+
+function format_publication_spatial_axis(MNI)
+
+axis equal off
+axis vis3d
+view(-62,18)
+camproj orthographic
+if ~isempty(MNI)
+    xlim([min(MNI(:,1)) max(MNI(:,1))])
+    ylim([min(MNI(:,2)) max(MNI(:,2))])
+    zlim([min(MNI(:,3)) max(MNI(:,3))])
+end
+set(gca,'FontName','Helvetica','FontSize',10,'Clipping','off')
+
+end
+
+function cmap = publication_sequential_colormap(ncolors)
+
+anchors = [0.2670 0.0049 0.3294; 0.2297 0.3224 0.5457; ...
+    0.1276 0.5669 0.5506; 0.3692 0.7889 0.3829; ...
+    0.9932 0.9062 0.1439];
+source = linspace(0,1,size(anchors,1));
+target = linspace(0,1,ncolors);
+cmap = interp1(source,anchors,target,'pchip');
+cmap = min(max(cmap,0),1);
 
 end
 
