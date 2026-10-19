@@ -56,6 +56,14 @@ declared as within- or between-subject, while established two-structure calls
 remain supported.
 `FREQNESS_StabilityIndex` quantifies the temporal frequency stability of
 selected network time series without requiring behavioral data.
+`FREQNESS_IndividualPeak` finds each participant's largest stored eigenvalue
+within a mandatory frequency interval, for component 1 by default. For example,
+`PEAK = FREQNESS_IndividualPeak(FREQ,[7 13],'plot_avg',true);` returns individual
+alpha-network peak frequencies. `plot_avg` shows their group distribution;
+`plot_all` shows individual landscapes, search boundaries, and selected peaks.
+Both flags default to false. Ties select the lowest-frequency maximum and are
+flagged, as are maxima at the searched boundaries. This is a network-landscape
+maximum, not a conventional power-spectrum peak or a test of peak prominence.
 `FREQNESS_LandscapeComparison` compares participant-level landscapes using
 pairwise or multidimensional factorial designs. Generalized MATLAB and Python
 calls use the same factor-grid representation as `FREQNESS_SpatialComparison`
