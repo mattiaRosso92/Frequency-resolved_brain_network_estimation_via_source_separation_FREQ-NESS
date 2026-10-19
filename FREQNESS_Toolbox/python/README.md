@@ -15,6 +15,7 @@ from freqness import (
     FREQNESS_ExponentialDK,
     FREQNESS_FreqGradients,
     FREQNESS_InducedResponses,
+    FREQNESS_IndividualPeak,
     FREQNESS_LandscapeComparison,
     FREQNESS_MainPipeline,
     FREQNESS_NetworkEstimation,
@@ -147,6 +148,36 @@ show only `ENTR.H2`.
 `FREQNESS_ExponentialDK` fits `A * exp(-lambda * frequency)` to one component
 using MATLAB-compatible one-based component numbering. It returns one decay
 coefficient and original-space R² value per participant.
+
+`FREQNESS_IndividualPeak` finds each participant's largest stored landscape
+value inside a mandatory Hz interval. It accepts a FREQ object or dictionary
+with `evals` shaped `(components, frequencies, participants)` (or
+`(components, frequencies)` for one participant) and a positive, strictly
+increasing `frex` vector:
+
+```python
+PEAK = FREQNESS_IndividualPeak(
+    FREQ, [7, 13], which_comp=1, plot_avg=True, plot_all=False,
+)
+```
+
+`PEAK.peak_frex`, `peak_value`, and `idx_peak` retain shape
+`(selected_components, participants)`. Component numbers are one-based;
+`idx_peak` contains zero-based indices into the original `FREQ.frex`, with NaN
+for missing estimates. `PEAK.which_comp`, `frex_range`, and `frex` retain the
+selected components, requested limits, and actual searched bins. Only existing
+bins inside the inclusive interval are searched; at least two bins are required,
+and limits outside the stored frequency axis are rejected. Ties select the
+lowest-frequency maximum and set `is_tied`; first/last-bin maxima set
+`at_boundary`. Non-finite values are ignored; entirely missing windows return
+NaN with false flags. No normalization, smoothing, interpolation, or local-peak
+prominence test is applied. The estimate is a network-landscape peak, distinct
+from a power-spectrum peak.
+
+`plot_avg` shows participant peak frequencies, a boxplot, and their group mean.
+`plot_all` shows each participant's landscape, search interval, and selected
+maximum. Both default to false. Figures are returned in `PEAK.figures`; pass
+`show=False` to create them without displaying them.
 
 `FREQNESS_CrossCoupling` computes coupling between the phase of a neural
 low-frequency FREQ-NESS component and the power of the same component at

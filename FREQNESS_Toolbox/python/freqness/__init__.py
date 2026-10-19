@@ -45,6 +45,10 @@ from .FREQNESS_InducedResponses import (
     FREQNESS_InducedResponses,
     FREQNESSInducedResponsesResult,
 )
+from .FREQNESS_IndividualPeak import (
+    FREQNESS_IndividualPeak,
+    FREQNESSIndividualPeakResult,
+)
 from .FREQNESS_LandscapeComparison import (
     FREQNESS_LandscapeComparison,
     FREQNESSLandscapeComparisonResult,
@@ -101,6 +105,7 @@ entropy_landscape = FREQNESS_EntropyLandscape
 exponential_decay = FREQNESS_ExponentialDK
 frequency_gradients = FREQNESS_FreqGradients
 induced_responses = FREQNESS_InducedResponses
+individual_peak = FREQNESS_IndividualPeak
 landscape_comparison = FREQNESS_LandscapeComparison
 main_pipeline = FREQNESS_MainPipeline
 remove_network = FREQNESS_NetworkRemoval
@@ -123,6 +128,8 @@ __all__ = [
     "FREQNESSGradientGoodFit",
     "FREQNESS_InducedResponses",
     "FREQNESSInducedResponsesResult",
+    "FREQNESS_IndividualPeak",
+    "FREQNESSIndividualPeakResult",
     "FREQNESS_LandscapeComparison",
     "FREQNESSLandscapeComparisonResult",
     "FREQNESSLandscapeFactorialComparisonResult",
@@ -159,6 +166,7 @@ __all__ = [
     "frequency_gradients",
     "filterFGx",
     "induced_responses",
+    "individual_peak",
     "landscape_comparison",
     "main_pipeline",
     "remove_network",
