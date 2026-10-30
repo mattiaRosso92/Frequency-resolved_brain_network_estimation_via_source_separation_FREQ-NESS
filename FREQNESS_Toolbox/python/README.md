@@ -226,6 +226,22 @@ distribution of the maximum MNI-adjacency cluster mass across the requested
 effects, frequencies, and components, providing family-wise error control over
 the complete comparison. Use `frex2compare="all"` to analyze the full grid.
 
+Complete all-within ANOVA grids automatically use participant contrasts with
+an effect-specific error term. A common participant sign is shared across all
+effects and maps, assuming independent participants and joint central symmetry
+of the null contrast fields after map preparation. The original magnitude/L2
+normalization is retained; contrasts are not renormalized. `p_uncorrected`
+is the Greenhouse-Geisser F approximation (also recomputed in each draw);
+cluster p values use the joint maximum over the requested family. F clusters
+are non-directional. Outputs add `epsilon_gg`, `df1_gg`, `df2_gg`, `ss_effect`,
+`ss_error` and `contrast_matrix`; `df1/df2` remain nominal. Top-level
+`contrast_cell_levels` contains one-based levels in contrast-row order.
+`n_permutations="auto"` now enumerates 16384 sign patterns for 14 participants;
+`"exact"` requests enumeration explicitly. Existing calls need no new settings:
+rerun spatial statistics on saved FREQ structures. Pairwise tests are unchanged.
+Mixed spatial designs retain legacy residual permutations and warn about their
+within-block exchangeability requirement. Landscape inference is unchanged.
+
 `FREQNESS_LandscapeComparison` tests participant-level frequency landscapes
 using the same pairwise or factorial-grid convention. Factors can be
 within-subject, between-subject, or mixed. Two-level analyses support paired

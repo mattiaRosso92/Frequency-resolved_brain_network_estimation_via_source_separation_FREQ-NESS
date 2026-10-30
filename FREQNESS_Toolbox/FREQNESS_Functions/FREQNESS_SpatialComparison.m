@@ -50,6 +50,19 @@ end
 %  represents two factors with two and three levels. Each factor can be
 %  declared as within- or between-subject. Existing calls using FREQ_A and
 %  FREQ_B remain unchanged.
+%
+%  Complete all-within ANOVA designs use orthonormal participant contrasts
+%  for each effect, with its own participant-by-effect error term. If an
+%  effect has q contrasts and n participants, nominal df are [q,q*(n-1)].
+%  One sign per participant is shared across all contrasts, effects,
+%  frequencies and components in a draw. Validity requires independent
+%  participants and joint central symmetry of the null contrast fields
+%  after map preparation. This is not arbitrary within-subject shuffling.
+%  Greenhouse-Geisser p values form F clusters; epsilon is recalculated
+%  in every draw. Cluster p values use the common maximum across the whole
+%  requested family. Omnibus F clusters do not establish a direction.
+%  Mixed designs retain legacy residual permutations and warn because
+%  within-block exchangeability is a stronger covariance assumption.
 % ========================================================================
 
 % ------------------------------------------------------------------------
@@ -107,7 +120,8 @@ end
 %
 %  - normalization : 'l2' (default) or 'none'.
 %
-%  - cluster_forming_alpha : two-sided voxel threshold. Default: .001.
+%  - cluster_forming_alpha : voxel p threshold. Default: .001. Pairwise
+%                            tests are two-sided; omnibus F is upper-tail.
 %
 %  - alpha : corrected cluster significance threshold. Default: .05.
 %
@@ -121,6 +135,9 @@ end
 %                     'auto' enumerates every sign configuration when at
 %                     most 65536 configurations are possible, and otherwise
 %                     uses 10000 Monte Carlo permutations.
+%                     This also applies to complete all-within ANOVA grids:
+%                     14 participants -> 16384 exact configurations. Mixed
+%                     designs retain Monte Carlo residual permutations.
 %
 %  - random_seed : random seed for Monte Carlo permutations. Default: 0.
 %
@@ -134,6 +151,14 @@ end
 %            mean differences, test statistics, effect sizes, uncorrected
 %            voxel-wise p values, cluster-corrected p values, significant
 %            masks, cluster labels, and cluster summaries.
+%            For all-within ANOVA, STATS.effects.(effect) additionally holds
+%            ss_effect, ss_error, epsilon_gg, df1_gg, df2_gg and the cell-by-q
+%            contrast_matrix. df1/df2 remain nominal. p_uncorrected is the
+%            GG F approximation, NOT a permutation p value. All map fields
+%            are [nVoxels x nSelectedFrex x nSelectedComps].
+%            STATS.contrast_cell_levels lists one-based factor levels for
+%            each contrast-matrix row; inference_method, permutation_unit,
+%            permutation_assumption and n_participants describe inference.
 %
 % ------------------------------------------------------------------------
 %  AUTHORS:
@@ -488,20 +513,40 @@ fprintf(['\nFREQNESS Spatial Comparison: testing a %s design with %d factors, ' 
     strjoin(factor_design,'/'),nFactors,numel(FREQ_GRID), ...
     numel(frex2compare),numel(comps2compare),test);
 
-if ismember(test,{'friedman','kruskalwallis'})
+repeated_anova = all(strcmp(factor_design,'within')) && ...
+    ismember(test,{'anova','permutation_anova'});
+if repeated_anova
+    [effect_results,permutation_models] = repeated_spatial_statistics(Y, ...
+        observation_levels,subject_index,factor_sizes,effect_definitions, ...
+        nvoxs,numel(frex2compare),numel(comps2compare));
+elseif ismember(test,{'friedman','kruskalwallis'})
     [effect_results,permutation_models] = factorial_rank_statistics(Y, ...
         observation_levels,subject_index,test, ...
         effect_definitions,nvoxs,numel(frex2compare),numel(comps2compare));
 else
+    if any(strcmp(factor_design,'within'))
+        warning('FREQNESS:SpatialComparison:LegacyMixedInference', ...
+            ['Mixed-design spatial ANOVA retains legacy residual permutations ' ...
+            'and requires within-block exchangeability. Participant-contrast ' ...
+            'inference is currently available only for all-within designs.']);
+    end
     [effect_results,permutation_models] = factorial_anova_statistics(Y, ...
         observation_levels,subject_index,factor_sizes,factor_design, ...
         effect_definitions,nvoxs,numel(frex2compare),numel(comps2compare));
 end
 
-[n_permutations,exact_permutations] = factorial_permutation_count( ...
-    opts.n_permutations);
-fprintf('Computing %d Monte Carlo design-aware permutations...\n', ...
-    n_permutations);
+if repeated_anova
+    [sign_plan,exact_permutations] = permutation_plan_within( ...
+        cell_n(1),opts.n_permutations,opts.random_seed);
+    n_permutations = size(sign_plan,1);
+    fprintf('Computing %d participant sign flips (exact: %d)...\n', ...
+        n_permutations,exact_permutations);
+else
+    [n_permutations,exact_permutations] = factorial_permutation_count( ...
+        opts.n_permutations);
+    fprintf('Computing %d Monte Carlo design-aware permutations...\n', ...
+        n_permutations);
+end
 rng_state = rng;
 rng(opts.random_seed,'twister');
 rng_cleanup = onCleanup(@()rng(rng_state));
@@ -511,7 +556,13 @@ for permi = 1:n_permutations
     maximum = 0;
     for effecti = 1:numel(permutation_models)
         model = permutation_models(effecti);
-        [permuted_statistic,permuted_p] = permute_factorial_model(model);
+        if repeated_anova
+            % One participant sign is shared across every effect and map.
+            [permuted_statistic,permuted_p] = ...
+                repeated_spatial_statistic(model,sign_plan(permi,:)');
+        else
+            [permuted_statistic,permuted_p] = permute_factorial_model(model);
+        end
         permuted_statistic = reshape(permuted_statistic, ...
             [nvoxs numel(frex2compare) numel(comps2compare)]);
         permuted_p = reshape(permuted_p, ...
@@ -567,6 +618,16 @@ STATS.n_permutations = n_permutations;
 STATS.exact_permutations = exact_permutations;
 STATS.random_seed = opts.random_seed;
 STATS.sign_flips = reshape(sign_flips,size(FREQ_GRID));
+if repeated_anova
+    STATS.inference_method = 'within_subject_contrast_signflip';
+    STATS.permutation_unit = 'participant';
+    STATS.permutation_assumption = ['independent participants; joint central ' ...
+        'symmetry of null participant contrast fields'];
+    STATS.n_participants = cell_n(1);
+    STATS.contrast_cell_levels = cell_levels;
+else
+    STATS.inference_method = 'legacy_factorial';
+end
 
 if opts.plot_results
     plot_factorial_spatial_results(MNI,STATS);
@@ -966,7 +1027,9 @@ end
 if strcmp(normalization,'l2')
     for celli = 1:numel(maps)
         scales = sqrt(sum(maps{celli}.^2,1));
-        scales(scales<=eps) = 1;
+        if any(scales(:)<=eps)
+            error('A selected factorial pattern has zero L2 norm.');
+        end
         maps{celli} = maps{celli}./scales;
     end
 end
@@ -1044,6 +1107,139 @@ effect.p_cluster_corrected = STATS.p_cluster_corrected;
 effect.significant_mask = STATS.significant_mask;
 effect.cluster_labels = STATS.cluster_labels;
 effect.clusters = STATS.clusters;
+
+end
+
+%% Helper Function: Complete Within-Subject ANOVA
+function [results,models] = repeated_spatial_statistics(Y,levels, ...
+    subject_index,factor_sizes,effects,nvoxs,nfrex,ncomps)
+
+% Y is [observations x maps]; maps flatten voxel, frequency, component.
+% Original cell maps have already been rectified/aligned and normalized.
+% Do not renormalize the averages or contrasts formed here.
+subjects = unique(subject_index,'stable');
+nsubs = numel(subjects);
+ncells = prod(factor_sizes);
+nmaps = size(Y,2);
+cell_levels = levels(subject_index==subjects(1),:);
+data = zeros(nsubs,ncells,nmaps);
+for subi = 1:nsubs
+    rows = subject_index==subjects(subi);
+    if sum(rows)~=ncells || ~isequal(levels(rows,:),cell_levels)
+        error('Within-subject ANOVA requires the same complete cells per participant.');
+    end
+    data(subi,:,:) = reshape(Y(rows,:),[1 ncells nmaps]);
+end
+% Center before projecting to avoid leakage from large subject intercepts.
+data = data-mean(data,2);
+% Suppress only projection roundoff, so an absent effect does not acquire
+% evidence from division by its equally tiny estimated error variance.
+projection_tolerance = 16*eps*ncells*reshape( ...
+    max(max(abs(data),[],1),[],2),[1 nmaps]);
+results = repmat(empty_factorial_effect,1,numel(effects));
+models = repmat(struct('scores',[],'second_moment',[], ...
+    'contrast_matrix',[]),1,numel(effects));
+for effecti = 1:numel(effects)
+    matrices = cell(1,numel(factor_sizes));
+    for factori = 1:numel(factor_sizes)
+        nlevels = factor_sizes(factori);
+        if ismember(factori,effects(effecti).factors)
+            coding = zeros(nlevels,nlevels-1);
+            for leveli = 1:(nlevels-1)
+                scale = sqrt(leveli*(leveli+1));
+                coding(1:leveli,leveli) = -1/scale;
+                coding(leveli+1,leveli) = leveli/scale;
+            end
+        else
+            coding = ones(nlevels,1)/sqrt(nlevels);
+        end
+        matrices{factori} = coding(cell_levels(:,factori),:);
+    end
+    weights = interaction_matrix(matrices); % [cells x orthonormal contrasts]
+    ncontrasts = size(weights,2);
+    scores = zeros(nsubs,ncontrasts,nmaps);
+    for contrasti = 1:ncontrasts
+        values = reshape(sum(data.*reshape(weights(:,contrasti), ...
+            [1 ncells 1]),2),[nsubs nmaps]);
+        values(abs(values)<=projection_tolerance) = 0;
+        scores(:,contrasti,:) = reshape(values,[nsubs 1 nmaps]);
+    end
+    second_moment = zeros(ncontrasts,ncontrasts,nmaps);
+    for lefti = 1:ncontrasts
+        for righti = 1:ncontrasts
+            second_moment(lefti,righti,:) = sum( ...
+                scores(:,lefti,:).*scores(:,righti,:),1);
+        end
+    end
+    models(effecti) = struct('scores',scores, ...
+        'second_moment',second_moment,'contrast_matrix',weights);
+    [statistic,p_values,eta,epsilon_gg,ss_effect,ss_error] = ...
+        repeated_spatial_statistic(models(effecti),ones(nsubs,1));
+    df1 = ncontrasts;
+    df2 = ncontrasts*(nsubs-1);
+    result = initialize_factorial_effect(effects(effecti),statistic, ...
+        p_values,eta,'F','partial eta squared',df1,df2,nvoxs,nfrex,ncomps);
+    result.epsilon_gg = reshape(epsilon_gg,[nvoxs nfrex ncomps]);
+    result.df1_gg = df1*result.epsilon_gg;
+    result.df2_gg = df2*result.epsilon_gg;
+    result.ss_effect = reshape(ss_effect,[nvoxs nfrex ncomps]);
+    result.ss_error = reshape(ss_error,[nvoxs nfrex ncomps]);
+    result.contrast_matrix = weights;
+    result.p_uncorrected_method = 'Greenhouse-Geisser F approximation';
+    results(effecti) = result;
+end
+
+end
+
+function [statistic,p_values,eta,epsilon_gg,ss_effect,ss_error] = ...
+    repeated_spatial_statistic(model,signs)
+
+% Z: [participants x contrasts x maps]. Each effect has its own
+% participant-by-effect error; F = (n-1)*SS_effect/SS_error, df=(q,q*(n-1)).
+% A common sign across contrasts retains arbitrary within-effect covariance.
+scores = model.scores;
+[nsubs,ncontrasts,nmaps] = size(scores);
+means = reshape(sum(scores.*reshape(signs,[nsubs 1 1]),1), ...
+    [ncontrasts nmaps])/nsubs;
+scatter = model.second_moment-nsubs* ...
+    reshape(means,[ncontrasts 1 nmaps]).*reshape(means,[1 ncontrasts nmaps]);
+diagonal = (1:ncontrasts+1:ncontrasts^2)';
+scatter_flat = reshape(scatter,[ncontrasts^2 nmaps]);
+moment_flat = reshape(model.second_moment,[ncontrasts^2 nmaps]);
+ss_error = sum(scatter_flat(diagonal,:),1);
+total = sum(moment_flat(diagonal,:),1);
+% Recompute near-constant fields directly rather than subtracting moments.
+for mapi = find(ss_error<=64*eps*total)
+    values = reshape(scores(:,:,mapi),[nsubs ncontrasts]).*signs;
+    centered = values-means(:,mapi)';
+    if all(max(values,[],1)==min(values,[],1))
+        centered(:) = 0;
+    end
+    current_scatter = centered'*centered;
+    scatter_flat(:,mapi) = current_scatter(:);
+end
+ss_error = sum(scatter_flat(diagonal,:),1);
+ss_effect = nsubs*sum(means.^2,1);
+statistic = zeros(1,nmaps);
+positive_error = ss_error>0;
+statistic(positive_error) = (nsubs-1)*ss_effect(positive_error)./ ...
+    ss_error(positive_error);
+statistic(ss_error==0 & ss_effect>0) = Inf;
+eta = zeros(1,nmaps);
+positive_total = ss_effect+ss_error>0;
+eta(positive_total) = ss_effect(positive_total)./ ...
+    (ss_effect(positive_total)+ss_error(positive_total));
+epsilon_gg = ones(1,nmaps);
+if ncontrasts>1
+    frobenius = sum(scatter_flat.^2,1);
+    valid = frobenius>0;
+    epsilon_gg(valid) = ss_error(valid).^2./(ncontrasts*frobenius(valid));
+    epsilon_gg = max(1/ncontrasts,min(1,epsilon_gg));
+end
+% GG is an approximate voxel-wise reference, also recalculated in each
+% draw. Corrected cluster p values come from the participant sign flips.
+p_values = fcdf(statistic,ncontrasts*epsilon_gg, ...
+    ncontrasts*(nsubs-1)*epsilon_gg,'upper');
 
 end
 
@@ -1373,7 +1569,9 @@ result = struct('name','','key','','factors',[],'statistic',[], ...
     'statistic_name','','effect_size',[],'effect_size_name','', ...
     'p_uncorrected',[],'p_cluster_corrected',[], ...
     'significant_mask',[],'cluster_labels',[],'clusters',[], ...
-    'df1',[],'df2',[]);
+    'df1',[],'df2',[],'epsilon_gg',[],'df1_gg',[],'df2_gg',[], ...
+    'ss_effect',[],'ss_error',[],'contrast_matrix',[], ...
+    'p_uncorrected_method','parametric reference');
 
 end
 
