@@ -43,6 +43,7 @@ from ._factorial_utils import (
     validate_level_labels,
     validate_test,
 )
+from ._repeated_spatial import repeated_spatial_models, repeated_spatial_statistic
 
 if TYPE_CHECKING:
     from matplotlib.figure import Figure
@@ -143,6 +144,13 @@ class FREQNESSSpatialFactorialEffect:
     clusters: list[FREQNESSSpatialFactorialCluster]
     df1: FloatArray
     df2: FloatArray
+    epsilon_gg: FloatArray | None = None
+    df1_gg: FloatArray | None = None
+    df2_gg: FloatArray | None = None
+    contrast_matrix: FloatArray | None = None
+    ss_effect: FloatArray | None = None
+    ss_error: FloatArray | None = None
+    p_uncorrected_method: str = "parametric reference"
 
 
 @dataclass(slots=True)
@@ -178,6 +186,11 @@ class FREQNESSSpatialFactorialComparisonResult:
     random_seed: int
     sign_flips: NDArray[np.object_]
     figures: list[Figure] = field(default_factory=list)
+    inference_method: str | None = None
+    permutation_unit: str | None = None
+    permutation_assumption: str | None = None
+    n_participants: int | None = None
+    contrast_cell_levels: IntArray | None = None
 
 
 def _field(container: Any, name: str) -> Any:
@@ -1189,6 +1202,10 @@ def _correct_factorial_clusters(
         clusters=records,
         df1=result["df1"],
         df2=result["df2"],
+        **{key: result[key] for key in (
+            "epsilon_gg", "df1_gg", "df2_gg", "contrast_matrix",
+            "ss_effect", "ss_error", "p_uncorrected_method"
+        ) if key in result},
     )
 
 
@@ -1472,11 +1489,33 @@ def _factorial_spatial_comparison(
     Y, observation_levels, subject_index, cell_means, cell_counts = long_data(
         maps, cell_levels, factor_design
     )
-    if test_key in {"friedman", "kruskalwallis"}:
+    repeated_anova = all(value == "within" for value in factor_design) and test_key in {
+        "anova", "permutation_anova"
+    }
+    if repeated_anova:
+        models = repeated_spatial_models(maps, cell_levels, factor_sizes, definitions)
+        raw_results = []
+        for definition, model in zip(definitions, models):
+            result = repeated_spatial_statistic(model)
+            result.update(
+                definition=definition, statistic_name="F",
+                effect_size_name="partial eta squared",
+                contrast_matrix=model.contrast_matrix,
+                p_uncorrected_method="Greenhouse-Geisser F approximation",
+            )
+            raw_results.append(result)
+    elif test_key in {"friedman", "kruskalwallis"}:
         raw_results, models = rank_statistics(
             Y, observation_levels, subject_index, test_key, definitions
         )
     else:
+        if "within" in factor_design:
+            warnings.warn(
+                "Mixed-design spatial ANOVA retains the legacy residual-permutation "
+                "method and requires within-block exchangeability; the corrected "
+                "participant-contrast method applies only to all-within designs.",
+                RuntimeWarning, stacklevel=2,
+            )
         raw_results, models = anova_statistics(
             Y,
             observation_levels,
@@ -1489,27 +1528,42 @@ def _factorial_spatial_comparison(
     nfrequencies = resolved.size
     ncomponents = components.size
     for result in raw_results:
-        for key in ("statistic", "effect_size", "p_uncorrected", "df1", "df2"):
+        for key in ("statistic", "effect_size", "p_uncorrected", "df1", "df2",
+                    "epsilon_gg", "df1_gg", "df2_gg", "ss_effect", "ss_error"):
+            if key not in result:
+                continue
             result[key] = np.reshape(
                 result[key], (nvoxels, nfrequencies, ncomponents)
             )
 
     adjacency, spacing = _spatial_adjacency(coordinates, connectivity)
-    count = permutation_count(n_permutations)
+    exact = False
+    if repeated_anova:
+        sign_plan, exact = _permutation_plan(
+            int(cell_counts.flat[0]), n_permutations, random_seed
+        )
+        count = sign_plan.shape[0]
+    else:
+        count = permutation_count(n_permutations)
     print(
         "\nFREQNESS Spatial Comparison: testing a "
         f"{'/'.join(factor_design)} design with {len(factor_sizes)} factors, "
         f"{grid.size} factorial cells, {resolved.size} frequencies, and "
         f"{components.size} components using {test_key}."
     )
-    print(f"Computing {count} Monte Carlo design-aware cluster permutations...")
+    permutation_description = "exact participant sign-flip" if exact else "Monte Carlo"
+    print(f"Computing {count} {permutation_description} cluster permutations...")
     rng = np.random.default_rng(random_seed)
     null_maxima = np.zeros(count)
     progress_step = max(1, count // 10)
     for permutation in range(count):
         maximum = 0.0
         for model in models:
-            statistic, p_values = permute_model(model, rng)
+            if repeated_anova:
+                permuted = repeated_spatial_statistic(model, sign_plan[permutation])
+                statistic, p_values = permuted["statistic"], permuted["p_uncorrected"]
+            else:
+                statistic, p_values = permute_model(model, rng)
             statistic = statistic.reshape(nvoxels, nfrequencies, ncomponents)
             p_values = p_values.reshape(nvoxels, nfrequencies, ncomponents)
             maximum = max(
@@ -1532,7 +1586,7 @@ def _factorial_spatial_comparison(
             cluster_forming_alpha,
             alpha,
             count,
-            False,
+            exact,
             resolved,
             components,
         )
@@ -1563,9 +1617,18 @@ def _factorial_spatial_comparison(
         grid_spacing=spacing,
         correction_scope="all_effects_and_maps",
         n_permutations=count,
-        exact_permutations=False,
+        exact_permutations=exact,
         random_seed=int(random_seed),
         sign_flips=flips,
+        inference_method=("within_subject_contrast_signflip" if repeated_anova
+                          else "legacy_factorial"),
+        permutation_unit="participant" if repeated_anova else "design-dependent",
+        permutation_assumption=(
+            "independent participants; joint central symmetry of null participant contrast fields"
+            if repeated_anova else "legacy design-specific exchangeability"
+        ),
+        n_participants=int(cell_counts.flat[0]) if repeated_anova else None,
+        contrast_cell_levels=cell_levels.copy() if repeated_anova else None,
     )
     if plot_results:
         output.figures.extend(_plot_factorial_results(coordinates, output, bool(show)))
@@ -1603,6 +1666,27 @@ def FREQNESS_SpatialComparison(
     Existing calls pass ``FREQ_A, FREQ_B, MNI``. Generalized designs pass a
     nested grid as the first argument and ``MNI`` as the second; grid axes are
     experimental factors and grid cells contain their level combinations.
+
+    Complete all-within ANOVA grids use orthonormal participant contrasts
+    with effect-specific error terms (nominal df q, q*(n-1)). A common sign
+    per participant is shared across all contrasts, effects and maps.
+    Inference requires independent participants and joint central symmetry
+    of null contrast fields after the original cell maps are prepared.
+    GG-adjusted F p values form clusters and are recomputed in each draw;
+    corrected p values use the maximum cluster mass over the whole family.
+    F clusters are non-directional. Mixed designs retain legacy residual
+    permutations, require within-block exchangeability, and issue a warning.
+
+    ``n_permutations="auto"`` enumerates up to 65536 participant sign patterns
+    (16384 for n=14), otherwise using 10000 draws; ``"exact"`` forces
+    enumeration up to the existing safety cap. No new settings are required.
+    Effect outputs add ``ss_effect``, ``ss_error``, ``epsilon_gg``, ``df1_gg``,
+    ``df2_gg`` and ``contrast_matrix`` (cells x q). Map fields have shape
+    (voxels, selected frequencies, selected components). ``df1/df2`` remain
+    nominal; ``p_uncorrected`` is the GG approximation, not a permutation p.
+    ``contrast_cell_levels`` gives one-based levels for contrast-matrix rows;
+    ``inference_method``, ``permutation_unit`` and ``permutation_assumption``
+    document the inference used.
     """
     if is_factorial_grid(FREQ_A):
         coordinates = MNI if MNI is not None else FREQ_B

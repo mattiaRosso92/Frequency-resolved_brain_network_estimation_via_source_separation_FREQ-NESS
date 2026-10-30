@@ -54,6 +54,27 @@ MNI-adjacency cluster correction. Generalized designs are supplied as a cell
 array whose dimensions represent experimental factors; each factor can be
 declared as within- or between-subject, while established two-structure calls
 remain supported.
+
+Complete **all-within spatial ANOVA** grids now use participant contrasts and
+an effect-specific repeated-measures error term. One sign per participant is
+shared across every effect, voxel, frequency and component; the maximum
+cluster mass corrects that entire requested family. This requires independent
+participants and jointly centrally symmetric null contrast fields after map
+preparation. Original cell maps retain the existing magnitude/L2 preparation;
+averages and contrasts are not renormalized. Voxel `p_uncorrected` values use
+the Greenhouse-Geisser F approximation (recomputed for each sign pattern),
+while cluster p values come from sign flips. Omnibus F clusters are
+non-directional. Effect outputs add `epsilon_gg`, `df1_gg`, `df2_gg`, sums of
+squares, and `contrast_matrix`; `df1/df2` remain nominal. The top-level
+`contrast_cell_levels` records one-based factor levels in contrast-row order.
+Existing all-within calls select this method automatically: rerun spatial
+statistics from saved FREQ inputs, without rerunning network estimation.
+`'n_permutations','auto'` now gives 16384 exact configurations for 14 participants;
+`'exact'` can request enumeration explicitly. Existing numeric counts remain
+supported. Pairwise tests are unchanged. Mixed spatial designs retain the
+legacy residual-permutation method and now warn about its within-block
+exchangeability requirement. Landscape inference is unchanged by this fix.
+
 `FREQNESS_StabilityIndex` quantifies the temporal frequency stability of
 selected network time series without requiring behavioral data.
 `FREQNESS_IndividualPeak` finds each participant's largest stored eigenvalue

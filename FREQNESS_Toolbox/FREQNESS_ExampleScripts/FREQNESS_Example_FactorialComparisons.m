@@ -151,6 +151,26 @@ STATS_SPATIAL = FREQNESS_SpatialComparison(FREQ_GRID,MNI, ...
 %   STATS_SPATIAL.effects.Condition
 %   STATS_SPATIAL.effects.Group_x_Condition
 
+% ALL-WITHIN VARIANT (e.g. Drug x Condition for the same participants):
+% Arrange FREQ_GRID as 2 x 4: Drug rows, Condition columns. Supply the same
+% participant IDs in every cell, in each cell's actual participant order.
+% Then the call above can use these settings instead:
+%   factor_names = {'Drug','Condition'};
+%   factor_design = {'within','within'};
+%   level_labels = {{'Placebo','LSD'},{'Open','Closed','Music','Video'}};
+%   spatial_n_permutations = 'exact'; % 16384 configurations for n=14
+% 'auto' also enumerates for n<=16. Existing numeric counts remain supported.
+% Rerun the spatial call on saved FREQ inputs; no new network estimation.
+% All-within ANOVA uses participant-by-effect errors and shared participant
+% sign flips across the complete effect/frequency/component cluster family.
+% At n=14, Drug df=[1,13]; Condition and Drug_x_Condition df=[3,39].
+% p_uncorrected uses a GG F approximation; epsilon_gg/df1_gg/df2_gg expose
+% that adjustment. F clusters have no direction. Sign-flip validity requires
+% joint central symmetry of null participant contrasts after map preparation.
+% The mixed design in this template retains the legacy residual-permutation
+% method and warns about its stronger within-block exchangeability assumption.
+% These spatial changes do not change the landscape method below.
+
 
 %% 4. LANDSCAPE COMPARISON
 
